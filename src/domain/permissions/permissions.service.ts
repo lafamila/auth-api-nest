@@ -17,6 +17,7 @@ import {
   MigratePermissionDto,
   UpdatePermissionDto,
 } from './dto/permission.dto';
+import { VISITOR_PERMISSION } from './visitor-permission';
 
 @Injectable()
 export class PermissionsService {
@@ -87,6 +88,13 @@ export class PermissionsService {
     input: UpdatePermissionDto,
   ): Promise<ServicePermissionDefinitionEntity> {
     const permission = await this.findOwnedPermission(serviceId, permissionId);
+    if (
+      permission.key === VISITOR_PERMISSION.key &&
+      input.status &&
+      input.status !== 'active'
+    ) {
+      throw new BadRequestException('Visitor permission must remain active');
+    }
     if (input.status === 'removed') {
       throw new BadRequestException('Use the remove endpoint for removals');
     }
@@ -116,6 +124,9 @@ export class PermissionsService {
     input: MigratePermissionDto,
   ): Promise<{ moved: number }> {
     const source = await this.findOwnedPermission(serviceId, permissionId);
+    if (source.key === VISITOR_PERMISSION.key) {
+      throw new BadRequestException('Visitor permission cannot be migrated or removed');
+    }
     const target = await this.findOwnedPermission(serviceId, input.targetPermissionId);
     if (target.status !== 'active') {
       throw new BadRequestException('Migration target must be active');
@@ -159,6 +170,10 @@ export class PermissionsService {
       permissionDefinitionId: permissionId,
       status: 'active',
     });
+    const permission = await this.findOwnedPermission(serviceId, permissionId);
+    if (permission.key === VISITOR_PERMISSION.key) {
+      throw new BadRequestException('Visitor permission cannot be removed');
+    }
     if (assigned > 0) {
       if (!input?.targetPermissionId) {
         throw new BadRequestException('Assigned permission requires migration target');
@@ -166,7 +181,6 @@ export class PermissionsService {
       const migrated = await this.migrate(serviceId, permissionId, input);
       return { removed: true, moved: migrated.moved };
     }
-    const permission = await this.findOwnedPermission(serviceId, permissionId);
     permission.status = 'removed';
     permission.removedAt = new Date();
     await this.permissions.save(permission);

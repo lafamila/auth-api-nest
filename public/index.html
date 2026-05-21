@@ -246,6 +246,31 @@
         </section>
 
         <section>
+          <h2>Create OIDC Client</h2>
+          <form class="form" id="clientForm">
+            <label>Service <select name="serviceId" id="clientService"></select></label>
+            <label>Client ID <input name="clientId" placeholder="todo-web" required /></label>
+            <label>
+              Client Type
+              <select name="clientType" id="clientType">
+                <option value="public">public</option>
+                <option value="confidential">confidential</option>
+              </select>
+            </label>
+            <label>Client Secret <input name="clientSecret" type="password" minlength="16" /></label>
+            <label>
+              Redirect URIs
+              <textarea
+                name="redirectUris"
+                placeholder="http://localhost:3031/api/todo/session/callback"
+                required
+              ></textarea>
+            </label>
+            <button>Create Client</button>
+          </form>
+        </section>
+
+        <section>
           <h2>Assign Service Permission</h2>
           <form class="form" id="assignmentForm">
             <label>Account <select name="accountId" id="assignmentAccount"></select></label>
@@ -313,6 +338,46 @@
             <tbody id="permissionsBody"></tbody>
           </table>
         </section>
+
+        <section>
+          <div class="toolbar">
+            <label>
+              Client Service
+              <select id="clientListService"></select>
+            </label>
+            <button class="secondary" id="loadClients">Load Clients</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Client ID</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Redirect URIs</th>
+              </tr>
+            </thead>
+            <tbody id="clientsBody"></tbody>
+          </table>
+        </section>
+
+        <section>
+          <div class="toolbar">
+            <h2>Service Applications</h2>
+            <button class="secondary" id="loadApplications">Load Requests</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th>Service</th>
+                <th>Message</th>
+                <th>Approve As</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="applicationsBody"></tbody>
+          </table>
+        </section>
       </div>
     </main>
 
@@ -321,6 +386,7 @@
         accounts: [],
         services: [],
         permissionsByService: {},
+        applications: [],
       };
 
       const $ = (id) => document.getElementById(id);
@@ -393,6 +459,8 @@
         $('permissionService').innerHTML = options;
         $('permissionListService').innerHTML = options;
         $('assignmentService').innerHTML = options;
+        $('clientService').innerHTML = options;
+        $('clientListService').innerHTML = options;
       }
 
       function renderAssignmentPermissions(serviceId = $('assignmentService').value) {
@@ -421,6 +489,55 @@
           .join('');
       }
 
+      function renderClients(clients) {
+        $('clientsBody').innerHTML = clients
+          .map(
+            (client) => `
+              <tr>
+                <td>${client.clientId}</td>
+                <td>${client.clientType}</td>
+                <td><span class="badge">${client.status}</span></td>
+                <td>${client.redirectUris.join('<br />')}</td>
+              </tr>
+            `,
+          )
+          .join('');
+      }
+
+      function renderApplications() {
+        $('applicationsBody').innerHTML = state.applications
+          .map((application) => {
+            const permissions = state.permissionsByService[application.serviceId] || [];
+            const options = permissions
+              .filter(
+                (permission) =>
+                  permission.status === 'active' && permission.key !== 'visitor',
+              )
+              .map(
+                (permission) =>
+                  `<option value="${permission.id}">${permission.key} - ${permission.label}</option>`,
+              )
+              .join('');
+            return `
+              <tr>
+                <td>${application.account.loginId}</td>
+                <td>${application.service.serviceKey}</td>
+                <td>${application.message || ''}</td>
+                <td>
+                  <select id="application-permission-${application.id}">
+                    ${options}
+                  </select>
+                </td>
+                <td>
+                  <button data-approve-application="${application.id}">Approve</button>
+                  <button class="secondary" data-reject-application="${application.id}">Reject</button>
+                </td>
+              </tr>
+            `;
+          })
+          .join('');
+      }
+
       async function refreshAll() {
         try {
           const [accounts, services] = await Promise.all([
@@ -433,8 +550,12 @@
           renderServices();
           if (services[0]) {
             await loadPermissions(services[0].id);
+            await loadClients(services[0].id);
+            await loadApplications();
           } else {
             renderPermissions([]);
+            renderClients([]);
+            renderApplications();
           }
           setStatus('Loaded');
         } catch (error) {
@@ -453,6 +574,27 @@
         renderAssignmentPermissions(serviceId);
       }
 
+      async function loadClients(serviceId = $('clientListService').value) {
+        if (!serviceId) {
+          renderClients([]);
+          return;
+        }
+        const clients = await api(`/api/admin/services/${serviceId}/clients`);
+        renderClients(clients);
+      }
+
+      async function loadApplications() {
+        const applications = await api('/api/admin/service-applications?status=pending');
+        state.applications = applications;
+        await Promise.all(
+          applications
+            .map((application) => application.serviceId)
+            .filter((serviceId) => !state.permissionsByService[serviceId])
+            .map((serviceId) => loadPermissions(serviceId)),
+        );
+        renderApplications();
+      }
+
       function formJson(form) {
         return Object.fromEntries(new FormData(form).entries());
       }
@@ -465,6 +607,8 @@
 
       $('refreshAll').addEventListener('click', () => void refreshAll());
       $('loadPermissions').addEventListener('click', () => void loadPermissions());
+      $('loadClients').addEventListener('click', () => void loadClients());
+      $('loadApplications').addEventListener('click', () => void loadApplications());
       $('assignmentService').addEventListener('change', async (event) => {
         const serviceId = event.currentTarget.value;
         if (!state.permissionsByService[serviceId]) {
@@ -472,6 +616,10 @@
           return;
         }
         renderAssignmentPermissions(serviceId);
+      });
+
+      $('clientListService').addEventListener('change', (event) => {
+        void loadClients(event.currentTarget.value);
       });
 
       $('accountForm').addEventListener('submit', async (event) => {
@@ -521,6 +669,34 @@
         }
       });
 
+      $('clientForm').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const values = formJson(event.currentTarget);
+        const redirectUris = values.redirectUris
+          .split(/\r?\n/)
+          .map((uri) => uri.trim())
+          .filter(Boolean);
+        const payload = {
+          clientId: values.clientId,
+          clientType: values.clientType,
+          redirectUris,
+        };
+        if (values.clientSecret) {
+          payload.clientSecret = values.clientSecret;
+        }
+        try {
+          await api(`/api/admin/services/${values.serviceId}/clients`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+          event.currentTarget.reset();
+          await refreshAll();
+          setStatus('OIDC client created');
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      });
+
       $('assignmentForm').addEventListener('submit', async (event) => {
         event.preventDefault();
         const values = formJson(event.currentTarget);
@@ -548,6 +724,38 @@
             { method: 'DELETE' },
           );
           setStatus('Service access revoked');
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      });
+
+      $('applicationsBody').addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) {
+          return;
+        }
+        const approveId = target.dataset.approveApplication;
+        const rejectId = target.dataset.rejectApplication;
+        try {
+          if (approveId) {
+            const select = $(`application-permission-${approveId}`);
+            await api(`/api/admin/service-applications/${approveId}/approve`, {
+              method: 'POST',
+              body: JSON.stringify({
+                targetPermissionDefinitionId: select.value,
+              }),
+            });
+            await loadApplications();
+            setStatus('Service application approved');
+          }
+          if (rejectId) {
+            await api(`/api/admin/service-applications/${rejectId}/reject`, {
+              method: 'POST',
+              body: JSON.stringify({}),
+            });
+            await loadApplications();
+            setStatus('Service application rejected');
+          }
         } catch (error) {
           setStatus(error.message, true);
         }

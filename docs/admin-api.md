@@ -32,3 +32,25 @@ All admin routes require `x-admin-key: ${ADMIN_API_KEY}` in Phase 1.
 ## Audit Logs
 
 - `GET /api/admin/audit-logs`: newest audit events first.
+
+## Service Applications
+
+Visitor users can request service access through:
+
+- `POST /api/service-applications`: requires a bearer access token whose service claim permission is `visitor`. Body: `serviceKey`, optional `message`.
+
+Admins review requests through:
+
+- `GET /api/admin/service-applications?status=pending`
+- `POST /api/admin/service-applications/{applicationId}/approve`: body `targetPermissionDefinitionId`
+- `POST /api/admin/service-applications/{applicationId}/reject`
+
+## Default Visitor Permission
+
+Every service receives a default permission on creation:
+
+- key: `visitor`
+- label: `방문자`
+- description: `서비스 신청이 필요함`
+
+When a service is created, all existing active accounts receive that service's `visitor` permission. When an account is created, it receives the `visitor` permission for every active service.

@@ -8,7 +8,11 @@ import { AccountsService } from './accounts.service';
 import { SeedService } from './seed.service';
 
 @Module({
-  imports: [AppConfigModule, TypeOrmModule.forFeature([AccountEntity]), AuditLogsModule],
+  imports: [
+    AppConfigModule,
+    TypeOrmModule.forFeature([AccountEntity]),
+    AuditLogsModule,
+  ],
   providers: [AccountsService, PasswordService, SeedService],
   exports: [AccountsService, PasswordService],
 })

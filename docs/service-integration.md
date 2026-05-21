@@ -25,6 +25,23 @@ Access tokens include a namespaced service permission claim:
 
 Services map the central permission string to local domain behavior. They must not read the auth database directly.
 
+`visitor` is the default permission for every account-service pair. Services should treat it as a no-access or application-required state unless their domain explicitly supports visitor behavior.
+
+When a logged-in user has `visitor`, the service can show an access request form and call:
+
+```http
+POST /api/service-applications
+Authorization: Bearer {access_token}
+Content-Type: application/json
+
+{
+  "serviceKey": "todo",
+  "message": "I need Todo access for project work."
+}
+```
+
+The auth server only accepts this request when the token's service claim key matches `serviceKey` and the permission is `visitor`.
+
 ## Example Token Validation Checklist
 
 1. Fetch discovery metadata.

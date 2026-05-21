@@ -5,7 +5,10 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 import { ServiceRegistryService } from './service-registry.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ServiceEntity]), AuditLogsModule],
+  imports: [
+    TypeOrmModule.forFeature([ServiceEntity]),
+    AuditLogsModule,
+  ],
   providers: [ServiceRegistryService],
   exports: [ServiceRegistryService],
 })

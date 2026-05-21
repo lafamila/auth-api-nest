@@ -12,6 +12,7 @@ import { OidcClientsModule } from './domain/oidc-clients/oidc-clients.module';
 import { OidcModule } from './oidc/oidc.module';
 import { PermissionsModule } from './domain/permissions/permissions.module';
 import { ServiceRegistryModule } from './domain/service-registry/service-registry.module';
+import { ServiceApplicationsModule } from './domain/service-applications/service-applications.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { ServiceRegistryModule } from './domain/service-registry/service-registr
     AuditLogsModule,
     AdminModule,
     OidcModule,
+    ServiceApplicationsModule,
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'public'),
       serveRoot: '/admin',

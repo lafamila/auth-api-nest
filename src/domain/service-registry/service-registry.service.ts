@@ -1,8 +1,12 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
+import { AccountServicePermissionEntity } from '../../database/entities/account-service-permission.entity';
+import { AccountEntity } from '../../database/entities/account.entity';
+import { ServicePermissionDefinitionEntity } from '../../database/entities/service-permission-definition.entity';
 import { ServiceEntity } from '../../database/entities/service.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { VISITOR_PERMISSION } from '../permissions/visitor-permission';
 import { CreateServiceDto, UpdateServiceDto } from './dto/service.dto';
 
 @Injectable()
@@ -10,6 +14,7 @@ export class ServiceRegistryService {
   constructor(
     @InjectRepository(ServiceEntity)
     private readonly services: Repository<ServiceEntity>,
+    private readonly dataSource: DataSource,
     private readonly auditLogs: AuditLogsService,
   ) {}
 
@@ -33,15 +38,51 @@ export class ServiceRegistryService {
     if (await this.services.existsBy({ serviceKey: input.serviceKey })) {
       throw new ConflictException('Service key already exists');
     }
-    const service = await this.services.save(
-      this.services.create({
-        serviceKey: input.serviceKey,
-        name: input.name,
-        description: input.description ?? '',
-        status: 'active',
-        permissionSchemaVersion: 1,
-      }),
-    );
+    const service = await this.dataSource.transaction(async (manager) => {
+      const saved = await manager.save(
+        manager.create(ServiceEntity, {
+          serviceKey: input.serviceKey,
+          name: input.name,
+          description: input.description ?? '',
+          status: 'active',
+          permissionSchemaVersion: 1,
+        }),
+      );
+      const visitor = await manager.save(
+        manager.create(ServicePermissionDefinitionEntity, {
+          service: saved,
+          serviceId: saved.id,
+          key: VISITOR_PERMISSION.key,
+          label: VISITOR_PERMISSION.label,
+          description: VISITOR_PERMISSION.description,
+          status: 'active',
+          sortOrder: -1000,
+        }),
+      );
+      const accounts = await manager.find(AccountEntity, {
+        where: { status: 'active' },
+      });
+      if (accounts.length > 0) {
+        await manager.insert(
+          AccountServicePermissionEntity,
+          accounts.map((account) =>
+            manager.create(AccountServicePermissionEntity, {
+              account,
+              accountId: account.id,
+              service: saved,
+              serviceId: saved.id,
+              permissionDefinition: visitor,
+              permissionDefinitionId: visitor.id,
+              status: 'active',
+              grantedByAccountId: null,
+              grantedAt: new Date(),
+              revokedAt: null,
+            }),
+          ),
+        );
+      }
+      return saved;
+    });
     await this.auditLogs.record({
       action: 'service.create',
       targetType: 'service',
@@ -67,8 +108,7 @@ export class ServiceRegistryService {
   }
 
   async incrementPermissionSchemaVersion(id: string): Promise<ServiceEntity> {
-    const service = await this.findById(id);
-    service.permissionSchemaVersion += 1;
-    return this.services.save(service);
+    await this.services.increment({ id }, 'permissionSchemaVersion', 1);
+    return this.findById(id);
   }
 }
