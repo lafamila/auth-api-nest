@@ -244,6 +244,17 @@
             <button>Add Permission</button>
           </form>
         </section>
+
+        <section>
+          <h2>Assign Service Permission</h2>
+          <form class="form" id="assignmentForm">
+            <label>Account <select name="accountId" id="assignmentAccount"></select></label>
+            <label>Service <select name="serviceId" id="assignmentService"></select></label>
+            <label>Permission <select name="permissionDefinitionId" id="assignmentPermission"></select></label>
+            <button>Assign Permission</button>
+            <button class="secondary" id="revokePermission" type="button">Revoke Service Access</button>
+          </form>
+        </section>
       </aside>
 
       <div class="stack">
@@ -309,6 +320,7 @@
       const state = {
         accounts: [],
         services: [],
+        permissionsByService: {},
       };
 
       const $ = (id) => document.getElementById(id);
@@ -355,6 +367,10 @@
             `,
           )
           .join('');
+
+        $('assignmentAccount').innerHTML = state.accounts
+          .map((account) => `<option value="${account.id}">${account.loginId}</option>`)
+          .join('');
       }
 
       function renderServices() {
@@ -376,6 +392,18 @@
           .join('');
         $('permissionService').innerHTML = options;
         $('permissionListService').innerHTML = options;
+        $('assignmentService').innerHTML = options;
+      }
+
+      function renderAssignmentPermissions(serviceId = $('assignmentService').value) {
+        const permissions = state.permissionsByService[serviceId] || [];
+        $('assignmentPermission').innerHTML = permissions
+          .filter((permission) => permission.status === 'active')
+          .map(
+            (permission) =>
+              `<option value="${permission.id}">${permission.key} - ${permission.label}</option>`,
+          )
+          .join('');
       }
 
       function renderPermissions(permissions) {
@@ -420,7 +448,9 @@
           return;
         }
         const permissions = await api(`/api/admin/services/${serviceId}/permissions`);
+        state.permissionsByService[serviceId] = permissions;
         renderPermissions(permissions);
+        renderAssignmentPermissions(serviceId);
       }
 
       function formJson(form) {
@@ -435,6 +465,14 @@
 
       $('refreshAll').addEventListener('click', () => void refreshAll());
       $('loadPermissions').addEventListener('click', () => void loadPermissions());
+      $('assignmentService').addEventListener('change', async (event) => {
+        const serviceId = event.currentTarget.value;
+        if (!state.permissionsByService[serviceId]) {
+          await loadPermissions(serviceId);
+          return;
+        }
+        renderAssignmentPermissions(serviceId);
+      });
 
       $('accountForm').addEventListener('submit', async (event) => {
         event.preventDefault();
@@ -478,6 +516,38 @@
           event.currentTarget.reset();
           await refreshAll();
           setStatus('Permission added');
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      });
+
+      $('assignmentForm').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const values = formJson(event.currentTarget);
+        try {
+          await api(
+            `/api/admin/accounts/${values.accountId}/services/${values.serviceId}/permission`,
+            {
+              method: 'PUT',
+              body: JSON.stringify({
+                permissionDefinitionId: values.permissionDefinitionId,
+              }),
+            },
+          );
+          setStatus('Service permission assigned');
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      });
+
+      $('revokePermission').addEventListener('click', async () => {
+        const values = formJson($('assignmentForm'));
+        try {
+          await api(
+            `/api/admin/accounts/${values.accountId}/services/${values.serviceId}/permission`,
+            { method: 'DELETE' },
+          );
+          setStatus('Service access revoked');
         } catch (error) {
           setStatus(error.message, true);
         }
