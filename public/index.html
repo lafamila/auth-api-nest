@@ -183,10 +183,70 @@
         font-weight: 700;
       }
 
+      .admin-access-float {
+        position: fixed;
+        right: 24px;
+        bottom: 24px;
+        z-index: 20;
+        display: flex;
+        flex-direction: row-reverse;
+        align-items: end;
+        gap: 10px;
+      }
+
+      .admin-access-button {
+        min-width: 132px;
+        box-shadow: 0 10px 30px rgb(23 105 170 / 22%);
+      }
+
+      .admin-access-panel {
+        width: min(320px, calc(100vw - 188px));
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 14px 40px rgb(22 32 51 / 18%);
+        padding: 16px;
+      }
+
+      .admin-access-panel[hidden] {
+        display: none;
+      }
+
+      .admin-access-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+
+      .admin-access-head h2 {
+        margin: 0;
+      }
+
+      .icon-button {
+        width: 32px;
+        height: 32px;
+        border-color: var(--line);
+        background: #fff;
+        color: var(--text);
+        padding: 0;
+      }
+
       @media (max-width: 880px) {
         main,
         .grid {
           grid-template-columns: 1fr;
+        }
+
+        .admin-access-float {
+          right: 16px;
+          bottom: 16px;
+        }
+
+        .admin-access-panel {
+          width: calc(100vw - 172px);
+          min-width: 188px;
         }
       }
     </style>
@@ -201,18 +261,6 @@
 
     <main class="shell">
       <aside class="stack">
-        <section>
-          <h2>Admin Access</h2>
-          <div class="form">
-            <label>
-              x-admin-key
-              <input id="adminKey" type="password" autocomplete="off" />
-            </label>
-            <button id="saveKey">Save Key</button>
-            <div class="message" id="statusMessage"></div>
-          </div>
-        </section>
-
         <section>
           <h2>Create Account</h2>
           <form class="form" id="accountForm">
@@ -380,6 +428,32 @@
         </section>
       </div>
     </main>
+
+    <div class="admin-access-float">
+      <button class="admin-access-button" id="openAdminAccess">Admin Access</button>
+      <div
+        aria-labelledby="adminAccessTitle"
+        class="admin-access-panel"
+        hidden
+        id="adminAccessPanel"
+        role="dialog"
+      >
+        <div class="admin-access-head">
+          <h2 id="adminAccessTitle">Admin Access</h2>
+          <button aria-label="Close Admin Access" class="icon-button" id="closeAdminAccess">
+            X
+          </button>
+        </div>
+        <div class="form">
+          <label>
+            x-admin-key
+            <input id="adminKey" type="password" autocomplete="off" />
+          </label>
+          <button id="saveKey">Save Key</button>
+          <div class="message" id="statusMessage"></div>
+        </div>
+      </div>
+    </div>
 
     <script>
       const state = {
@@ -603,6 +677,14 @@
         localStorage.setItem('teddy-auth-admin-key', adminKeyInput.value);
         setStatus('Saved');
         void refreshAll();
+      });
+
+      $('openAdminAccess').addEventListener('click', () => {
+        $('adminAccessPanel').hidden = false;
+      });
+
+      $('closeAdminAccess').addEventListener('click', () => {
+        $('adminAccessPanel').hidden = true;
       });
 
       $('refreshAll').addEventListener('click', () => void refreshAll());
