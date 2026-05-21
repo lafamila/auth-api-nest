@@ -1,3 +1,8 @@
 .omx/
 .omc/
 .DS_Store
+node_modules/
+dist/
+coverage/
+.env
+.env.local

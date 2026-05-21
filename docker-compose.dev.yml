@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: teddy-auth-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: teddy_auth
+      TZ: Asia/Seoul
+    ports:
+      - "35432:5432"
+    volumes:
+      - auth-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d teddy_auth"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  auth-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: teddy-auth-api
+    ports:
+      - "3032:3032"
+    environment:
+      PORT: 3032
+      ISSUER_URL: http://localhost:3032
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/teddy_auth
+      RUN_MIGRATIONS: "true"
+      ADMIN_API_KEY: dev-admin-key
+      COOKIE_SECRET: dev-cookie-secret
+      SEED_ADMIN_LOGIN_ID: superadmin
+      SEED_ADMIN_PASSWORD: superadmin-password
+      SEED_ADMIN_EMAIL: admin@lafamila.xyz
+      SEED_ADMIN_NAME: Teddy Super Admin
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  auth-postgres-data:
