@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { AdminGuard } from '../admin.guard';
@@ -35,6 +36,14 @@ export class AdminAccountsController {
   @Get()
   list() {
     return this.accounts.list();
+  }
+
+  @Get('service-search')
+  searchForService(
+    @Query('serviceKey') serviceKey: string,
+    @Query('q') q?: string,
+  ) {
+    return this.accounts.searchForService(serviceKey, q ?? '');
   }
 
   @Get(':accountId')

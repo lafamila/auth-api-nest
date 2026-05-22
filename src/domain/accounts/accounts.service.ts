@@ -15,6 +15,16 @@ import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { VISITOR_PERMISSION } from '../permissions/visitor-permission';
 import { CreateAccountDto, UpdateAccountDto } from './dto/account.dto';
 
+export interface ServiceAccountSearchResult {
+  id: string;
+  loginId: string;
+  name: string;
+  email: string;
+  status: string;
+  isSuperAdmin: boolean;
+  permissionKey: string;
+}
+
 @Injectable()
 export class AccountsService {
   constructor(
@@ -27,6 +37,61 @@ export class AccountsService {
 
   list(): Promise<AccountEntity[]> {
     return this.accounts.find({ order: { createdAt: 'DESC' } });
+  }
+
+  async searchForService(
+    serviceKey: string,
+    query: string,
+  ): Promise<ServiceAccountSearchResult[]> {
+    const service = await this.dataSource
+      .getRepository(ServiceEntity)
+      .findOneBy({ serviceKey, status: 'active' });
+    if (!service) {
+      throw new NotFoundException('Service not found');
+    }
+
+    const normalizedQuery = query.trim().toLowerCase();
+    const accounts = (await this.accounts.find({ order: { createdAt: 'DESC' } }))
+      .filter((account) => {
+        if (!normalizedQuery) return true;
+        return [account.loginId, account.name, account.email]
+          .filter(Boolean)
+          .some((value) => value.toLowerCase().includes(normalizedQuery));
+      })
+      .slice(0, 20);
+
+    if (accounts.length === 0) {
+      return [];
+    }
+
+    const permissions = await this.dataSource
+      .getRepository(AccountServicePermissionEntity)
+      .find({
+        where: accounts.map((account) => ({
+          accountId: account.id,
+          serviceId: service.id,
+          status: 'active',
+        })),
+        relations: {
+          permissionDefinition: true,
+        },
+      });
+    const permissionByAccountId = new Map(
+      permissions.map((permission) => [
+        permission.accountId,
+        permission.permissionDefinition.key,
+      ]),
+    );
+
+    return accounts.map((account) => ({
+      id: account.id,
+      loginId: account.loginId,
+      name: account.name,
+      email: account.email,
+      status: account.status,
+      isSuperAdmin: account.isSuperAdmin,
+      permissionKey: permissionByAccountId.get(account.id) ?? VISITOR_PERMISSION.key,
+    }));
   }
 
   async findById(id: string): Promise<AccountEntity> {
