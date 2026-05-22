@@ -6,6 +6,7 @@ All admin routes require `x-admin-key: ${ADMIN_API_KEY}` in Phase 1.
 
 - `POST /api/admin/accounts`: create an account.
 - `GET /api/admin/accounts`: list accounts.
+- `GET /api/admin/accounts/service-search?serviceKey={serviceKey}&q={query}`: admin-side account lookup for service member invite flows. Returns each account's current permission key for the target service.
 - `GET /api/admin/accounts/{accountId}`: fetch one account.
 - `PATCH /api/admin/accounts/{accountId}`: update name, email, or status.
 - `POST /api/admin/accounts/{accountId}/reset-password`: set a new password.

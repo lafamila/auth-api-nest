@@ -1,5 +1,5 @@
 ---
-status: PREPARED
+status: COMPLETED
 summary: "todo-web-next/todo-api-fastapi 분리에 필요한 auth-api OIDC client와 권한 설정 gap을 확인한다."
 ---
 

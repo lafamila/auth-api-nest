@@ -275,7 +275,7 @@
         <section>
           <h2>Create Service</h2>
           <form class="form" id="serviceForm">
-            <label>Service Key <input name="serviceKey" placeholder="todo" required /></label>
+            <label>Service Key <input name="serviceKey" required /></label>
             <label>Name <input name="name" required /></label>
             <label>Description <textarea name="description"></textarea></label>
             <button>Create Service</button>
@@ -286,7 +286,7 @@
           <h2>Add Permission</h2>
           <form class="form" id="permissionForm">
             <label>Service <select name="serviceId" id="permissionService"></select></label>
-            <label>Key <input name="key" placeholder="admin" required /></label>
+            <label>Key <input name="key" required /></label>
             <label>Label <input name="label" required /></label>
             <label>Description <textarea name="description"></textarea></label>
             <button>Add Permission</button>
@@ -297,7 +297,7 @@
           <h2>Create OIDC Client</h2>
           <form class="form" id="clientForm">
             <label>Service <select name="serviceId" id="clientService"></select></label>
-            <label>Client ID <input name="clientId" placeholder="todo-web" required /></label>
+            <label>Client ID <input name="clientId" required /></label>
             <label>
               Client Type
               <select name="clientType" id="clientType">
@@ -310,7 +310,6 @@
               Redirect URIs
               <textarea
                 name="redirectUris"
-                placeholder="http://localhost:3031/api/todo/session/callback"
                 required
               ></textarea>
             </label>
