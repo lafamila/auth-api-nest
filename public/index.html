@@ -250,6 +250,19 @@
         gap: 10px;
       }
 
+      .page-summary {
+        align-self: end;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 600;
+        padding-bottom: 10px;
+      }
+
+      .pagination-actions {
+        align-self: end;
+        justify-content: flex-end;
+      }
+
       .wide-table {
         overflow-x: auto;
       }
@@ -543,6 +556,7 @@
                 <th>Email</th>
                 <th>Status</th>
                 <th>Role</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody id="accountsBody"></tbody>
@@ -577,22 +591,19 @@
               <select id="dashboardServiceFilter"></select>
             </label>
             <label>
-              Assignment Status
-              <select id="dashboardStatusFilter">
-                <option value="">All</option>
-                <option value="active">active</option>
-                <option value="revoked">revoked</option>
-                <option value="suspended">suspended</option>
+              Page Size
+              <select id="dashboardPageSize">
+                <option value="10">10</option>
+                <option selected value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
               </select>
             </label>
-            <label>
-              Permission Key
-              <input id="dashboardPermissionFilter" />
-            </label>
-            <label>
-              Account Search
-              <input id="dashboardAccountFilter" />
-            </label>
+            <div class="page-summary" id="dashboardRange">0-0 of 0</div>
+            <div class="inline-actions pagination-actions">
+              <button class="secondary" id="dashboardPrev" type="button">Previous</button>
+              <button class="secondary" id="dashboardNext" type="button">Next</button>
+            </div>
           </div>
           <div class="wide-table">
             <table>
@@ -601,12 +612,9 @@
                   <th>Account</th>
                   <th>Name</th>
                   <th>Email</th>
-                  <th>Account Status</th>
                   <th>Service</th>
                   <th>Permission</th>
-                  <th>Assignment</th>
                   <th>Granted</th>
-                  <th>Revoked</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -798,7 +806,14 @@
         permissionsByService: {},
         clientsByService: {},
         credentialsByService: {},
-        permissionDashboard: [],
+        permissionDashboard: {
+          items: [],
+          page: 1,
+          pageSize: 25,
+          total: 0,
+          totalPages: 0,
+          serviceKey: '',
+        },
         applications: [],
         credentialSecret: null,
       };
@@ -867,21 +882,46 @@
       }
 
       function renderAccounts() {
+        const activeSuperAdminCount = state.accounts.filter(
+          (account) => account.isSuperAdmin && account.status === 'active',
+        ).length;
         $('accountsBody').innerHTML = state.accounts
           .map(
-            (account) => `
+            (account) => {
+              const disableBlocked =
+                account.isSuperAdmin &&
+                account.status === 'active' &&
+                activeSuperAdminCount <= 1;
+              const disableHint = disableBlocked
+                ? '<div class="hint">Last active super admin</div>'
+                : '';
+              return `
               <tr>
-                <td>${account.loginId}</td>
-                <td>${account.name}</td>
-                <td>${account.email}</td>
+                <td>${escapeHtml(account.loginId)}</td>
+                <td>${escapeHtml(account.name)}</td>
+                <td>${escapeHtml(account.email)}</td>
                 <td><span class="badge">${account.status}</span></td>
                 <td>${account.isSuperAdmin ? 'super admin' : 'user'}</td>
+                <td>
+                  <div class="table-actions">
+                    <button
+                      class="secondary"
+                      data-disable-account="${account.id}"
+                      ${account.status !== 'active' || disableBlocked ? 'disabled' : ''}
+                    >
+                      Disable
+                    </button>
+                    ${disableHint}
+                  </div>
+                </td>
               </tr>
-            `,
+            `;
+            },
           )
           .join('');
 
         $('assignmentAccount').innerHTML = state.accounts
+          .filter((account) => account.status === 'active')
           .map((account) => `<option value="${account.id}">${account.loginId}</option>`)
           .join('');
       }
@@ -913,6 +953,7 @@
         $('dashboardServiceFilter').innerHTML = `<option value="">All services</option>${state.services
           .map((service) => `<option value="${service.serviceKey}">${escapeHtml(service.serviceKey)}</option>`)
           .join('')}`;
+        $('dashboardServiceFilter').value = state.permissionDashboard.serviceKey;
       }
 
       function renderAssignmentPermissions(serviceId = $('assignmentService').value) {
@@ -930,11 +971,7 @@
         $('permissionsBody').innerHTML = permissions
           .map(
             (permission) => {
-              const activeAssignments = state.permissionDashboard.filter(
-                (row) =>
-                  row.permissionDefinitionId === permission.id &&
-                  row.assignmentStatus === 'active',
-              ).length;
+              const activeAssignments = permission.activeAssignmentCount ?? 0;
               const activeOptions = permissions
                 .filter(
                   (target) =>
@@ -1109,23 +1146,22 @@
         return new Date(date.getTime() - offset).toISOString().slice(0, 16);
       }
 
+      function renderPermissionDashboardRange() {
+        const { items, page, pageSize, total, totalPages } = state.permissionDashboard;
+        const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
+        const end = total === 0 ? 0 : start + items.length - 1;
+        $('dashboardRange').textContent = `${start}-${end} of ${total}`;
+        $('dashboardPrev').disabled = page <= 1;
+        $('dashboardNext').disabled = totalPages === 0 || page >= totalPages;
+        $('dashboardPageSize').value = String(pageSize);
+      }
+
       function renderPermissionDashboard() {
-        const serviceKey = $('dashboardServiceFilter').value;
-        const status = $('dashboardStatusFilter').value;
-        const permissionQuery = $('dashboardPermissionFilter').value.trim().toLowerCase();
-        const accountQuery = $('dashboardAccountFilter').value.trim().toLowerCase();
-        const rows = state.permissionDashboard.filter((row) => {
-          const accountHaystack = `${row.loginId} ${row.accountName} ${row.email}`.toLowerCase();
-          return (
-            (!serviceKey || row.serviceKey === serviceKey) &&
-            (!status || row.assignmentStatus === status) &&
-            (!permissionQuery || row.permissionKey.toLowerCase().includes(permissionQuery)) &&
-            (!accountQuery || accountHaystack.includes(accountQuery))
-          );
-        });
+        const rows = state.permissionDashboard.items;
+        renderPermissionDashboardRange();
         if (!rows.length) {
           $('permissionDashboardBody').innerHTML = `
-            <tr><td class="empty-state" colspan="10">No permission assignments.</td></tr>
+            <tr><td class="empty-state" colspan="7">No permission assignments.</td></tr>
           `;
           return;
         }
@@ -1144,7 +1180,6 @@
                 <td class="mono">${escapeHtml(row.loginId)}</td>
                 <td>${escapeHtml(row.accountName)}</td>
                 <td>${escapeHtml(row.email)}</td>
-                <td><span class="badge">${escapeHtml(row.accountStatus)}</span></td>
                 <td>
                   <span class="mono">${escapeHtml(row.serviceKey)}</span><br />
                   <span class="hint">${escapeHtml(row.serviceName)}</span>
@@ -1155,15 +1190,11 @@
                   </select>
                   <div class="hint">${escapeHtml(row.permissionStatus)}</div>
                 </td>
-                <td><span class="badge">${escapeHtml(row.assignmentStatus)}</span></td>
                 <td>${formatDate(row.grantedAt)}</td>
-                <td>${formatDate(row.revokedAt)}</td>
                 <td>
                   <div class="inline-actions">
                     <button data-dashboard-update="${row.id}" data-account-id="${row.accountId}" data-service-id="${row.serviceId}">Update</button>
-                    <button class="secondary" data-dashboard-revoke="${row.id}" data-account-id="${row.accountId}" data-service-id="${row.serviceId}" ${
-                      row.assignmentStatus !== 'active' ? 'disabled' : ''
-                    }>Revoke</button>
+                    <button class="secondary" data-dashboard-revoke="${row.id}" data-account-id="${row.accountId}" data-service-id="${row.serviceId}">Revoke</button>
                   </div>
                 </td>
               </tr>
@@ -1247,7 +1278,13 @@
             renderPermissions([]);
             renderClients([]);
             renderCredentials('');
-            state.permissionDashboard = [];
+            state.permissionDashboard = {
+              ...state.permissionDashboard,
+              items: [],
+              page: 1,
+              total: 0,
+              totalPages: 0,
+            };
             renderPermissionDashboard();
             renderApplications();
           }
@@ -1288,10 +1325,20 @@
       }
 
       async function loadPermissionDashboard() {
-        const rows = await api('/api/admin/permission-dashboard');
-        state.permissionDashboard = rows;
+        const params = new URLSearchParams({
+          page: String(state.permissionDashboard.page),
+          pageSize: String(state.permissionDashboard.pageSize),
+        });
+        if (state.permissionDashboard.serviceKey) {
+          params.set('serviceKey', state.permissionDashboard.serviceKey);
+        }
+        const dashboard = await api(`/api/admin/permission-dashboard?${params.toString()}`);
+        state.permissionDashboard = {
+          ...state.permissionDashboard,
+          ...dashboard,
+        };
         await Promise.all(
-          Array.from(new Set(rows.map((row) => row.serviceId)))
+          Array.from(new Set(dashboard.items.map((row) => row.serviceId)))
             .filter((serviceId) => !state.permissionsByService[serviceId])
             .map((serviceId) => loadPermissions(serviceId)),
         );
@@ -1371,10 +1418,30 @@
       $('loadCredentials').addEventListener('click', () => void loadCredentials());
       $('loadPermissionDashboard').addEventListener('click', () => void loadPermissionDashboard());
       $('loadApplications').addEventListener('click', () => void loadApplications());
-      $('dashboardServiceFilter').addEventListener('change', renderPermissionDashboard);
-      $('dashboardStatusFilter').addEventListener('change', renderPermissionDashboard);
-      $('dashboardPermissionFilter').addEventListener('input', renderPermissionDashboard);
-      $('dashboardAccountFilter').addEventListener('input', renderPermissionDashboard);
+      $('dashboardServiceFilter').addEventListener('change', async (event) => {
+        state.permissionDashboard.serviceKey = event.currentTarget.value;
+        state.permissionDashboard.page = 1;
+        await loadPermissionDashboard();
+      });
+      $('dashboardPageSize').addEventListener('change', async (event) => {
+        state.permissionDashboard.pageSize = Number(event.currentTarget.value);
+        state.permissionDashboard.page = 1;
+        await loadPermissionDashboard();
+      });
+      $('dashboardPrev').addEventListener('click', async () => {
+        if (state.permissionDashboard.page <= 1) {
+          return;
+        }
+        state.permissionDashboard.page -= 1;
+        await loadPermissionDashboard();
+      });
+      $('dashboardNext').addEventListener('click', async () => {
+        if (state.permissionDashboard.page >= state.permissionDashboard.totalPages) {
+          return;
+        }
+        state.permissionDashboard.page += 1;
+        await loadPermissionDashboard();
+      });
       $('assignmentService').addEventListener('change', async (event) => {
         const serviceId = event.currentTarget.value;
         if (!state.permissionsByService[serviceId]) {
@@ -1402,6 +1469,37 @@
           event.currentTarget.reset();
           await refreshAll();
           setStatus('Account created');
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      });
+
+      $('accountsBody').addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) {
+          return;
+        }
+        const accountId = target.dataset.disableAccount;
+        if (!accountId) {
+          return;
+        }
+        const account = state.accounts.find((item) => item.id === accountId);
+        if (!account) {
+          return;
+        }
+        const prompt = account.isSuperAdmin
+          ? 'Disable this super admin account? Existing service permissions will be kept.'
+          : 'Disable this account? Existing service permissions will be kept.';
+        if (!confirm(prompt)) {
+          return;
+        }
+        try {
+          await api(`/api/admin/accounts/${accountId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: 'disabled' }),
+          });
+          await refreshAll();
+          setStatus('Account disabled');
         } catch (error) {
           setStatus(error.message, true);
         }
@@ -1639,9 +1737,10 @@
             setStatus('Permission deprecated');
           }
           if (removeId) {
-            const activeAssignments = state.permissionDashboard.filter(
-              (row) => row.permissionDefinitionId === removeId && row.assignmentStatus === 'active',
-            ).length;
+            const activeAssignments =
+              state.permissionsByService[serviceId]?.find(
+                (permission) => permission.id === removeId,
+              )?.activeAssignmentCount ?? 0;
             const targetSelect = document.querySelector(`[data-permission-target="${removeId}"]`);
             if (
               !confirm(

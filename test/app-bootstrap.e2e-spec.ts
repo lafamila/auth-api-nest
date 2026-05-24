@@ -11,6 +11,16 @@ import { ServicePermissionDefinitionEntity } from '../src/database/entities/serv
 import { ServiceEntity } from '../src/database/entities/service.entity';
 import { TokenService } from '../src/oidc/token.service';
 
+interface PermissionDashboardTestRow {
+  accountId: string;
+  serviceId: string;
+  serviceKey: string;
+}
+
+interface PermissionDashboardTestPage {
+  items: PermissionDashboardTestRow[];
+}
+
 describe('App bootstrap (e2e)', () => {
   let app: INestApplication;
   let dataSource: DataSource;
@@ -276,7 +286,7 @@ describe('App bootstrap (e2e)', () => {
       });
   });
 
-  it('returns permission dashboard rows and keeps revoked assignments visible', async () => {
+  it('returns paginated active-only permission dashboard rows', async () => {
     const suffix = Date.now();
     const serviceResponse = await request(app.getHttpServer())
       .post('/api/admin/services')
@@ -286,9 +296,26 @@ describe('App bootstrap (e2e)', () => {
         name: `Dashboard ${suffix}`,
       })
       .expect(201);
+    const otherServiceResponse = await request(app.getHttpServer())
+      .post('/api/admin/services')
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        serviceKey: `dashboard-other-${suffix}`,
+        name: `Dashboard Other ${suffix}`,
+      })
+      .expect(201);
 
     const permissionResponse = await request(app.getHttpServer())
       .post(`/api/admin/services/${serviceResponse.body.id}/permissions`)
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        key: `manager-${suffix}`,
+        label: 'Manager',
+        description: 'Dashboard permission',
+      })
+      .expect(201);
+    const otherPermissionResponse = await request(app.getHttpServer())
+      .post(`/api/admin/services/${otherServiceResponse.body.id}/permissions`)
       .set('x-admin-key', 'test-admin-key')
       .send({
         key: `manager-${suffix}`,
@@ -304,6 +331,16 @@ describe('App bootstrap (e2e)', () => {
         loginId: `dashboard-user-${suffix}`,
         name: `Dashboard User ${suffix}`,
         email: `dashboard-user-${suffix}@lafamila.xyz`,
+        password: 'dashboard-password-1234',
+      })
+      .expect(201);
+    const otherAccountResponse = await request(app.getHttpServer())
+      .post('/api/admin/accounts')
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        loginId: `dashboard-other-user-${suffix}`,
+        name: `Dashboard Other User ${suffix}`,
+        email: `dashboard-other-user-${suffix}@lafamila.xyz`,
         password: 'dashboard-password-1234',
       })
       .expect(201);
@@ -326,35 +363,68 @@ describe('App bootstrap (e2e)', () => {
         permissionDefinitionId: permissionResponse.body.id,
       })
       .expect(200);
+    await request(app.getHttpServer())
+      .put(
+        `/api/admin/accounts/${otherAccountResponse.body.id}/services/${otherServiceResponse.body.id}/permission`,
+      )
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        permissionDefinitionId: otherPermissionResponse.body.id,
+      })
+      .expect(200);
 
     await request(app.getHttpServer())
-      .get('/api/admin/permission-dashboard')
+      .get('/api/admin/permission-dashboard?page=1&pageSize=1')
       .set('x-admin-key', 'test-admin-key')
       .expect(200)
       .expect((response) => {
         expect(response.body).toEqual(
+          expect.objectContaining({
+            items: expect.any(Array),
+            page: 1,
+            pageSize: 1,
+            total: expect.any(Number),
+            totalPages: expect.any(Number),
+          }),
+        );
+        expect(response.body.items).toHaveLength(1);
+        expect(response.body.items[0].accountStatus).toBeUndefined();
+        expect(response.body.items[0].serviceStatus).toBeUndefined();
+        expect(response.body.items[0].assignmentStatus).toBeUndefined();
+        expect(response.body.items[0].revokedAt).toBeUndefined();
+      });
+
+    await request(app.getHttpServer())
+      .get('/api/admin/permission-dashboard')
+      .query({ serviceKey: serviceResponse.body.serviceKey, page: 1, pageSize: 25 })
+      .set('x-admin-key', 'test-admin-key')
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.items).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
               accountId: accountResponse.body.id,
               loginId: accountResponse.body.loginId,
               accountName: accountResponse.body.name,
               email: accountResponse.body.email,
-              accountStatus: 'active',
-              isSuperAdmin: false,
               serviceId: serviceResponse.body.id,
               serviceKey: serviceResponse.body.serviceKey,
               serviceName: serviceResponse.body.name,
-              serviceStatus: 'active',
               permissionDefinitionId: permissionResponse.body.id,
               permissionKey: permissionResponse.body.key,
               permissionLabel: permissionResponse.body.label,
               permissionStatus: 'active',
-              assignmentStatus: 'active',
-              revokedAt: null,
               grantedByAccountId: null,
             }),
           ]),
         );
+        const dashboard = response.body as PermissionDashboardTestPage;
+        expect(
+          dashboard.items.some(
+            (row: { serviceKey: string }) =>
+              row.serviceKey === otherServiceResponse.body.serviceKey,
+          ),
+        ).toBe(false);
       });
 
     await request(app.getHttpServer())
@@ -366,34 +436,70 @@ describe('App bootstrap (e2e)', () => {
 
     await request(app.getHttpServer())
       .get('/api/admin/permission-dashboard')
+      .query({ serviceKey: serviceResponse.body.serviceKey })
       .set('x-admin-key', 'test-admin-key')
       .expect(200)
       .expect((response) => {
-        expect(response.body).toEqual(
-          expect.arrayContaining([
-            expect.objectContaining({
-              accountId: accountResponse.body.id,
-              serviceId: serviceResponse.body.id,
-              permissionDefinitionId: permissionResponse.body.id,
-              assignmentStatus: 'revoked',
-            }),
-          ]),
-        );
-        const dashboardRows = response.body as Array<{
-          accountId: string;
-          serviceId: string;
-          revokedAt: string | null;
-        }>;
-        const dashboardRow = dashboardRows.find(
-          (row: { accountId: string; serviceId: string }) =>
-            row.accountId === accountResponse.body.id &&
-            row.serviceId === serviceResponse.body.id,
-        );
-        if (!dashboardRow) {
-          throw new Error('Dashboard row not found');
-        }
-        expect(dashboardRow.revokedAt).toBeTruthy();
+        const dashboard = response.body as PermissionDashboardTestPage;
+        expect(
+          dashboard.items.some(
+            (row: { accountId: string; serviceId: string }) =>
+              row.accountId === accountResponse.body.id &&
+              row.serviceId === serviceResponse.body.id,
+          ),
+        ).toBe(false);
       });
+
+    await request(app.getHttpServer())
+      .put(
+        `/api/admin/accounts/${accountResponse.body.id}/services/${serviceResponse.body.id}/permission`,
+      )
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        permissionDefinitionId: permissionResponse.body.id,
+      })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .patch(`/api/admin/accounts/${accountResponse.body.id}`)
+      .set('x-admin-key', 'test-admin-key')
+      .send({ status: 'disabled' })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.status).toBe('disabled');
+      });
+
+    await request(app.getHttpServer())
+      .get('/api/admin/permission-dashboard')
+      .query({ serviceKey: serviceResponse.body.serviceKey })
+      .set('x-admin-key', 'test-admin-key')
+      .expect(200)
+      .expect((response) => {
+        const dashboard = response.body as PermissionDashboardTestPage;
+        expect(
+          dashboard.items.some(
+            (row: { accountId: string; serviceId: string }) =>
+              row.accountId === accountResponse.body.id &&
+              row.serviceId === serviceResponse.body.id,
+          ),
+        ).toBe(false);
+      });
+
+    const retainedAssignment = await dataSource
+      .getRepository(AccountServicePermissionEntity)
+      .findOneByOrFail({
+        accountId: accountResponse.body.id as string,
+        serviceId: serviceResponse.body.id as string,
+      });
+    expect(retainedAssignment.status).toBe('active');
+
+    await request(app.getHttpServer())
+      .post('/login')
+      .send({
+        loginId: accountResponse.body.loginId,
+        password: 'dashboard-password-1234',
+      })
+      .expect(401);
   });
 
   it('lists and updates oidc clients without exposing stored secret hashes', async () => {

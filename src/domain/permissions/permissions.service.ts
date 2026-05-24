@@ -31,11 +31,33 @@ export class PermissionsService {
     private readonly auditLogs: AuditLogsService,
   ) {}
 
-  list(serviceId: string): Promise<ServicePermissionDefinitionEntity[]> {
-    return this.permissions.find({
-      where: { serviceId },
-      order: { sortOrder: 'ASC', createdAt: 'ASC' },
-    });
+  async list(
+    serviceId: string,
+  ): Promise<Array<ServicePermissionDefinitionEntity & { activeAssignmentCount: number }>> {
+    const [permissions, assignmentCounts] = await Promise.all([
+      this.permissions.find({
+        where: { serviceId },
+        order: { sortOrder: 'ASC', createdAt: 'ASC' },
+      }),
+      this.accountPermissions
+        .createQueryBuilder('assignment')
+        .select('assignment.permissionDefinitionId', 'permissionDefinitionId')
+        .addSelect('COUNT(*)', 'count')
+        .where('assignment.serviceId = :serviceId', { serviceId })
+        .andWhere('assignment.status = :status', { status: 'active' })
+        .groupBy('assignment.permissionDefinitionId')
+        .getRawMany<{ permissionDefinitionId: string; count: string }>(),
+    ]);
+    const countByPermissionId = new Map(
+      assignmentCounts.map((row) => [
+        row.permissionDefinitionId,
+        Number(row.count),
+      ]),
+    );
+    return permissions.map((permission) => ({
+      ...permission,
+      activeAssignmentCount: countByPermissionId.get(permission.id) ?? 0,
+    }));
   }
 
   async findById(id: string): Promise<ServicePermissionDefinitionEntity> {

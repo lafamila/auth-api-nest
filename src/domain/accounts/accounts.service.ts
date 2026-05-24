@@ -139,18 +139,38 @@ export class AccountsService {
   }
 
   async update(id: string, input: UpdateAccountDto): Promise<AccountEntity> {
-    const account = await this.findById(id);
-    const before = this.safeAccount(account);
-    Object.assign(account, input);
-    const saved = await this.accounts.save(account);
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const accountRepository = manager.getRepository(AccountEntity);
+      const account = await accountRepository.findOneBy({ id });
+      if (!account) {
+        throw new NotFoundException('Account not found');
+      }
+      if (
+        input.status === 'disabled' &&
+        account.status === 'active' &&
+        account.isSuperAdmin
+      ) {
+        const activeSuperAdminCount = await accountRepository.countBy({
+          isSuperAdmin: true,
+          status: 'active',
+        });
+        if (activeSuperAdminCount <= 1) {
+          throw new ConflictException('Cannot disable the last active super admin');
+        }
+      }
+      const before = this.safeAccount(account);
+      Object.assign(account, input);
+      const updated = await accountRepository.save(account);
+      return { before, updated };
+    });
     await this.auditLogs.record({
       action: 'account.update',
       targetType: 'account',
-      targetId: saved.id,
-      beforeJson: before,
-      afterJson: this.safeAccount(saved),
+      targetId: saved.updated.id,
+      beforeJson: saved.before,
+      afterJson: this.safeAccount(saved.updated),
     });
-    return saved;
+    return saved.updated;
   }
 
   async resetPassword(id: string, password: string): Promise<void> {

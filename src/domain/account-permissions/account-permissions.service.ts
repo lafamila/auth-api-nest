@@ -1,12 +1,16 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, Repository } from 'typeorm';
 import { AccountServicePermissionEntity } from '../../database/entities/account-service-permission.entity';
 import { AccountsService } from '../accounts/accounts.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { PermissionsService } from '../permissions/permissions.service';
 import { ServiceRegistryService } from '../service-registry/service-registry.service';
-import { PermissionDashboardRowDto } from './dto/permission-dashboard.dto';
+import {
+  PermissionDashboardPageDto,
+  PermissionDashboardQueryDto,
+  PermissionDashboardRowDto,
+} from './dto/permission-dashboard.dto';
 
 @Injectable()
 export class AccountPermissionsService {
@@ -85,33 +89,58 @@ export class AccountPermissionsService {
     });
   }
 
-  async listDashboardRows(): Promise<PermissionDashboardRowDto[]> {
+  async listDashboardRows(
+    query: PermissionDashboardQueryDto,
+  ): Promise<PermissionDashboardPageDto> {
+    const pageSize = Math.min(
+      Math.max(Number(query.pageSize) || 25, 1),
+      100,
+    );
+    const requestedPage = Math.max(Number(query.page) || 1, 1);
+    const where: FindOptionsWhere<AccountServicePermissionEntity> = {
+      status: 'active',
+      account: { status: 'active' },
+      ...(query.serviceKey ? { service: { serviceKey: query.serviceKey } } : {}),
+    };
+    const total = await this.accountPermissions.count({ where });
+    const totalPages = total === 0 ? 0 : Math.ceil(total / pageSize);
+    const page = totalPages === 0 ? 1 : Math.min(requestedPage, totalPages);
     const rows = await this.accountPermissions.find({
+      where,
       order: {
         grantedAt: 'DESC',
         createdAt: 'DESC',
       },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
     });
-    return rows.map((row) => ({
+    return {
+      items: rows.map((row) => this.toDashboardRow(row)),
+      page,
+      pageSize,
+      total,
+      totalPages,
+    };
+  }
+
+  private toDashboardRow(
+    row: AccountServicePermissionEntity,
+  ): PermissionDashboardRowDto {
+    return {
       id: row.id,
       accountId: row.accountId,
       loginId: row.account.loginId,
       accountName: row.account.name,
       email: row.account.email,
-      accountStatus: row.account.status,
-      isSuperAdmin: row.account.isSuperAdmin,
       serviceId: row.serviceId,
       serviceKey: row.service.serviceKey,
       serviceName: row.service.name,
-      serviceStatus: row.service.status,
       permissionDefinitionId: row.permissionDefinitionId,
       permissionKey: row.permissionDefinition.key,
       permissionLabel: row.permissionDefinition.label,
       permissionStatus: row.permissionDefinition.status,
-      assignmentStatus: row.status,
       grantedAt: row.grantedAt,
-      revokedAt: row.revokedAt,
       grantedByAccountId: row.grantedByAccountId,
-    }));
+    };
   }
 }

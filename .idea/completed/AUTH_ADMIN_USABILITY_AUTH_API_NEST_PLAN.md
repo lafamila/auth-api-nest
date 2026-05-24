@@ -1,13 +1,15 @@
 ---
-status: PREPARED
+status: COMPLETED
 summary: "`/admin` dashboard pagination, active-only dashboard, and account soft delete UX/API safeguards를 구현한다."
+completed_at: 2026-05-24
+completion_reason: "paginated dashboard API/UI, account disable safeguards, tests, lint, build, and e2e verification completed"
 ---
 
 # AUTH ADMIN USABILITY PLAN — auth-api-nest execution plan
 
 Canonical orchestration plan:
 
-`../../.idea/AUTH_ADMIN_USABILITY_PLAN.md`
+`../../.idea/completed/AUTH_ADMIN_USABILITY_PLAN.md`
 
 ## Repo Responsibility
 
@@ -22,7 +24,7 @@ Canonical orchestration plan:
 
 ## Inputs / Dependencies
 
-- Root canonical plan: `../../.idea/AUTH_ADMIN_USABILITY_PLAN.md`
+- Root canonical plan: `../../.idea/completed/AUTH_ADMIN_USABILITY_PLAN.md`
 - Existing dashboard service:
   - `src/domain/account-permissions/account-permissions.service.ts`
   - `src/domain/account-permissions/dto/permission-dashboard.dto.ts`
