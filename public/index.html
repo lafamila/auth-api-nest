@@ -1168,7 +1168,7 @@
         const hours = part(date.getHours());
         const minutes = part(date.getMinutes());
         const seconds = part(date.getSeconds());
-        return `${year}.${month}.${day} ${hours}.${minutes}.${seconds}`;
+        return `${year}.${month}.${day} ${hours}:${minutes}:${seconds}`;
       }
 
       function renderCredentials(serviceId = $('credentialListService').value) {
