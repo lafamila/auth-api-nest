@@ -263,6 +263,14 @@
         justify-content: flex-end;
       }
 
+      .list-pagination {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        padding-top: 12px;
+      }
+
       .wide-table {
         overflow-x: auto;
       }
@@ -561,6 +569,7 @@
             </thead>
             <tbody id="accountsBody"></tbody>
           </table>
+          <div class="list-pagination" id="accountsPagination"></div>
         </section>
 
         <section>
@@ -578,6 +587,7 @@
             </thead>
             <tbody id="servicesBody"></tbody>
           </table>
+          <div class="list-pagination" id="servicesPagination"></div>
         </section>
 
         <section>
@@ -589,15 +599,6 @@
             <label>
               Service
               <select id="dashboardServiceFilter"></select>
-            </label>
-            <label>
-              Page Size
-              <select id="dashboardPageSize">
-                <option value="10">10</option>
-                <option selected value="25">25</option>
-                <option value="50">50</option>
-                <option value="100">100</option>
-              </select>
             </label>
             <div class="page-summary" id="dashboardRange">0-0 of 0</div>
             <div class="inline-actions pagination-actions">
@@ -644,6 +645,7 @@
             </thead>
             <tbody id="permissionsBody"></tbody>
           </table>
+          <div class="list-pagination" id="permissionsPagination"></div>
         </section>
 
         <section>
@@ -667,6 +669,7 @@
             </thead>
             <tbody id="clientsBody"></tbody>
           </table>
+          <div class="list-pagination" id="clientsPagination"></div>
         </section>
 
         <section>
@@ -691,6 +694,7 @@
             </thead>
             <tbody id="credentialsBody"></tbody>
           </table>
+          <div class="list-pagination" id="credentialsPagination"></div>
         </section>
 
         <section>
@@ -720,6 +724,7 @@
             </thead>
             <tbody id="applicationsBody"></tbody>
           </table>
+          <div class="list-pagination" id="applicationsPagination"></div>
         </section>
       </div>
     </main>
@@ -800,6 +805,8 @@
     </div>
 
     <script>
+      const LIST_PAGE_SIZE = 5;
+
       const state = {
         accounts: [],
         services: [],
@@ -809,10 +816,18 @@
         permissionDashboard: {
           items: [],
           page: 1,
-          pageSize: 25,
+          pageSize: LIST_PAGE_SIZE,
           total: 0,
           totalPages: 0,
           serviceKey: '',
+        },
+        listPages: {
+          accounts: 1,
+          services: 1,
+          permissions: 1,
+          clients: 1,
+          credentials: 1,
+          applications: 1,
         },
         applications: [],
         credentialSecret: null,
@@ -861,6 +876,44 @@
         statusMessage.classList.toggle('error', isError);
       }
 
+      function pageItems(key, items) {
+        const totalPages = Math.max(1, Math.ceil(items.length / LIST_PAGE_SIZE));
+        const page = Math.min(Math.max(state.listPages[key] || 1, 1), totalPages);
+        state.listPages[key] = page;
+        const start = (page - 1) * LIST_PAGE_SIZE;
+        return items.slice(start, start + LIST_PAGE_SIZE);
+      }
+
+      function renderListPagination(key, total) {
+        const target = $(`${key}Pagination`);
+        if (!target) {
+          return;
+        }
+        const totalPages = Math.max(1, Math.ceil(total / LIST_PAGE_SIZE));
+        const page = Math.min(Math.max(state.listPages[key] || 1, 1), totalPages);
+        state.listPages[key] = page;
+        const start = total === 0 ? 0 : (page - 1) * LIST_PAGE_SIZE + 1;
+        const end = total === 0 ? 0 : Math.min(start + LIST_PAGE_SIZE - 1, total);
+        target.innerHTML = `
+          <span class="hint">${start}-${end} of ${total}</span>
+          <button class="secondary" data-list-page="${key}" data-list-direction="-1" type="button" ${
+            page <= 1 ? 'disabled' : ''
+          }>Previous</button>
+          <button class="secondary" data-list-page="${key}" data-list-direction="1" type="button" ${
+            page >= totalPages ? 'disabled' : ''
+          }>Next</button>
+        `;
+      }
+
+      function rerenderList(key) {
+        if (key === 'accounts') renderAccounts();
+        if (key === 'services') renderServices();
+        if (key === 'permissions') renderPermissions(state.permissionsByService[$('permissionListService').value] || []);
+        if (key === 'clients') renderClients(state.clientsByService[$('clientListService').value] || []);
+        if (key === 'credentials') renderCredentials();
+        if (key === 'applications') renderApplications();
+      }
+
       async function api(path, options = {}) {
         const adminKey = requireAdminKey();
         const response = await fetch(path, {
@@ -885,7 +938,8 @@
         const activeSuperAdminCount = state.accounts.filter(
           (account) => account.isSuperAdmin && account.status === 'active',
         ).length;
-        $('accountsBody').innerHTML = state.accounts
+        const rows = pageItems('accounts', state.accounts);
+        $('accountsBody').innerHTML = rows
           .map(
             (account) => {
               const disableBlocked =
@@ -919,6 +973,7 @@
             },
           )
           .join('');
+        renderListPagination('accounts', state.accounts.length);
 
         $('assignmentAccount').innerHTML = state.accounts
           .filter((account) => account.status === 'active')
@@ -927,7 +982,8 @@
       }
 
       function renderServices() {
-        $('servicesBody').innerHTML = state.services
+        const rows = pageItems('services', state.services);
+        $('servicesBody').innerHTML = rows
           .map(
             (service) => `
               <tr>
@@ -939,6 +995,7 @@
             `,
           )
           .join('');
+        renderListPagination('services', state.services.length);
 
         const options = state.services
           .map((service) => `<option value="${service.id}">${escapeHtml(service.serviceKey)}</option>`)
@@ -968,7 +1025,8 @@
       }
 
       function renderPermissions(permissions) {
-        $('permissionsBody').innerHTML = permissions
+        const rows = pageItems('permissions', permissions);
+        $('permissionsBody').innerHTML = rows
           .map(
             (permission) => {
               const activeAssignments = permission.activeAssignmentCount ?? 0;
@@ -1014,6 +1072,7 @@
             },
           )
           .join('');
+        renderListPagination('permissions', permissions.length);
       }
 
       function renderClients(clients) {
@@ -1021,7 +1080,8 @@
         if (serviceId) {
           state.clientsByService[serviceId] = clients;
         }
-        $('clientsBody').innerHTML = clients
+        const rows = pageItems('clients', clients);
+        $('clientsBody').innerHTML = rows
           .map(
             (client) => `
               <tr>
@@ -1074,6 +1134,7 @@
             `,
           )
           .join('');
+        renderListPagination('clients', clients.length);
       }
 
       function formatDate(value) {
@@ -1082,7 +1143,8 @@
 
       function renderCredentials(serviceId = $('credentialListService').value) {
         const credentials = state.credentialsByService[serviceId] || [];
-        $('credentialsBody').innerHTML = credentials
+        const rows = pageItems('credentials', credentials);
+        $('credentialsBody').innerHTML = rows
           .map(
             (credential) => `
               <tr>
@@ -1132,6 +1194,7 @@
             `,
           )
           .join('');
+        renderListPagination('credentials', credentials.length);
       }
 
       function dateInputValue(value) {
@@ -1153,7 +1216,6 @@
         $('dashboardRange').textContent = `${start}-${end} of ${total}`;
         $('dashboardPrev').disabled = page <= 1;
         $('dashboardNext').disabled = totalPages === 0 || page >= totalPages;
-        $('dashboardPageSize').value = String(pageSize);
       }
 
       function renderPermissionDashboard() {
@@ -1221,7 +1283,8 @@
       }
 
       function renderApplications() {
-        $('applicationsBody').innerHTML = state.applications
+        const rows = pageItems('applications', state.applications);
+        $('applicationsBody').innerHTML = rows
           .map((application) => {
             const permissions = state.permissionsByService[application.serviceId] || [];
             const options = permissions
@@ -1252,6 +1315,7 @@
             `;
           })
           .join('');
+        renderListPagination('applications', state.applications.length);
       }
 
       async function refreshAll() {
@@ -1413,18 +1477,29 @@
       });
 
       $('refreshAll').addEventListener('click', () => void refreshAll());
-      $('loadPermissions').addEventListener('click', () => void loadPermissions());
-      $('loadClients').addEventListener('click', () => void loadClients());
-      $('loadCredentials').addEventListener('click', () => void loadCredentials());
+      $('loadPermissions').addEventListener('click', () => {
+        state.listPages.permissions = 1;
+        void loadPermissions();
+      });
+      $('permissionListService').addEventListener('change', (event) => {
+        state.listPages.permissions = 1;
+        void loadPermissions(event.currentTarget.value);
+      });
+      $('loadClients').addEventListener('click', () => {
+        state.listPages.clients = 1;
+        void loadClients();
+      });
+      $('loadCredentials').addEventListener('click', () => {
+        state.listPages.credentials = 1;
+        void loadCredentials();
+      });
       $('loadPermissionDashboard').addEventListener('click', () => void loadPermissionDashboard());
-      $('loadApplications').addEventListener('click', () => void loadApplications());
+      $('loadApplications').addEventListener('click', () => {
+        state.listPages.applications = 1;
+        void loadApplications();
+      });
       $('dashboardServiceFilter').addEventListener('change', async (event) => {
         state.permissionDashboard.serviceKey = event.currentTarget.value;
-        state.permissionDashboard.page = 1;
-        await loadPermissionDashboard();
-      });
-      $('dashboardPageSize').addEventListener('change', async (event) => {
-        state.permissionDashboard.pageSize = Number(event.currentTarget.value);
         state.permissionDashboard.page = 1;
         await loadPermissionDashboard();
       });
@@ -1442,6 +1517,18 @@
         state.permissionDashboard.page += 1;
         await loadPermissionDashboard();
       });
+      document.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) {
+          return;
+        }
+        const key = target.dataset.listPage;
+        if (!key) {
+          return;
+        }
+        state.listPages[key] = (state.listPages[key] || 1) + Number(target.dataset.listDirection || 0);
+        rerenderList(key);
+      });
       $('assignmentService').addEventListener('change', async (event) => {
         const serviceId = event.currentTarget.value;
         if (!state.permissionsByService[serviceId]) {
@@ -1452,10 +1539,12 @@
       });
 
       $('clientListService').addEventListener('change', (event) => {
+        state.listPages.clients = 1;
         void loadClients(event.currentTarget.value);
       });
 
       $('credentialListService').addEventListener('change', (event) => {
+        state.listPages.credentials = 1;
         void loadCredentials(event.currentTarget.value);
       });
 
