@@ -250,6 +250,65 @@
         box-shadow: 0 10px 30px rgb(23 105 170 / 22%);
       }
 
+      .workflow-help-float {
+        position: fixed;
+        right: 24px;
+        bottom: 76px;
+        z-index: 20;
+      }
+
+      .workflow-help-button {
+        min-width: 132px;
+        box-shadow: 0 10px 30px rgb(22 32 51 / 14%);
+      }
+
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 40;
+        display: grid;
+        place-items: center;
+        background: rgb(22 32 51 / 42%);
+        padding: 24px;
+      }
+
+      .modal-backdrop[hidden] {
+        display: none;
+      }
+
+      .workflow-help-dialog {
+        width: min(760px, 100%);
+        max-height: min(760px, calc(100vh - 48px));
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 24px 70px rgb(22 32 51 / 28%);
+        padding: 20px;
+      }
+
+      .workflow-help-dialog ol {
+        display: grid;
+        gap: 12px;
+        margin: 0;
+        padding-left: 22px;
+      }
+
+      .workflow-help-dialog li {
+        line-height: 1.55;
+      }
+
+      .workflow-help-dialog code {
+        border-radius: 4px;
+        background: #edf3fa;
+        padding: 1px 5px;
+        color: #174f7a;
+        font-family:
+          "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", monospace;
+        font-size: 12px;
+      }
+
       .admin-access-panel {
         width: min(320px, calc(100vw - 188px));
         border: 1px solid var(--line);
@@ -293,6 +352,11 @@
         .admin-access-float {
           right: 16px;
           bottom: 16px;
+        }
+
+        .workflow-help-float {
+          right: 16px;
+          bottom: 68px;
         }
 
         .admin-access-panel {
@@ -537,6 +601,60 @@
         </section>
       </div>
     </main>
+
+    <div class="workflow-help-float">
+      <button class="secondary workflow-help-button" id="openWorkflowHelp">Workflow Help</button>
+    </div>
+
+    <div
+      aria-labelledby="workflowHelpTitle"
+      aria-modal="true"
+      class="modal-backdrop"
+      hidden
+      id="workflowHelpModal"
+      role="dialog"
+    >
+      <div class="workflow-help-dialog">
+        <div class="admin-access-head">
+          <h2 id="workflowHelpTitle">New Service Auth Workflow</h2>
+          <button aria-label="Close Workflow Help" class="icon-button" id="closeWorkflowHelp">
+            X
+          </button>
+        </div>
+        <ol>
+          <li>
+            Create or confirm the service in auth admin. Use a stable <code>serviceKey</code>
+            such as <code>todo</code>, <code>topic</code>, or <code>travel</code>.
+          </li>
+          <li>
+            Add permission definitions for that service. Each account receives one
+            service permission, and the target service decides how to branch on it.
+          </li>
+          <li>
+            If users log in to that service, create an OIDC client and register the
+            service callback URL as a redirect URI.
+          </li>
+          <li>
+            If the service backend calls auth internal APIs, create a Service Credential
+            for that service with the minimum scopes needed, usually
+            <code>account.search</code>.
+          </li>
+          <li>
+            Copy the generated <code>keyId</code> and one-time <code>secret</code>.
+            Store them only in the backend runtime environment, never in browser code.
+          </li>
+          <li>
+            For root docker compose, map those values through service-prefixed env vars,
+            for example <code>TODO_AUTH_SERVICE_KEY_ID</code> and
+            <code>TODO_AUTH_SERVICE_SECRET</code>.
+          </li>
+          <li>
+            Restart only the backend that consumes the credential. Rotate the credential
+            if the one-time secret is lost or suspected to be exposed.
+          </li>
+        </ol>
+      </div>
+    </div>
 
     <div class="admin-access-float">
       <button class="admin-access-button" id="openAdminAccess">Admin Access</button>
@@ -862,6 +980,26 @@
 
       $('closeAdminAccess').addEventListener('click', () => {
         $('adminAccessPanel').hidden = true;
+      });
+
+      $('openWorkflowHelp').addEventListener('click', () => {
+        $('workflowHelpModal').hidden = false;
+      });
+
+      $('closeWorkflowHelp').addEventListener('click', () => {
+        $('workflowHelpModal').hidden = true;
+      });
+
+      $('workflowHelpModal').addEventListener('click', (event) => {
+        if (event.target === event.currentTarget) {
+          $('workflowHelpModal').hidden = true;
+        }
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          $('workflowHelpModal').hidden = true;
+        }
       });
 
       $('refreshAll').addEventListener('click', () => void refreshAll());
