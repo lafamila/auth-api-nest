@@ -218,6 +218,63 @@
         padding-inline: 10px;
       }
 
+      .cell-stack {
+        display: grid;
+        gap: 6px;
+      }
+
+      .table-input,
+      .table-textarea,
+      .table-select {
+        min-width: 0;
+        font-size: 12px;
+        padding: 7px 8px;
+      }
+
+      .table-textarea {
+        min-height: 56px;
+      }
+
+      .table-actions {
+        display: grid;
+        gap: 8px;
+      }
+
+      .table-actions .inline-actions {
+        align-items: stretch;
+      }
+
+      .filters {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .wide-table {
+        overflow-x: auto;
+      }
+
+      .empty-state {
+        color: var(--muted);
+        text-align: center;
+      }
+
+      .scope-grid {
+        display: grid;
+        gap: 6px;
+      }
+
+      .scope-grid label {
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      .mono {
+        font-family:
+          "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", monospace;
+      }
+
       .secret-card {
         border: 1px dashed var(--line);
         border-radius: 8px;
@@ -346,6 +403,10 @@
       @media (max-width: 880px) {
         main,
         .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .filters {
           grid-template-columns: 1fr;
         }
 
@@ -507,6 +568,55 @@
 
         <section>
           <div class="toolbar">
+            <h2>Account-Service Permission Dashboard</h2>
+            <button class="secondary" id="loadPermissionDashboard" type="button">Refresh Dashboard</button>
+          </div>
+          <div class="filters">
+            <label>
+              Service
+              <select id="dashboardServiceFilter"></select>
+            </label>
+            <label>
+              Assignment Status
+              <select id="dashboardStatusFilter">
+                <option value="">All</option>
+                <option value="active">active</option>
+                <option value="revoked">revoked</option>
+                <option value="suspended">suspended</option>
+              </select>
+            </label>
+            <label>
+              Permission Key
+              <input id="dashboardPermissionFilter" />
+            </label>
+            <label>
+              Account Search
+              <input id="dashboardAccountFilter" />
+            </label>
+          </div>
+          <div class="wide-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Account</th>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Account Status</th>
+                  <th>Service</th>
+                  <th>Permission</th>
+                  <th>Assignment</th>
+                  <th>Granted</th>
+                  <th>Revoked</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="permissionDashboardBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section>
+          <div class="toolbar">
             <label>
               Permission Service
               <select id="permissionListService"></select>
@@ -520,6 +630,8 @@
                 <th>Label</th>
                 <th>Status</th>
                 <th>Description</th>
+                <th>Active Assignments</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody id="permissionsBody"></tbody>
@@ -541,6 +653,8 @@
                 <th>Type</th>
                 <th>Status</th>
                 <th>Redirect URIs</th>
+                <th>Settings</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody id="clientsBody"></tbody>
@@ -603,7 +717,7 @@
     </main>
 
     <div class="workflow-help-float">
-      <button class="secondary workflow-help-button" id="openWorkflowHelp">Workflow Help</button>
+      <button class="secondary workflow-help-button" id="openWorkflowHelp">도움말</button>
     </div>
 
     <div
@@ -616,41 +730,35 @@
     >
       <div class="workflow-help-dialog">
         <div class="admin-access-head">
-          <h2 id="workflowHelpTitle">New Service Auth Workflow</h2>
+          <h2 id="workflowHelpTitle">새 서비스 인증 연동 흐름</h2>
           <button aria-label="Close Workflow Help" class="icon-button" id="closeWorkflowHelp">
             X
           </button>
         </div>
         <ol>
           <li>
-            Create or confirm the service in auth admin. Use a stable <code>serviceKey</code>
-            such as <code>todo</code>, <code>topic</code>, or <code>travel</code>.
+            먼저 <strong>Services</strong> 에 새 서비스를 등록합니다. 이 값은 각 서비스가 auth 에 자신을 식별할 때 쓰는 안정적인 <code>serviceKey</code> 입니다.
           </li>
           <li>
-            Add permission definitions for that service. Each account receives one
-            service permission, and the target service decides how to branch on it.
+            해당 서비스에서 사용할 권한 레벨을 <strong>Permission Definitions</strong> 로 등록합니다. 계정 하나는 서비스 하나에 대해 한 개의 권한 레벨을 받고, 실제 분기는 각 서비스가 처리합니다.
           </li>
           <li>
-            If users log in to that service, create an OIDC client and register the
-            service callback URL as a redirect URI.
+            브라우저 로그인/OIDC callback 이 필요한 서비스라면 <strong>OIDC Client</strong> 를 만들고 redirect URI 를 등록합니다.
           </li>
           <li>
-            If the service backend calls auth internal APIs, create a Service Credential
-            for that service with the minimum scopes needed, usually
-            <code>account.search</code>.
+            서비스 backend 가 auth 의 internal API 를 호출해야 한다면 <strong>Service Credential</strong> 을 발급합니다. 필요한 scope 만 최소로 선택합니다.
           </li>
           <li>
-            Copy the generated <code>keyId</code> and one-time <code>secret</code>.
-            Store them only in the backend runtime environment, never in browser code.
+            발급된 <code>keyId</code> 와 1회 표시되는 <code>secret</code> 은 해당 서비스 backend 의 환경변수 또는 secret manager 에만 저장합니다. 프론트 코드에는 절대 넣지 않습니다.
           </li>
           <li>
-            For root docker compose, map those values through service-prefixed env vars,
-            for example <code>TODO_AUTH_SERVICE_KEY_ID</code> and
-            <code>TODO_AUTH_SERVICE_SECRET</code>.
+            환경변수 이름은 서비스별 prefix 를 붙여 구분합니다. 예: <code>{SERVICE}_AUTH_SERVICE_KEY_ID</code>, <code>{SERVICE}_AUTH_SERVICE_SECRET</code>
           </li>
           <li>
-            Restart only the backend that consumes the credential. Rotate the credential
-            if the one-time secret is lost or suspected to be exposed.
+            credential 을 소비하는 backend 만 재시작하거나 환경변수를 다시 로드합니다. secret 을 잃어버렸거나 노출이 의심되면 기존 값을 조회하지 말고 rotate 합니다.
+          </li>
+          <li>
+            마지막으로 <strong>Permission Dashboard</strong> 에서 계정별 서비스 권한을 부여하거나 revoke 하고, 권한 없음 화면은 각 서비스 정책에 맞춰 처리합니다.
           </li>
         </ol>
       </div>
@@ -677,6 +785,7 @@
             <input id="adminKey" type="password" autocomplete="off" />
           </label>
           <button id="saveKey">Save Key</button>
+          <button class="secondary" id="clearKey" type="button">Clear Key</button>
           <div class="message" id="statusMessage"></div>
         </div>
       </div>
@@ -687,7 +796,9 @@
         accounts: [],
         services: [],
         permissionsByService: {},
+        clientsByService: {},
         credentialsByService: {},
+        permissionDashboard: [],
         applications: [],
         credentialSecret: null,
       };
@@ -696,7 +807,39 @@
       const adminKeyInput = $('adminKey');
       const statusMessage = $('statusMessage');
 
-      adminKeyInput.value = localStorage.getItem('teddy-auth-admin-key') || 'dev-admin-key';
+      adminKeyInput.value = sessionStorage.getItem('teddy-auth-admin-key') || '';
+
+      function escapeHtml(value) {
+        return String(value ?? '')
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#039;');
+      }
+
+      function splitLines(value) {
+        return String(value ?? '')
+          .split(/\r?\n/)
+          .map((item) => item.trim())
+          .filter(Boolean);
+      }
+
+      function splitWords(value) {
+        return String(value ?? '')
+          .split(/[,\s]+/)
+          .map((item) => item.trim())
+          .filter(Boolean);
+      }
+
+      function requireAdminKey() {
+        const key = adminKeyInput.value.trim();
+        if (!key) {
+          setStatus('Admin key required', true);
+          throw new Error('Admin key required');
+        }
+        return key;
+      }
 
       function setStatus(text, isError = false) {
         statusMessage.textContent = text;
@@ -704,11 +847,12 @@
       }
 
       async function api(path, options = {}) {
+        const adminKey = requireAdminKey();
         const response = await fetch(path, {
           ...options,
           headers: {
             'Content-Type': 'application/json',
-            'x-admin-key': adminKeyInput.value,
+            'x-admin-key': adminKey,
             ...(options.headers || {}),
           },
         });
@@ -757,7 +901,7 @@
           .join('');
 
         const options = state.services
-          .map((service) => `<option value="${service.id}">${service.serviceKey}</option>`)
+          .map((service) => `<option value="${service.id}">${escapeHtml(service.serviceKey)}</option>`)
           .join('');
         $('permissionService').innerHTML = options;
         $('permissionListService').innerHTML = options;
@@ -766,6 +910,9 @@
         $('clientListService').innerHTML = options;
         $('credentialService').innerHTML = options;
         $('credentialListService').innerHTML = options;
+        $('dashboardServiceFilter').innerHTML = `<option value="">All services</option>${state.services
+          .map((service) => `<option value="${service.serviceKey}">${escapeHtml(service.serviceKey)}</option>`)
+          .join('')}`;
       }
 
       function renderAssignmentPermissions(serviceId = $('assignmentService').value) {
@@ -782,27 +929,110 @@
       function renderPermissions(permissions) {
         $('permissionsBody').innerHTML = permissions
           .map(
-            (permission) => `
+            (permission) => {
+              const activeAssignments = state.permissionDashboard.filter(
+                (row) =>
+                  row.permissionDefinitionId === permission.id &&
+                  row.assignmentStatus === 'active',
+              ).length;
+              const activeOptions = permissions
+                .filter(
+                  (target) =>
+                    target.status === 'active' &&
+                    target.id !== permission.id &&
+                    target.key !== 'visitor',
+                )
+                .map(
+                  (target) =>
+                    `<option value="${target.id}">${escapeHtml(target.key)} - ${escapeHtml(target.label)}</option>`,
+                )
+                .join('');
+              return `
               <tr>
-                <td>${permission.key}</td>
-                <td>${permission.label}</td>
+                <td>${escapeHtml(permission.key)}</td>
+                <td><input class="table-input" data-permission-label="${permission.id}" value="${escapeHtml(permission.label)}" /></td>
                 <td><span class="badge">${permission.status}</span></td>
-                <td>${permission.description || ''}</td>
+                <td><textarea class="table-textarea" data-permission-description="${permission.id}">${escapeHtml(permission.description || '')}</textarea></td>
+                <td>${activeAssignments}</td>
+                <td>
+                  <div class="table-actions">
+                    <button data-update-permission="${permission.id}" data-service-id="${permission.serviceId}">Update</button>
+                    <button class="secondary" data-deprecate-permission="${permission.id}" data-service-id="${permission.serviceId}" ${
+                      permission.status !== 'active' || permission.key === 'visitor' ? 'disabled' : ''
+                    }>Deprecate</button>
+                    <label>
+                      Migrate to
+                      <select class="table-select" data-permission-target="${permission.id}">
+                        <option value="">No target</option>
+                        ${activeOptions}
+                      </select>
+                    </label>
+                    <button class="secondary" data-remove-permission="${permission.id}" data-service-id="${permission.serviceId}" ${
+                      permission.status === 'removed' || permission.key === 'visitor' ? 'disabled' : ''
+                    }>Remove</button>
+                  </div>
+                </td>
               </tr>
-            `,
+            `;
+            },
           )
           .join('');
       }
 
       function renderClients(clients) {
+        const serviceId = $('clientListService').value;
+        if (serviceId) {
+          state.clientsByService[serviceId] = clients;
+        }
         $('clientsBody').innerHTML = clients
           .map(
             (client) => `
               <tr>
-                <td>${client.clientId}</td>
-                <td>${client.clientType}</td>
-                <td><span class="badge">${client.status}</span></td>
-                <td>${client.redirectUris.join('<br />')}</td>
+                <td class="mono">${escapeHtml(client.clientId)}</td>
+                <td>
+                  <select class="table-select" data-client-type="${client.id}">
+                    <option value="public" ${client.clientType === 'public' ? 'selected' : ''}>public</option>
+                    <option value="confidential" ${client.clientType === 'confidential' ? 'selected' : ''}>confidential</option>
+                  </select>
+                </td>
+                <td>
+                  <select class="table-select" data-client-status="${client.id}">
+                    <option value="active" ${client.status === 'active' ? 'selected' : ''}>active</option>
+                    <option value="disabled" ${client.status === 'disabled' ? 'selected' : ''}>disabled</option>
+                  </select>
+                </td>
+                <td><textarea class="table-textarea" data-client-redirects="${client.id}">${escapeHtml(client.redirectUris.join('\n'))}</textarea></td>
+                <td>
+                  <div class="cell-stack">
+                    <label>
+                      Post Logout URIs
+                      <textarea class="table-textarea" data-client-post-logout="${client.id}">${escapeHtml((client.postLogoutRedirectUris || []).join('\n'))}</textarea>
+                    </label>
+                    <label>
+                      Grant Types
+                      <input class="table-input" data-client-grants="${client.id}" value="${escapeHtml((client.allowedGrantTypes || []).join(' '))}" />
+                    </label>
+                    <label>
+                      Scopes
+                      <input class="table-input" data-client-scopes="${client.id}" value="${escapeHtml((client.allowedScopes || []).join(' '))}" />
+                    </label>
+                    <label class="checkbox-item">
+                      <input data-client-pkce="${client.id}" type="checkbox" ${client.requirePkce ? 'checked' : ''} />
+                      <span>Require PKCE</span>
+                    </label>
+                  </div>
+                </td>
+                <td>
+                  <div class="inline-actions">
+                    <button data-update-client="${client.id}" data-service-id="${client.serviceId}">Update</button>
+                    <button class="secondary" data-rotate-client="${client.id}" data-service-id="${client.serviceId}" ${
+                      client.clientType !== 'confidential' ? 'disabled' : ''
+                    }>Rotate Secret</button>
+                    <button class="secondary" data-disable-client="${client.id}" data-service-id="${client.serviceId}" ${
+                      client.status !== 'active' ? 'disabled' : ''
+                    }>Disable</button>
+                  </div>
+                </td>
               </tr>
             `,
           )
@@ -819,17 +1049,40 @@
           .map(
             (credential) => `
               <tr>
-                <td><code>${credential.keyId}</code></td>
+                <td><code>${escapeHtml(credential.keyId)}</code></td>
                 <td>
-                  <strong>${credential.name}</strong><br />
-                  <span class="hint">${credential.description || ''}</span>
+                  <div class="cell-stack">
+                    <input class="table-input" data-credential-name="${credential.id}" value="${escapeHtml(credential.name)}" />
+                    <textarea class="table-textarea" data-credential-description="${credential.id}">${escapeHtml(credential.description || '')}</textarea>
+                  </div>
                 </td>
-                <td>${credential.scopes.join('<br />')}</td>
-                <td><span class="badge">${credential.status}</span></td>
+                <td>
+                  <div class="scope-grid">
+                    <label class="checkbox-item">
+                      <input data-credential-scope="${credential.id}" type="checkbox" value="account.search" ${
+                        credential.scopes.includes('account.search') ? 'checked' : ''
+                      } />
+                      <span>account.search</span>
+                    </label>
+                    <label class="checkbox-item">
+                      <input data-credential-scope="${credential.id}" type="checkbox" value="permission.read" ${
+                        credential.scopes.includes('permission.read') ? 'checked' : ''
+                      } />
+                      <span>permission.read</span>
+                    </label>
+                  </div>
+                </td>
+                <td>
+                  <select class="table-select" data-credential-status="${credential.id}">
+                    <option value="active" ${credential.status === 'active' ? 'selected' : ''}>active</option>
+                    <option value="disabled" ${credential.status === 'disabled' ? 'selected' : ''}>disabled</option>
+                  </select>
+                </td>
                 <td>${formatDate(credential.lastUsedAt)}<br /><span class="hint">${credential.lastUsedFrom || ''}</span></td>
-                <td>${formatDate(credential.expiresAt)}</td>
+                <td><input class="table-input" data-credential-expires="${credential.id}" type="datetime-local" value="${dateInputValue(credential.expiresAt)}" /></td>
                 <td>
                   <div class="inline-actions">
+                    <button data-update-credential="${credential.id}" data-service-id="${credential.serviceId}">Update</button>
                     <button data-rotate-credential="${credential.id}" data-service-id="${credential.serviceId}" ${
                       credential.status !== 'active' ? 'disabled' : ''
                     }>Rotate</button>
@@ -841,6 +1094,81 @@
               </tr>
             `,
           )
+          .join('');
+      }
+
+      function dateInputValue(value) {
+        if (!value) {
+          return '';
+        }
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+          return '';
+        }
+        const offset = date.getTimezoneOffset() * 60000;
+        return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+      }
+
+      function renderPermissionDashboard() {
+        const serviceKey = $('dashboardServiceFilter').value;
+        const status = $('dashboardStatusFilter').value;
+        const permissionQuery = $('dashboardPermissionFilter').value.trim().toLowerCase();
+        const accountQuery = $('dashboardAccountFilter').value.trim().toLowerCase();
+        const rows = state.permissionDashboard.filter((row) => {
+          const accountHaystack = `${row.loginId} ${row.accountName} ${row.email}`.toLowerCase();
+          return (
+            (!serviceKey || row.serviceKey === serviceKey) &&
+            (!status || row.assignmentStatus === status) &&
+            (!permissionQuery || row.permissionKey.toLowerCase().includes(permissionQuery)) &&
+            (!accountQuery || accountHaystack.includes(accountQuery))
+          );
+        });
+        if (!rows.length) {
+          $('permissionDashboardBody').innerHTML = `
+            <tr><td class="empty-state" colspan="10">No permission assignments.</td></tr>
+          `;
+          return;
+        }
+        $('permissionDashboardBody').innerHTML = rows
+          .map((row) => {
+            const permissions = state.permissionsByService[row.serviceId] || [];
+            const options = permissions
+              .filter((permission) => permission.status === 'active')
+              .map(
+                (permission) =>
+                  `<option value="${permission.id}" ${permission.id === row.permissionDefinitionId ? 'selected' : ''}>${escapeHtml(permission.key)} - ${escapeHtml(permission.label)}</option>`,
+              )
+              .join('');
+            return `
+              <tr>
+                <td class="mono">${escapeHtml(row.loginId)}</td>
+                <td>${escapeHtml(row.accountName)}</td>
+                <td>${escapeHtml(row.email)}</td>
+                <td><span class="badge">${escapeHtml(row.accountStatus)}</span></td>
+                <td>
+                  <span class="mono">${escapeHtml(row.serviceKey)}</span><br />
+                  <span class="hint">${escapeHtml(row.serviceName)}</span>
+                </td>
+                <td>
+                  <select class="table-select" data-dashboard-permission="${row.id}">
+                    ${options}
+                  </select>
+                  <div class="hint">${escapeHtml(row.permissionStatus)}</div>
+                </td>
+                <td><span class="badge">${escapeHtml(row.assignmentStatus)}</span></td>
+                <td>${formatDate(row.grantedAt)}</td>
+                <td>${formatDate(row.revokedAt)}</td>
+                <td>
+                  <div class="inline-actions">
+                    <button data-dashboard-update="${row.id}" data-account-id="${row.accountId}" data-service-id="${row.serviceId}">Update</button>
+                    <button class="secondary" data-dashboard-revoke="${row.id}" data-account-id="${row.accountId}" data-service-id="${row.serviceId}" ${
+                      row.assignmentStatus !== 'active' ? 'disabled' : ''
+                    }>Revoke</button>
+                  </div>
+                </td>
+              </tr>
+            `;
+          })
           .join('');
       }
 
@@ -896,6 +1224,10 @@
       }
 
       async function refreshAll() {
+        if (!adminKeyInput.value.trim()) {
+          setStatus('Admin key required');
+          return;
+        }
         try {
           const [accounts, services] = await Promise.all([
             api('/api/admin/accounts'),
@@ -910,10 +1242,13 @@
             await loadClients(services[0].id);
             await loadCredentials(services[0].id);
             await loadApplications();
+            await loadPermissionDashboard();
           } else {
             renderPermissions([]);
             renderClients([]);
             renderCredentials('');
+            state.permissionDashboard = [];
+            renderPermissionDashboard();
             renderApplications();
           }
           setStatus('Loaded');
@@ -952,6 +1287,21 @@
         renderCredentials(serviceId);
       }
 
+      async function loadPermissionDashboard() {
+        const rows = await api('/api/admin/permission-dashboard');
+        state.permissionDashboard = rows;
+        await Promise.all(
+          Array.from(new Set(rows.map((row) => row.serviceId)))
+            .filter((serviceId) => !state.permissionsByService[serviceId])
+            .map((serviceId) => loadPermissions(serviceId)),
+        );
+        renderPermissionDashboard();
+        const currentPermissionService = $('permissionListService').value;
+        if (currentPermissionService && state.permissionsByService[currentPermissionService]) {
+          renderPermissions(state.permissionsByService[currentPermissionService]);
+        }
+      }
+
       async function loadApplications() {
         const applications = await api('/api/admin/service-applications?status=pending');
         state.applications = applications;
@@ -969,9 +1319,22 @@
       }
 
       $('saveKey').addEventListener('click', () => {
-        localStorage.setItem('teddy-auth-admin-key', adminKeyInput.value);
-        setStatus('Saved');
+        const key = adminKeyInput.value.trim();
+        if (!key) {
+          sessionStorage.removeItem('teddy-auth-admin-key');
+          setStatus('Admin key required', true);
+          return;
+        }
+        sessionStorage.setItem('teddy-auth-admin-key', key);
+        adminKeyInput.value = key;
+        setStatus('Saved for this tab');
         void refreshAll();
+      });
+
+      $('clearKey').addEventListener('click', () => {
+        adminKeyInput.value = '';
+        sessionStorage.removeItem('teddy-auth-admin-key');
+        setStatus('Cleared');
       });
 
       $('openAdminAccess').addEventListener('click', () => {
@@ -1006,7 +1369,12 @@
       $('loadPermissions').addEventListener('click', () => void loadPermissions());
       $('loadClients').addEventListener('click', () => void loadClients());
       $('loadCredentials').addEventListener('click', () => void loadCredentials());
+      $('loadPermissionDashboard').addEventListener('click', () => void loadPermissionDashboard());
       $('loadApplications').addEventListener('click', () => void loadApplications());
+      $('dashboardServiceFilter').addEventListener('change', renderPermissionDashboard);
+      $('dashboardStatusFilter').addEventListener('change', renderPermissionDashboard);
+      $('dashboardPermissionFilter').addEventListener('input', renderPermissionDashboard);
+      $('dashboardAccountFilter').addEventListener('input', renderPermissionDashboard);
       $('assignmentService').addEventListener('change', async (event) => {
         const serviceId = event.currentTarget.value;
         if (!state.permissionsByService[serviceId]) {
@@ -1143,6 +1511,7 @@
               }),
             },
           );
+          await loadPermissionDashboard();
           setStatus('Service permission assigned');
         } catch (error) {
           setStatus(error.message, true);
@@ -1156,6 +1525,7 @@
             `/api/admin/accounts/${values.accountId}/services/${values.serviceId}/permission`,
             { method: 'DELETE' },
           );
+          await loadPermissionDashboard();
           setStatus('Service access revoked');
         } catch (error) {
           setStatus(error.message, true);
@@ -1179,6 +1549,7 @@
               }),
             });
             await loadApplications();
+            await loadPermissionDashboard();
             setStatus('Service application approved');
           }
           if (rejectId) {
@@ -1194,6 +1565,166 @@
         }
       });
 
+      $('permissionDashboardBody').addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) {
+          return;
+        }
+        const updateId = target.dataset.dashboardUpdate;
+        const revokeId = target.dataset.dashboardRevoke;
+        const accountId = target.dataset.accountId;
+        const serviceId = target.dataset.serviceId;
+        if (!accountId || !serviceId) {
+          return;
+        }
+        try {
+          if (updateId) {
+            const select = document.querySelector(`[data-dashboard-permission="${updateId}"]`);
+            await api(`/api/admin/accounts/${accountId}/services/${serviceId}/permission`, {
+              method: 'PUT',
+              body: JSON.stringify({ permissionDefinitionId: select.value }),
+            });
+            await loadPermissionDashboard();
+            setStatus('Permission level updated');
+          }
+          if (revokeId) {
+            if (!confirm('Revoke this account-service permission assignment?')) {
+              return;
+            }
+            await api(`/api/admin/accounts/${accountId}/services/${serviceId}/permission`, {
+              method: 'DELETE',
+            });
+            await loadPermissionDashboard();
+            setStatus('Permission assignment revoked');
+          }
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      });
+
+      $('permissionsBody').addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) {
+          return;
+        }
+        const serviceId = target.dataset.serviceId;
+        const updateId = target.dataset.updatePermission;
+        const deprecateId = target.dataset.deprecatePermission;
+        const removeId = target.dataset.removePermission;
+        if (!serviceId) {
+          return;
+        }
+        try {
+          if (updateId) {
+            const label = document.querySelector(`[data-permission-label="${updateId}"]`).value;
+            const description = document.querySelector(`[data-permission-description="${updateId}"]`).value;
+            await api(`/api/admin/services/${serviceId}/permissions/${updateId}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ label, description }),
+            });
+            await loadPermissions(serviceId);
+            await loadPermissionDashboard();
+            setStatus('Permission updated');
+          }
+          if (deprecateId) {
+            if (!confirm('Deprecate this permission definition?')) {
+              return;
+            }
+            await api(`/api/admin/services/${serviceId}/permissions/${deprecateId}/deprecate`, {
+              method: 'POST',
+              body: JSON.stringify({}),
+            });
+            await loadPermissions(serviceId);
+            await loadPermissionDashboard();
+            setStatus('Permission deprecated');
+          }
+          if (removeId) {
+            const activeAssignments = state.permissionDashboard.filter(
+              (row) => row.permissionDefinitionId === removeId && row.assignmentStatus === 'active',
+            ).length;
+            const targetSelect = document.querySelector(`[data-permission-target="${removeId}"]`);
+            if (
+              !confirm(
+                `Remove this permission definition? Active assignments affected: ${activeAssignments}.`,
+              )
+            ) {
+              return;
+            }
+            const body = targetSelect.value ? { targetPermissionId: targetSelect.value } : {};
+            await api(`/api/admin/services/${serviceId}/permissions/${removeId}/remove`, {
+              method: 'POST',
+              body: JSON.stringify(body),
+            });
+            await loadPermissions(serviceId);
+            await loadPermissionDashboard();
+            setStatus('Permission removed');
+          }
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      });
+
+      $('clientsBody').addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) {
+          return;
+        }
+        const serviceId = target.dataset.serviceId;
+        const updateId = target.dataset.updateClient;
+        const rotateId = target.dataset.rotateClient;
+        const disableId = target.dataset.disableClient;
+        if (!serviceId) {
+          return;
+        }
+        try {
+          if (updateId) {
+            await api(`/api/admin/services/${serviceId}/clients/${updateId}`, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                clientType: document.querySelector(`[data-client-type="${updateId}"]`).value,
+                status: document.querySelector(`[data-client-status="${updateId}"]`).value,
+                redirectUris: splitLines(
+                  document.querySelector(`[data-client-redirects="${updateId}"]`).value,
+                ),
+                postLogoutRedirectUris: splitLines(
+                  document.querySelector(`[data-client-post-logout="${updateId}"]`).value,
+                ),
+                allowedGrantTypes: splitWords(
+                  document.querySelector(`[data-client-grants="${updateId}"]`).value,
+                ),
+                allowedScopes: splitWords(
+                  document.querySelector(`[data-client-scopes="${updateId}"]`).value,
+                ),
+                requirePkce: document.querySelector(`[data-client-pkce="${updateId}"]`).checked,
+              }),
+            });
+            await loadClients(serviceId);
+            setStatus('OIDC client updated');
+          }
+          if (rotateId) {
+            const clientSecret = prompt('Enter new client secret. It will not be shown again.');
+            if (!clientSecret) {
+              return;
+            }
+            await api(`/api/admin/services/${serviceId}/clients/${rotateId}/rotate-secret`, {
+              method: 'POST',
+              body: JSON.stringify({ clientSecret }),
+            });
+            setStatus('OIDC client secret rotated');
+          }
+          if (disableId) {
+            await api(`/api/admin/services/${serviceId}/clients/${disableId}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ status: 'disabled' }),
+            });
+            await loadClients(serviceId);
+            setStatus('OIDC client disabled');
+          }
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      });
+
       $('credentialsBody').addEventListener('click', async (event) => {
         const target = event.target;
         if (!(target instanceof HTMLButtonElement)) {
@@ -1201,11 +1732,35 @@
         }
         const rotateId = target.dataset.rotateCredential;
         const disableId = target.dataset.disableCredential;
+        const updateId = target.dataset.updateCredential;
         const serviceId = target.dataset.serviceId;
         if (!serviceId) {
           return;
         }
         try {
+          if (updateId) {
+            const expiresValue = document.querySelector(
+              `[data-credential-expires="${updateId}"]`,
+            ).value;
+            const scopes = Array.from(
+              document.querySelectorAll(`[data-credential-scope="${updateId}"]:checked`),
+            ).map((input) => input.value);
+            await api(`/api/admin/services/${serviceId}/credentials/${updateId}`, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                name: document.querySelector(`[data-credential-name="${updateId}"]`).value,
+                description: document.querySelector(
+                  `[data-credential-description="${updateId}"]`,
+                ).value,
+                scopes,
+                status: document.querySelector(`[data-credential-status="${updateId}"]`)
+                  .value,
+                expiresAt: expiresValue ? new Date(expiresValue).toISOString() : null,
+              }),
+            });
+            await loadCredentials(serviceId);
+            setStatus('Service credential updated');
+          }
           if (rotateId) {
             const credential = await api(
               `/api/admin/services/${serviceId}/credentials/${rotateId}/rotate`,

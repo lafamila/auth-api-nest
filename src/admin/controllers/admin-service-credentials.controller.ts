@@ -1,6 +1,9 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { ServiceCredentialsService } from '../../domain/service-credentials/service-credentials.service';
-import { CreateServiceCredentialDto } from '../../domain/service-credentials/dto/service-credential.dto';
+import {
+  CreateServiceCredentialDto,
+  UpdateServiceCredentialDto,
+} from '../../domain/service-credentials/dto/service-credential.dto';
 import { AdminGuard } from '../admin.guard';
 
 @UseGuards(AdminGuard)
@@ -19,6 +22,15 @@ export class AdminServiceCredentialsController {
   @Get()
   list(@Param('serviceId') serviceId: string) {
     return this.credentials.listByService(serviceId);
+  }
+
+  @Patch(':credentialId')
+  update(
+    @Param('serviceId') serviceId: string,
+    @Param('credentialId') credentialId: string,
+    @Body() body: UpdateServiceCredentialDto,
+  ) {
+    return this.credentials.update(serviceId, credentialId, body);
   }
 
   @Post(':credentialId/rotate')

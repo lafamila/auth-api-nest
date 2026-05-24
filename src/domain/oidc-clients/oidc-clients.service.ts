@@ -13,6 +13,7 @@ import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { ServiceRegistryService } from '../service-registry/service-registry.service';
 import {
   CreateOidcClientDto,
+  OidcClientView,
   RotateClientSecretDto,
   UpdateOidcClientDto,
 } from './dto/oidc-client.dto';
@@ -27,11 +28,12 @@ export class OidcClientsService {
     private readonly auditLogs: AuditLogsService,
   ) {}
 
-  listByService(serviceId: string): Promise<OidcClientEntity[]> {
-    return this.clients.find({
+  async listByService(serviceId: string): Promise<OidcClientView[]> {
+    const clients = await this.clients.find({
       where: { serviceId },
       order: { createdAt: 'DESC' },
     });
+    return clients.map((client) => this.safeClient(client));
   }
 
   async findByClientId(clientId: string): Promise<OidcClientEntity> {
@@ -42,7 +44,7 @@ export class OidcClientsService {
     return client;
   }
 
-  async create(serviceId: string, input: CreateOidcClientDto): Promise<OidcClientEntity> {
+  async create(serviceId: string, input: CreateOidcClientDto): Promise<OidcClientView> {
     if (await this.clients.existsBy({ clientId: input.clientId })) {
       throw new ConflictException('Client id already exists');
     }
@@ -79,28 +81,57 @@ export class OidcClientsService {
       action: 'oidc_client.create',
       targetType: 'oidc_client',
       targetId: client.id,
-      afterJson: this.safeClient(client),
+      afterJson: this.safeClient(client) as unknown as Record<string, unknown>,
     });
-    return client;
+    return this.safeClient(client);
   }
 
   async update(
     serviceId: string,
     clientId: string,
     input: UpdateOidcClientDto,
-  ): Promise<OidcClientEntity> {
+  ): Promise<OidcClientView> {
     const client = await this.findOwnedClient(serviceId, clientId);
+    if (input.clientType === 'confidential' && !input.clientSecret && !client.clientSecretHash) {
+      throw new BadRequestException('Confidential clients require a secret');
+    }
     const before = this.safeClient(client);
-    Object.assign(client, input);
+    if (input.clientType !== undefined) {
+      client.clientType = input.clientType;
+      if (input.clientType === 'public') {
+        client.clientSecretHash = null;
+      }
+    }
+    if (input.clientSecret !== undefined) {
+      client.clientSecretHash = await this.passwordService.hash(input.clientSecret);
+    }
+    if (input.status !== undefined) {
+      client.status = input.status;
+    }
+    if (input.redirectUris !== undefined) {
+      client.redirectUris = input.redirectUris;
+    }
+    if (input.postLogoutRedirectUris !== undefined) {
+      client.postLogoutRedirectUris = input.postLogoutRedirectUris;
+    }
+    if (input.allowedGrantTypes !== undefined) {
+      client.allowedGrantTypes = input.allowedGrantTypes;
+    }
+    if (input.allowedScopes !== undefined) {
+      client.allowedScopes = input.allowedScopes;
+    }
+    if (input.requirePkce !== undefined) {
+      client.requirePkce = input.requirePkce;
+    }
     const saved = await this.clients.save(client);
     await this.auditLogs.record({
       action: 'oidc_client.update',
       targetType: 'oidc_client',
       targetId: saved.id,
-      beforeJson: before,
-      afterJson: this.safeClient(saved),
+      beforeJson: before as unknown as Record<string, unknown>,
+      afterJson: this.safeClient(saved) as unknown as Record<string, unknown>,
     });
-    return saved;
+    return this.safeClient(saved);
   }
 
   async rotateSecret(
@@ -133,7 +164,7 @@ export class OidcClientsService {
     }
   }
 
-  safeClient(client: OidcClientEntity): Record<string, unknown> {
+  safeClient(client: OidcClientEntity): OidcClientView {
     return {
       id: client.id,
       serviceId: client.serviceId,
@@ -145,6 +176,8 @@ export class OidcClientsService {
       allowedScopes: client.allowedScopes,
       requirePkce: client.requirePkce,
       status: client.status,
+      createdAt: client.createdAt,
+      updatedAt: client.updatedAt,
     };
   }
 

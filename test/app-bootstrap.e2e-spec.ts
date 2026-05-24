@@ -221,28 +221,248 @@ describe('App bootstrap (e2e)', () => {
     expect(listResponse.body[0].secret).toBeUndefined();
     expect(listResponse.body[0].secretHash).toBeUndefined();
 
+    await request(app.getHttpServer())
+      .patch(
+        `/api/admin/services/${serviceResponse.body.id}/credentials/${createResponse.body.id}`,
+      )
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        name: 'todo-api updated',
+        description: 'updated account search integration',
+        scopes: ['permission.read'],
+        status: 'disabled',
+      })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.name).toBe('todo-api updated');
+        expect(response.body.description).toBe('updated account search integration');
+        expect(response.body.scopes).toEqual(['permission.read']);
+        expect(response.body.status).toBe('disabled');
+        expect(response.body.secret).toBeUndefined();
+        expect(response.body.secretHash).toBeUndefined();
+      });
+
     const rotateResponse = await request(app.getHttpServer())
       .post(
         `/api/admin/services/${serviceResponse.body.id}/credentials/${createResponse.body.id}/rotate`,
       )
       .set('x-admin-key', 'test-admin-key')
       .send({})
-      .expect(201);
+      .expect(400);
 
-    expect(rotateResponse.body.keyId).toBe(createResponse.body.keyId);
-    expect(rotateResponse.body.secret).toBeTruthy();
-    expect(rotateResponse.body.secret).not.toBe(createResponse.body.secret);
+    expect(rotateResponse.body.message).toBe('Disabled credentials cannot be rotated');
+
+    await request(app.getHttpServer())
+      .patch(
+        `/api/admin/services/${serviceResponse.body.id}/credentials/${createResponse.body.id}`,
+      )
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        status: 'active',
+      })
+      .expect(200);
 
     await request(app.getHttpServer())
       .post(
-        `/api/admin/services/${serviceResponse.body.id}/credentials/${createResponse.body.id}/disable`,
+        `/api/admin/services/${serviceResponse.body.id}/credentials/${createResponse.body.id}/rotate`,
       )
       .set('x-admin-key', 'test-admin-key')
       .send({})
       .expect(201)
       .expect((response) => {
+        expect(response.body.keyId).toBe(createResponse.body.keyId);
+        expect(response.body.secret).toBeTruthy();
+        expect(response.body.secret).not.toBe(createResponse.body.secret);
+      });
+  });
+
+  it('returns permission dashboard rows and keeps revoked assignments visible', async () => {
+    const suffix = Date.now();
+    const serviceResponse = await request(app.getHttpServer())
+      .post('/api/admin/services')
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        serviceKey: `dashboard-${suffix}`,
+        name: `Dashboard ${suffix}`,
+      })
+      .expect(201);
+
+    const permissionResponse = await request(app.getHttpServer())
+      .post(`/api/admin/services/${serviceResponse.body.id}/permissions`)
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        key: `manager-${suffix}`,
+        label: 'Manager',
+        description: 'Dashboard permission',
+      })
+      .expect(201);
+
+    const accountResponse = await request(app.getHttpServer())
+      .post('/api/admin/accounts')
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        loginId: `dashboard-user-${suffix}`,
+        name: `Dashboard User ${suffix}`,
+        email: `dashboard-user-${suffix}@lafamila.xyz`,
+        password: 'dashboard-password-1234',
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .get('/api/admin/permission-dashboard')
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .get('/api/admin/permission-dashboard')
+      .set('x-admin-key', 'wrong-key')
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .put(
+        `/api/admin/accounts/${accountResponse.body.id}/services/${serviceResponse.body.id}/permission`,
+      )
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        permissionDefinitionId: permissionResponse.body.id,
+      })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get('/api/admin/permission-dashboard')
+      .set('x-admin-key', 'test-admin-key')
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              accountId: accountResponse.body.id,
+              loginId: accountResponse.body.loginId,
+              accountName: accountResponse.body.name,
+              email: accountResponse.body.email,
+              accountStatus: 'active',
+              isSuperAdmin: false,
+              serviceId: serviceResponse.body.id,
+              serviceKey: serviceResponse.body.serviceKey,
+              serviceName: serviceResponse.body.name,
+              serviceStatus: 'active',
+              permissionDefinitionId: permissionResponse.body.id,
+              permissionKey: permissionResponse.body.key,
+              permissionLabel: permissionResponse.body.label,
+              permissionStatus: 'active',
+              assignmentStatus: 'active',
+              revokedAt: null,
+              grantedByAccountId: null,
+            }),
+          ]),
+        );
+      });
+
+    await request(app.getHttpServer())
+      .delete(
+        `/api/admin/accounts/${accountResponse.body.id}/services/${serviceResponse.body.id}/permission`,
+      )
+      .set('x-admin-key', 'test-admin-key')
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get('/api/admin/permission-dashboard')
+      .set('x-admin-key', 'test-admin-key')
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              accountId: accountResponse.body.id,
+              serviceId: serviceResponse.body.id,
+              permissionDefinitionId: permissionResponse.body.id,
+              assignmentStatus: 'revoked',
+            }),
+          ]),
+        );
+        const dashboardRows = response.body as Array<{
+          accountId: string;
+          serviceId: string;
+          revokedAt: string | null;
+        }>;
+        const dashboardRow = dashboardRows.find(
+          (row: { accountId: string; serviceId: string }) =>
+            row.accountId === accountResponse.body.id &&
+            row.serviceId === serviceResponse.body.id,
+        );
+        if (!dashboardRow) {
+          throw new Error('Dashboard row not found');
+        }
+        expect(dashboardRow.revokedAt).toBeTruthy();
+      });
+  });
+
+  it('lists and updates oidc clients without exposing stored secret hashes', async () => {
+    const suffix = Date.now();
+    const serviceResponse = await request(app.getHttpServer())
+      .post('/api/admin/services')
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        serviceKey: `oidc-${suffix}`,
+        name: `OIDC ${suffix}`,
+      })
+      .expect(201);
+
+    const createResponse = await request(app.getHttpServer())
+      .post(`/api/admin/services/${serviceResponse.body.id}/clients`)
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        clientId: `oidc-client-${suffix}`,
+        clientType: 'confidential',
+        clientSecret: 'very-secret-client-value',
+        redirectUris: ['http://127.0.0.1/callback'],
+      })
+      .expect(201);
+
+    expect(createResponse.body.clientSecretHash).toBeUndefined();
+
+    await request(app.getHttpServer())
+      .get(`/api/admin/services/${serviceResponse.body.id}/clients`)
+      .set('x-admin-key', 'test-admin-key')
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              id: createResponse.body.id,
+              clientId: `oidc-client-${suffix}`,
+              clientType: 'confidential',
+              redirectUris: ['http://127.0.0.1/callback'],
+              status: 'active',
+            }),
+          ]),
+        );
+        expect(response.body[0].clientSecretHash).toBeUndefined();
+      });
+
+    await request(app.getHttpServer())
+      .patch(`/api/admin/services/${serviceResponse.body.id}/clients/${createResponse.body.id}`)
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        status: 'disabled',
+        redirectUris: ['http://127.0.0.1/updated-callback'],
+        postLogoutRedirectUris: ['http://127.0.0.1/logout'],
+        allowedGrantTypes: ['authorization_code'],
+        allowedScopes: ['openid', 'profile'],
+        requirePkce: false,
+      })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.clientSecretHash).toBeUndefined();
         expect(response.body.status).toBe('disabled');
-        expect(response.body.secret).toBeUndefined();
+        expect(response.body.redirectUris).toEqual([
+          'http://127.0.0.1/updated-callback',
+        ]);
+        expect(response.body.postLogoutRedirectUris).toEqual([
+          'http://127.0.0.1/logout',
+        ]);
+        expect(response.body.allowedGrantTypes).toEqual(['authorization_code']);
+        expect(response.body.allowedScopes).toEqual(['openid', 'profile']);
+        expect(response.body.requirePkce).toBe(false);
       });
   });
 

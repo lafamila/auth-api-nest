@@ -6,6 +6,7 @@ import { AccountsService } from '../accounts/accounts.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { PermissionsService } from '../permissions/permissions.service';
 import { ServiceRegistryService } from '../service-registry/service-registry.service';
+import { PermissionDashboardRowDto } from './dto/permission-dashboard.dto';
 
 @Injectable()
 export class AccountPermissionsService {
@@ -82,5 +83,35 @@ export class AccountPermissionsService {
     return this.accountPermissions.findOne({
       where: { accountId, serviceId, status: 'active' },
     });
+  }
+
+  async listDashboardRows(): Promise<PermissionDashboardRowDto[]> {
+    const rows = await this.accountPermissions.find({
+      order: {
+        grantedAt: 'DESC',
+        createdAt: 'DESC',
+      },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      accountId: row.accountId,
+      loginId: row.account.loginId,
+      accountName: row.account.name,
+      email: row.account.email,
+      accountStatus: row.account.status,
+      isSuperAdmin: row.account.isSuperAdmin,
+      serviceId: row.serviceId,
+      serviceKey: row.service.serviceKey,
+      serviceName: row.service.name,
+      serviceStatus: row.service.status,
+      permissionDefinitionId: row.permissionDefinitionId,
+      permissionKey: row.permissionDefinition.key,
+      permissionLabel: row.permissionDefinition.label,
+      permissionStatus: row.permissionDefinition.status,
+      assignmentStatus: row.status,
+      grantedAt: row.grantedAt,
+      revokedAt: row.revokedAt,
+      grantedByAccountId: row.grantedByAccountId,
+    }));
   }
 }

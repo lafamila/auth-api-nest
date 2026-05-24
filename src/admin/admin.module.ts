@@ -10,6 +10,7 @@ import { ServiceCredentialsModule } from '../domain/service-credentials/service-
 import { AdminAccountsController } from './controllers/admin-accounts.controller';
 import { AdminAuditLogsController } from './controllers/admin-audit-logs.controller';
 import { AdminClientsController } from './controllers/admin-clients.controller';
+import { AdminPermissionDashboardController } from './controllers/admin-permission-dashboard.controller';
 import { AdminPermissionsController } from './controllers/admin-permissions.controller';
 import { AdminServiceCredentialsController } from './controllers/admin-service-credentials.controller';
 import { AdminServicesController } from './controllers/admin-services.controller';
@@ -31,6 +32,7 @@ import { AdminGuard } from './admin.guard';
     AdminServicesController,
     AdminServiceCredentialsController,
     AdminClientsController,
+    AdminPermissionDashboardController,
     AdminPermissionsController,
     AdminAuditLogsController,
   ],

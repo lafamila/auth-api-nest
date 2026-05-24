@@ -31,6 +31,31 @@ export class CreateServiceCredentialDto {
   expiresAt?: Date | null;
 }
 
+export class UpdateServiceCredentialDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsIn(['account.search', 'permission.read'], { each: true })
+  scopes?: ServiceCredentialScope[];
+
+  @IsOptional()
+  @IsIn(['active', 'disabled'])
+  status?: ServiceCredentialStatus;
+
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  expiresAt?: Date | null;
+}
+
 export interface ServiceCredentialView {
   id: string;
   keyId: string;

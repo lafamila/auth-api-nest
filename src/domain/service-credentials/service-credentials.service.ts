@@ -18,6 +18,7 @@ import {
   CreateServiceCredentialDto,
   ServiceCredentialSecretView,
   ServiceCredentialView,
+  UpdateServiceCredentialDto,
 } from './dto/service-credential.dto';
 import { AuthenticatedServiceCredential } from './service-credential-request';
 
@@ -70,6 +71,42 @@ export class ServiceCredentialsService {
       order: { createdAt: 'DESC' },
     });
     return credentials.map((credential) => this.toView(credential));
+  }
+
+  async update(
+    serviceId: string,
+    credentialId: string,
+    input: UpdateServiceCredentialDto,
+  ): Promise<ServiceCredentialView> {
+    const credential = await this.findOwnedCredential(serviceId, credentialId);
+    const before = this.toView(credential);
+    if (input.name !== undefined) {
+      credential.name = input.name;
+    }
+    if (input.description !== undefined) {
+      credential.description = input.description;
+    }
+    if (input.scopes !== undefined) {
+      credential.scopes = this.normalizeScopes(input.scopes);
+    }
+    if (input.expiresAt !== undefined) {
+      credential.expiresAt = input.expiresAt;
+    }
+    if (input.status !== undefined) {
+      credential.status = input.status;
+      credential.disabledAt =
+        input.status === 'disabled' ? credential.disabledAt ?? new Date() : null;
+    }
+    const saved = await this.credentials.save(credential);
+    const safeCredential = this.toView(saved);
+    await this.auditLogs.record({
+      action: 'service_credential.update',
+      targetType: 'service_credential',
+      targetId: saved.id,
+      beforeJson: before as unknown as Record<string, unknown>,
+      afterJson: safeCredential as unknown as Record<string, unknown>,
+    });
+    return safeCredential;
   }
 
   async rotate(
