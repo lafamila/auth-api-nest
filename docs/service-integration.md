@@ -25,6 +25,23 @@ Access tokens include a namespaced service permission claim:
 
 Services map the central permission string to local domain behavior. They must not read the auth database directly.
 
+For server-to-server reads against auth internal APIs, services must use their own service credential pair issued by the auth admin console:
+
+- `x-auth-service-key-id`
+- `x-auth-service-secret`
+
+Phase 1 internal endpoint:
+
+```http
+GET /api/internal/service-accounts/search?serviceKey={serviceKey}&q={query}
+```
+
+Rules:
+
+1. The credential must belong to the same `serviceKey`.
+2. The credential must include `account.search`.
+3. The raw secret is shown only once at create/rotate time and must be stored by the consuming service, not by this repo.
+
 `visitor` is the default permission for every account-service pair. Services should treat it as a no-access or application-required state unless their domain explicitly supports visitor behavior.
 
 When a logged-in user has `visitor`, the service can show an access request form and call:

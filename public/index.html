@@ -81,6 +81,25 @@
         gap: 10px;
       }
 
+      .checkbox-group {
+        display: grid;
+        gap: 8px;
+      }
+
+      .checkbox-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text);
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .checkbox-item input {
+        width: auto;
+        margin: 0;
+      }
+
       label {
         display: grid;
         gap: 5px;
@@ -183,6 +202,38 @@
         font-weight: 700;
       }
 
+      .hint {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .inline-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .inline-actions button {
+        padding-inline: 10px;
+      }
+
+      .secret-card {
+        border: 1px dashed var(--line);
+        border-radius: 8px;
+        background: #fbfcfe;
+        padding: 14px;
+      }
+
+      .secret-card code {
+        display: block;
+        overflow-wrap: anywhere;
+        font-family:
+          "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", monospace;
+        font-size: 12px;
+      }
+
       .admin-access-float {
         position: fixed;
         right: 24px;
@@ -279,6 +330,31 @@
             <label>Name <input name="name" required /></label>
             <label>Description <textarea name="description"></textarea></label>
             <button>Create Service</button>
+          </form>
+        </section>
+
+        <section>
+          <h2>Create Service Credential</h2>
+          <form class="form" id="credentialForm">
+            <label>Service <select name="serviceId" id="credentialService"></select></label>
+            <label>Name <input name="name" required /></label>
+            <label>Description <textarea name="description"></textarea></label>
+            <label>Expires At <input name="expiresAt" type="datetime-local" /></label>
+            <label>
+              Scopes
+              <span class="checkbox-group">
+                <span class="checkbox-item">
+                  <input checked name="scopes" type="checkbox" value="account.search" />
+                  <span>account.search</span>
+                </span>
+                <span class="checkbox-item">
+                  <input name="scopes" type="checkbox" value="permission.read" />
+                  <span>permission.read</span>
+                </span>
+              </span>
+            </label>
+            <div class="hint">Raw secrets are shown once after create or rotate and are not stored.</div>
+            <button>Create Credential</button>
           </form>
         </section>
 
@@ -409,6 +485,40 @@
 
         <section>
           <div class="toolbar">
+            <label>
+              Credential Service
+              <select id="credentialListService"></select>
+            </label>
+            <button class="secondary" id="loadCredentials">Load Credentials</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Key ID</th>
+                <th>Name</th>
+                <th>Scopes</th>
+                <th>Status</th>
+                <th>Last Used</th>
+                <th>Expires</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="credentialsBody"></tbody>
+          </table>
+        </section>
+
+        <section>
+          <div class="toolbar">
+            <h2>Latest Credential Secret</h2>
+            <button class="secondary" id="clearCredentialSecret" type="button">Clear</button>
+          </div>
+          <div class="secret-card" id="credentialSecretCard">
+            <div class="hint">No transient secret in memory.</div>
+          </div>
+        </section>
+
+        <section>
+          <div class="toolbar">
             <h2>Service Applications</h2>
             <button class="secondary" id="loadApplications">Load Requests</button>
           </div>
@@ -459,7 +569,9 @@
         accounts: [],
         services: [],
         permissionsByService: {},
+        credentialsByService: {},
         applications: [],
+        credentialSecret: null,
       };
 
       const $ = (id) => document.getElementById(id);
@@ -534,6 +646,8 @@
         $('assignmentService').innerHTML = options;
         $('clientService').innerHTML = options;
         $('clientListService').innerHTML = options;
+        $('credentialService').innerHTML = options;
+        $('credentialListService').innerHTML = options;
       }
 
       function renderAssignmentPermissions(serviceId = $('assignmentService').value) {
@@ -575,6 +689,58 @@
             `,
           )
           .join('');
+      }
+
+      function formatDate(value) {
+        return value ? new Date(value).toLocaleString() : '-';
+      }
+
+      function renderCredentials(serviceId = $('credentialListService').value) {
+        const credentials = state.credentialsByService[serviceId] || [];
+        $('credentialsBody').innerHTML = credentials
+          .map(
+            (credential) => `
+              <tr>
+                <td><code>${credential.keyId}</code></td>
+                <td>
+                  <strong>${credential.name}</strong><br />
+                  <span class="hint">${credential.description || ''}</span>
+                </td>
+                <td>${credential.scopes.join('<br />')}</td>
+                <td><span class="badge">${credential.status}</span></td>
+                <td>${formatDate(credential.lastUsedAt)}<br /><span class="hint">${credential.lastUsedFrom || ''}</span></td>
+                <td>${formatDate(credential.expiresAt)}</td>
+                <td>
+                  <div class="inline-actions">
+                    <button data-rotate-credential="${credential.id}" data-service-id="${credential.serviceId}" ${
+                      credential.status !== 'active' ? 'disabled' : ''
+                    }>Rotate</button>
+                    <button class="secondary" data-disable-credential="${credential.id}" data-service-id="${credential.serviceId}" ${
+                      credential.status !== 'active' ? 'disabled' : ''
+                    }>Disable</button>
+                  </div>
+                </td>
+              </tr>
+            `,
+          )
+          .join('');
+      }
+
+      function renderCredentialSecret() {
+        if (!state.credentialSecret) {
+          $('credentialSecretCard').innerHTML =
+            '<div class="hint">No transient secret in memory.</div>';
+          return;
+        }
+        $('credentialSecretCard').innerHTML = `
+          <div class="form">
+            <div><strong>Service</strong>: ${state.credentialSecret.serviceKey}</div>
+            <div><strong>Name</strong>: ${state.credentialSecret.name}</div>
+            <div><strong>Key ID</strong><code>${state.credentialSecret.keyId}</code></div>
+            <div><strong>Secret</strong><code>${state.credentialSecret.secret}</code></div>
+            <div class="hint">Copy this now. It is not stored anywhere in the admin console.</div>
+          </div>
+        `;
       }
 
       function renderApplications() {
@@ -624,10 +790,12 @@
           if (services[0]) {
             await loadPermissions(services[0].id);
             await loadClients(services[0].id);
+            await loadCredentials(services[0].id);
             await loadApplications();
           } else {
             renderPermissions([]);
             renderClients([]);
+            renderCredentials('');
             renderApplications();
           }
           setStatus('Loaded');
@@ -654,6 +822,16 @@
         }
         const clients = await api(`/api/admin/services/${serviceId}/clients`);
         renderClients(clients);
+      }
+
+      async function loadCredentials(serviceId = $('credentialListService').value) {
+        if (!serviceId) {
+          renderCredentials('');
+          return;
+        }
+        const credentials = await api(`/api/admin/services/${serviceId}/credentials`);
+        state.credentialsByService[serviceId] = credentials;
+        renderCredentials(serviceId);
       }
 
       async function loadApplications() {
@@ -689,6 +867,7 @@
       $('refreshAll').addEventListener('click', () => void refreshAll());
       $('loadPermissions').addEventListener('click', () => void loadPermissions());
       $('loadClients').addEventListener('click', () => void loadClients());
+      $('loadCredentials').addEventListener('click', () => void loadCredentials());
       $('loadApplications').addEventListener('click', () => void loadApplications());
       $('assignmentService').addEventListener('change', async (event) => {
         const serviceId = event.currentTarget.value;
@@ -701,6 +880,10 @@
 
       $('clientListService').addEventListener('change', (event) => {
         void loadClients(event.currentTarget.value);
+      });
+
+      $('credentialListService').addEventListener('change', (event) => {
+        void loadCredentials(event.currentTarget.value);
       });
 
       $('accountForm').addEventListener('submit', async (event) => {
@@ -728,6 +911,37 @@
           event.currentTarget.reset();
           await refreshAll();
           setStatus('Service created');
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      });
+
+      $('credentialForm').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const values = formJson(form);
+        const scopes = Array.from(
+          form.querySelectorAll('input[name="scopes"]:checked'),
+        ).map((input) => input.value);
+        const payload = {
+          name: values.name,
+          description: values.description,
+          scopes,
+        };
+        if (values.expiresAt) {
+          payload.expiresAt = new Date(values.expiresAt).toISOString();
+        }
+        try {
+          const credential = await api(`/api/admin/services/${values.serviceId}/credentials`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+          state.credentialSecret = credential;
+          renderCredentialSecret();
+          form.reset();
+          $('credentialListService').value = values.serviceId;
+          await loadCredentials(values.serviceId);
+          setStatus('Service credential created. Secret is shown once below.');
         } catch (error) {
           setStatus(error.message, true);
         }
@@ -842,6 +1056,51 @@
         }
       });
 
+      $('credentialsBody').addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) {
+          return;
+        }
+        const rotateId = target.dataset.rotateCredential;
+        const disableId = target.dataset.disableCredential;
+        const serviceId = target.dataset.serviceId;
+        if (!serviceId) {
+          return;
+        }
+        try {
+          if (rotateId) {
+            const credential = await api(
+              `/api/admin/services/${serviceId}/credentials/${rotateId}/rotate`,
+              {
+                method: 'POST',
+                body: JSON.stringify({}),
+              },
+            );
+            state.credentialSecret = credential;
+            renderCredentialSecret();
+            await loadCredentials(serviceId);
+            setStatus('Service credential rotated. Secret is shown once below.');
+          }
+          if (disableId) {
+            await api(`/api/admin/services/${serviceId}/credentials/${disableId}/disable`, {
+              method: 'POST',
+              body: JSON.stringify({}),
+            });
+            await loadCredentials(serviceId);
+            setStatus('Service credential disabled');
+          }
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      });
+
+      $('clearCredentialSecret').addEventListener('click', () => {
+        state.credentialSecret = null;
+        renderCredentialSecret();
+        setStatus('Transient secret cleared');
+      });
+
+      renderCredentialSecret();
       void refreshAll();
     </script>
   </body>

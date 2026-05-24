@@ -7,6 +7,7 @@ import { AuditLogEntity } from './entities/audit-log.entity';
 import { OidcClientEntity } from './entities/oidc-client.entity';
 import { ServicePermissionDefinitionEntity } from './entities/service-permission-definition.entity';
 import { ServiceApplicationEntity } from './entities/service-application.entity';
+import { ServiceCredentialEntity } from './entities/service-credential.entity';
 import { ServiceEntity } from './entities/service.entity';
 import { SigningKeyEntity } from './entities/signing-key.entity';
 import { TokenRecordEntity } from './entities/token-record.entity';
@@ -20,6 +21,7 @@ export const AUTH_ENTITIES = [
   ServicePermissionDefinitionEntity,
   AccountServicePermissionEntity,
   ServiceApplicationEntity,
+  ServiceCredentialEntity,
   AuditLogEntity,
   TokenRecordEntity,
   SigningKeyEntity,

@@ -6,10 +6,12 @@ import { AuditLogsModule } from '../domain/audit-logs/audit-logs.module';
 import { OidcClientsModule } from '../domain/oidc-clients/oidc-clients.module';
 import { PermissionsModule } from '../domain/permissions/permissions.module';
 import { ServiceRegistryModule } from '../domain/service-registry/service-registry.module';
+import { ServiceCredentialsModule } from '../domain/service-credentials/service-credentials.module';
 import { AdminAccountsController } from './controllers/admin-accounts.controller';
 import { AdminAuditLogsController } from './controllers/admin-audit-logs.controller';
 import { AdminClientsController } from './controllers/admin-clients.controller';
 import { AdminPermissionsController } from './controllers/admin-permissions.controller';
+import { AdminServiceCredentialsController } from './controllers/admin-service-credentials.controller';
 import { AdminServicesController } from './controllers/admin-services.controller';
 import { AdminGuard } from './admin.guard';
 
@@ -22,10 +24,12 @@ import { AdminGuard } from './admin.guard';
     PermissionsModule,
     AccountPermissionsModule,
     AuditLogsModule,
+    ServiceCredentialsModule,
   ],
   controllers: [
     AdminAccountsController,
     AdminServicesController,
+    AdminServiceCredentialsController,
     AdminClientsController,
     AdminPermissionsController,
     AdminAuditLogsController,

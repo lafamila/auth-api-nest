@@ -13,6 +13,7 @@ import { OidcModule } from './oidc/oidc.module';
 import { PermissionsModule } from './domain/permissions/permissions.module';
 import { ServiceRegistryModule } from './domain/service-registry/service-registry.module';
 import { ServiceApplicationsModule } from './domain/service-applications/service-applications.module';
+import { InternalModule } from './internal/internal.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { ServiceApplicationsModule } from './domain/service-applications/service
     AccountPermissionsModule,
     AuditLogsModule,
     AdminModule,
+    InternalModule,
     OidcModule,
     ServiceApplicationsModule,
     ServeStaticModule.forRoot({

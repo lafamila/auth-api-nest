@@ -6,6 +6,7 @@ import { AppModule } from '../src/app.module';
 import { AccountServicePermissionEntity } from '../src/database/entities/account-service-permission.entity';
 import { AccountEntity } from '../src/database/entities/account.entity';
 import { OidcClientEntity } from '../src/database/entities/oidc-client.entity';
+import { ServiceCredentialEntity } from '../src/database/entities/service-credential.entity';
 import { ServicePermissionDefinitionEntity } from '../src/database/entities/service-permission-definition.entity';
 import { ServiceEntity } from '../src/database/entities/service.entity';
 import { TokenService } from '../src/oidc/token.service';
@@ -167,5 +168,204 @@ describe('App bootstrap (e2e)', () => {
         status: 'active',
       });
     expect(elevated.permissionDefinitionId).toBe(adminPermissionResponse.body.id);
+  });
+
+  it('manages service credentials through the admin api without exposing stored secrets', async () => {
+    const suffix = Date.now();
+    const serviceResponse = await request(app.getHttpServer())
+      .post('/api/admin/services')
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        serviceKey: `svc-cred-${suffix}`,
+        name: `Service Credential ${suffix}`,
+      })
+      .expect(201);
+
+    const createResponse = await request(app.getHttpServer())
+      .post(`/api/admin/services/${serviceResponse.body.id}/credentials`)
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        name: 'todo-api local',
+        description: 'account search integration',
+        scopes: ['account.search', 'permission.read'],
+        expiresAt: null,
+      })
+      .expect(201);
+
+    expect(createResponse.body.keyId).toMatch(/^asc_/);
+    expect(createResponse.body.secret).toBeTruthy();
+    expect(createResponse.body.secretHash).toBeUndefined();
+
+    const storedCredential = await dataSource
+      .getRepository(ServiceCredentialEntity)
+      .findOneByOrFail({ id: createResponse.body.id as string });
+    expect(storedCredential.secretHash).toContain('$argon2');
+    expect(storedCredential.secretHash).not.toBe(createResponse.body.secret);
+
+    const listResponse = await request(app.getHttpServer())
+      .get(`/api/admin/services/${serviceResponse.body.id}/credentials`)
+      .set('x-admin-key', 'test-admin-key')
+      .expect(200);
+
+    expect(listResponse.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: createResponse.body.id,
+          keyId: createResponse.body.keyId,
+          serviceId: serviceResponse.body.id,
+          scopes: ['account.search', 'permission.read'],
+          status: 'active',
+        }),
+      ]),
+    );
+    expect(listResponse.body[0].secret).toBeUndefined();
+    expect(listResponse.body[0].secretHash).toBeUndefined();
+
+    const rotateResponse = await request(app.getHttpServer())
+      .post(
+        `/api/admin/services/${serviceResponse.body.id}/credentials/${createResponse.body.id}/rotate`,
+      )
+      .set('x-admin-key', 'test-admin-key')
+      .send({})
+      .expect(201);
+
+    expect(rotateResponse.body.keyId).toBe(createResponse.body.keyId);
+    expect(rotateResponse.body.secret).toBeTruthy();
+    expect(rotateResponse.body.secret).not.toBe(createResponse.body.secret);
+
+    await request(app.getHttpServer())
+      .post(
+        `/api/admin/services/${serviceResponse.body.id}/credentials/${createResponse.body.id}/disable`,
+      )
+      .set('x-admin-key', 'test-admin-key')
+      .send({})
+      .expect(201)
+      .expect((response) => {
+        expect(response.body.status).toBe('disabled');
+        expect(response.body.secret).toBeUndefined();
+      });
+  });
+
+  it('protects internal account search with scoped service credentials', async () => {
+    const suffix = Date.now();
+    const todoServiceResponse = await request(app.getHttpServer())
+      .post('/api/admin/services')
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        serviceKey: `todo-${suffix}`,
+        name: `Todo ${suffix}`,
+      })
+      .expect(201);
+    const otherServiceResponse = await request(app.getHttpServer())
+      .post('/api/admin/services')
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        serviceKey: `other-${suffix}`,
+        name: `Other ${suffix}`,
+      })
+      .expect(201);
+
+    const accountResponse = await request(app.getHttpServer())
+      .post('/api/admin/accounts')
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        loginId: `lookup-${suffix}`,
+        name: `Lookup ${suffix}`,
+        email: `lookup-${suffix}@lafamila.xyz`,
+        password: 'lookup-password-1234',
+      })
+      .expect(201);
+
+    const searchCredentialResponse = await request(app.getHttpServer())
+      .post(`/api/admin/services/${todoServiceResponse.body.id}/credentials`)
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        name: 'search credential',
+        scopes: ['account.search'],
+      })
+      .expect(201);
+
+    const wrongScopeCredentialResponse = await request(app.getHttpServer())
+      .post(`/api/admin/services/${todoServiceResponse.body.id}/credentials`)
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        name: 'wrong scope credential',
+        scopes: ['permission.read'],
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .get('/api/internal/service-accounts/search')
+      .query({ serviceKey: todoServiceResponse.body.serviceKey, q: 'lookup' })
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .get('/api/internal/service-accounts/search')
+      .set('x-admin-key', 'test-admin-key')
+      .query({ serviceKey: todoServiceResponse.body.serviceKey, q: 'lookup' })
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .get('/api/internal/service-accounts/search')
+      .set('x-auth-service-key-id', searchCredentialResponse.body.keyId)
+      .set('x-auth-service-secret', 'wrong-secret')
+      .query({ serviceKey: todoServiceResponse.body.serviceKey, q: 'lookup' })
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .get('/api/internal/service-accounts/search')
+      .set('x-auth-service-key-id', wrongScopeCredentialResponse.body.keyId)
+      .set('x-auth-service-secret', wrongScopeCredentialResponse.body.secret)
+      .query({ serviceKey: todoServiceResponse.body.serviceKey, q: 'lookup' })
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .get('/api/internal/service-accounts/search')
+      .set('x-auth-service-key-id', searchCredentialResponse.body.keyId)
+      .set('x-auth-service-secret', searchCredentialResponse.body.secret)
+      .query({ serviceKey: otherServiceResponse.body.serviceKey, q: 'lookup' })
+      .expect(403);
+
+    const validSearchResponse = await request(app.getHttpServer())
+      .get('/api/internal/service-accounts/search')
+      .set('x-auth-service-key-id', searchCredentialResponse.body.keyId)
+      .set('x-auth-service-secret', searchCredentialResponse.body.secret)
+      .query({ serviceKey: todoServiceResponse.body.serviceKey, q: 'lookup' })
+      .expect(200);
+
+    expect(validSearchResponse.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: accountResponse.body.id,
+          loginId: accountResponse.body.loginId,
+          name: accountResponse.body.name,
+          email: accountResponse.body.email,
+          status: 'active',
+          isSuperAdmin: false,
+          permissionKey: 'visitor',
+        }),
+      ]),
+    );
+
+    const usedCredential = await dataSource
+      .getRepository(ServiceCredentialEntity)
+      .findOneByOrFail({ id: searchCredentialResponse.body.id as string });
+    expect(usedCredential.lastUsedAt).not.toBeNull();
+    expect(usedCredential.lastUsedFrom).toBeTruthy();
+
+    await request(app.getHttpServer())
+      .post(
+        `/api/admin/services/${todoServiceResponse.body.id}/credentials/${searchCredentialResponse.body.id}/disable`,
+      )
+      .set('x-admin-key', 'test-admin-key')
+      .send({})
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .get('/api/internal/service-accounts/search')
+      .set('x-auth-service-key-id', searchCredentialResponse.body.keyId)
+      .set('x-auth-service-secret', searchCredentialResponse.body.secret)
+      .query({ serviceKey: todoServiceResponse.body.serviceKey, q: 'lookup' })
+      .expect(401);
   });
 });
