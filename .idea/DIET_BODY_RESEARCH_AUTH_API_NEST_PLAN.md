@@ -1,5 +1,5 @@
 ---
-status: PREPARED
+status: IN_PROGRESS
 summary: "body-lab serviceKey, owner permission, public OIDC clients를 auth-api-nest에 등록/검증한다"
 ---
 

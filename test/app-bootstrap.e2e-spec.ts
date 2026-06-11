@@ -1,5 +1,7 @@
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import cookieParser from 'cookie-parser';
+import { createHash } from 'node:crypto';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
@@ -41,6 +43,14 @@ describe('App bootstrap (e2e)', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
+    app.use(cookieParser(process.env.COOKIE_SECRET));
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        transform: true,
+        forbidNonWhitelisted: true,
+      }),
+    );
     await app.init();
     dataSource = app.get(DataSource);
   });
@@ -569,6 +579,189 @@ describe('App bootstrap (e2e)', () => {
         expect(response.body.allowedGrantTypes).toEqual(['authorization_code']);
         expect(response.body.allowedScopes).toEqual(['openid', 'profile']);
         expect(response.body.requirePkce).toBe(false);
+      });
+  });
+
+  it('onboards body-lab public native clients and completes PKCE without client secrets', async () => {
+    const serviceRepository = dataSource.getRepository(ServiceEntity);
+    const permissionRepository = dataSource.getRepository(
+      ServicePermissionDefinitionEntity,
+    );
+    const clientRepository = dataSource.getRepository(OidcClientEntity);
+
+    const serviceCreateResponse = await request(app.getHttpServer())
+      .post('/api/admin/services')
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        serviceKey: 'body-lab',
+        name: 'body-lab',
+        description: 'Diet body research service',
+      });
+    expect([201, 409]).toContain(serviceCreateResponse.status);
+
+    let service = await serviceRepository.findOneByOrFail({ serviceKey: 'body-lab' });
+    if (service.status !== 'active') {
+      await request(app.getHttpServer())
+        .patch(`/api/admin/services/${service.id}`)
+        .set('x-admin-key', 'test-admin-key')
+        .send({ status: 'active' })
+        .expect(200);
+      service = await serviceRepository.findOneByOrFail({ serviceKey: 'body-lab' });
+    }
+
+    const ownerCreateResponse = await request(app.getHttpServer())
+      .post(`/api/admin/services/${service.id}/permissions`)
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        key: 'owner',
+        label: 'Owner',
+        description: 'Full body-lab access',
+      });
+    expect([201, 409]).toContain(ownerCreateResponse.status);
+
+    let ownerPermission = await permissionRepository.findOneByOrFail({
+      serviceId: service.id,
+      key: 'owner',
+    });
+    if (ownerPermission.status !== 'active') {
+      await request(app.getHttpServer())
+        .patch(`/api/admin/services/${service.id}/permissions/${ownerPermission.id}`)
+        .set('x-admin-key', 'test-admin-key')
+        .send({ status: 'active' })
+        .expect(200);
+      ownerPermission = await permissionRepository.findOneByOrFail({
+        serviceId: service.id,
+        key: 'owner',
+      });
+    }
+    service = await serviceRepository.findOneByOrFail({ serviceKey: 'body-lab' });
+
+    for (const client of [
+      {
+        clientId: 'body-lab-ios',
+        redirectUris: ['bodylab://auth/callback'],
+      },
+      {
+        clientId: 'body-lab-mac',
+        redirectUris: ['bodylab-mac://auth/callback'],
+      },
+    ]) {
+      const existingClient = await clientRepository.findOneBy({
+        clientId: client.clientId,
+      });
+      if (existingClient) {
+        await request(app.getHttpServer())
+          .patch(`/api/admin/services/${service.id}/clients/${existingClient.id}`)
+          .set('x-admin-key', 'test-admin-key')
+          .send({
+            clientType: 'public',
+            status: 'active',
+            redirectUris: client.redirectUris,
+            allowedGrantTypes: ['authorization_code', 'refresh_token'],
+            allowedScopes: ['openid', 'profile', 'email', 'service.permission'],
+            requirePkce: true,
+          })
+          .expect(200);
+      } else {
+        await request(app.getHttpServer())
+          .post(`/api/admin/services/${service.id}/clients`)
+          .set('x-admin-key', 'test-admin-key')
+          .send({
+            ...client,
+            clientType: 'public',
+            allowedGrantTypes: ['authorization_code', 'refresh_token'],
+            allowedScopes: ['openid', 'profile', 'email', 'service.permission'],
+            requirePkce: true,
+          })
+          .expect(201);
+      }
+
+      const storedClient = await clientRepository.findOneByOrFail({
+        clientId: client.clientId,
+      });
+      expect(storedClient.clientSecretHash).toBeNull();
+      expect(storedClient.clientType).toBe('public');
+      expect(storedClient.redirectUris).toEqual(client.redirectUris);
+      expect(storedClient.requirePkce).toBe(true);
+    }
+
+    const suffix = Date.now();
+    const accountPassword = 'body-lab-password-1234';
+    const accountResponse = await request(app.getHttpServer())
+      .post('/api/admin/accounts')
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        loginId: `body-lab-owner-${suffix}`,
+        name: `Body Lab Owner ${suffix}`,
+        email: `body-lab-owner-${suffix}@lafamila.xyz`,
+        password: accountPassword,
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .put(
+        `/api/admin/accounts/${accountResponse.body.id}/services/${service.id}/permission`,
+      )
+      .set('x-admin-key', 'test-admin-key')
+      .send({
+        permissionDefinitionId: ownerPermission.id,
+      })
+      .expect(200);
+
+    const agent = request.agent(app.getHttpServer());
+    await agent
+      .post('/login')
+      .send({
+        loginId: accountResponse.body.loginId,
+        password: accountPassword,
+      })
+      .expect(201);
+
+    const codeVerifier = `verifier-${suffix}-body-lab-native-pkce`;
+    const codeChallenge = createHash('sha256')
+      .update(codeVerifier)
+      .digest('base64url');
+    const authorizeResponse = await agent
+      .get('/oauth/authorize')
+      .query({
+        response_type: 'code',
+        client_id: 'body-lab-ios',
+        redirect_uri: 'bodylab://auth/callback',
+        scope: 'openid profile email service.permission',
+        state: 'body-lab-state',
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256',
+      })
+      .expect(302);
+
+    const redirect = new URL(authorizeResponse.headers.location);
+    expect(`${redirect.protocol}//${redirect.host}${redirect.pathname}`).toBe(
+      'bodylab://auth/callback',
+    );
+    expect(redirect.searchParams.get('state')).toBe('body-lab-state');
+    const code = redirect.searchParams.get('code');
+    expect(code).toBeTruthy();
+
+    await request(app.getHttpServer())
+      .post('/oauth/token')
+      .send({
+        grant_type: 'authorization_code',
+        client_id: 'body-lab-ios',
+        redirect_uri: 'bodylab://auth/callback',
+        code,
+        code_verifier: codeVerifier,
+      })
+      .expect(200)
+      .expect((response) => {
+        const tokenService = app.get(TokenService);
+        const payload = tokenService.verifyAccessToken(response.body.access_token);
+        expect(payload.aud).toBe('service:body-lab');
+        expect(payload.scope).toBe('openid profile email service.permission');
+        expect(payload['https://lafamila.xyz/claims/service']).toEqual({
+          key: 'body-lab',
+          permission: 'owner',
+          permissionSchemaVersion: service.permissionSchemaVersion,
+        });
       });
   });
 

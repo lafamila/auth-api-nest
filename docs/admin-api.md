@@ -61,6 +61,86 @@ Every service receives a default permission on creation:
 
 When a service is created, all existing active accounts receive that service's `visitor` permission. When an account is created, it receives the `visitor` permission for every active service.
 
+## body-lab Onboarding
+
+Register body-lab through the existing admin API. This creates no local auth
+tables in `body-lab-api-nest`; body-lab consumes auth tokens and claims.
+
+Create the service:
+
+```http
+POST /api/admin/services
+x-admin-key: ${ADMIN_API_KEY}
+Content-Type: application/json
+
+{
+  "serviceKey": "body-lab",
+  "name": "body-lab",
+  "description": "Diet body research service"
+}
+```
+
+Create the owner permission after the service exists:
+
+```http
+POST /api/admin/services/{bodyLabServiceId}/permissions
+x-admin-key: ${ADMIN_API_KEY}
+Content-Type: application/json
+
+{
+  "key": "owner",
+  "label": "Owner",
+  "description": "Full body-lab access"
+}
+```
+
+Create public native OIDC clients. Do not send `clientSecret`.
+
+```http
+POST /api/admin/services/{bodyLabServiceId}/clients
+x-admin-key: ${ADMIN_API_KEY}
+Content-Type: application/json
+
+{
+  "clientId": "body-lab-ios",
+  "clientType": "public",
+  "redirectUris": ["bodylab://auth/callback"],
+  "allowedGrantTypes": ["authorization_code", "refresh_token"],
+  "allowedScopes": ["openid", "profile", "email", "service.permission"],
+  "requirePkce": true
+}
+```
+
+```http
+POST /api/admin/services/{bodyLabServiceId}/clients
+x-admin-key: ${ADMIN_API_KEY}
+Content-Type: application/json
+
+{
+  "clientId": "body-lab-mac",
+  "clientType": "public",
+  "redirectUris": ["bodylab-mac://auth/callback"],
+  "allowedGrantTypes": ["authorization_code", "refresh_token"],
+  "allowedScopes": ["openid", "profile", "email", "service.permission"],
+  "requirePkce": true
+}
+```
+
+Assign `owner` to the personal body-lab account:
+
+```http
+PUT /api/admin/accounts/{accountId}/services/{bodyLabServiceId}/permission
+x-admin-key: ${ADMIN_API_KEY}
+Content-Type: application/json
+
+{
+  "permissionDefinitionId": "{ownerPermissionDefinitionId}"
+}
+```
+
+`visitor` remains the default assignment for accounts without explicit body-lab
+access. body-lab must treat `visitor` and missing permission as access denied.
+
 ## Internal Service Credentials
 
 Internal service credentials use these headers:

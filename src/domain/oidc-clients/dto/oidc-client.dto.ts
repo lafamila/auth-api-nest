@@ -5,13 +5,13 @@ import {
   IsIn,
   IsOptional,
   IsString,
-  IsUrl,
   MinLength,
 } from 'class-validator';
 import {
   OidcClientStatus,
   OidcClientType,
 } from '../../../database/entities/oidc-client.entity';
+import { IsRedirectUri } from '../redirect-uri.validator';
 
 export class CreateOidcClientDto {
   @IsString()
@@ -27,12 +27,12 @@ export class CreateOidcClientDto {
 
   @IsArray()
   @ArrayNotEmpty()
-  @IsUrl({ require_tld: false }, { each: true })
+  @IsRedirectUri({ each: true })
   redirectUris!: string[];
 
   @IsOptional()
   @IsArray()
-  @IsUrl({ require_tld: false }, { each: true })
+  @IsRedirectUri({ each: true })
   postLogoutRedirectUris?: string[];
 
   @IsOptional()
@@ -61,12 +61,12 @@ export class UpdateOidcClientDto {
 
   @IsOptional()
   @IsArray()
-  @IsUrl({ require_tld: false }, { each: true })
+  @IsRedirectUri({ each: true })
   redirectUris?: string[];
 
   @IsOptional()
   @IsArray()
-  @IsUrl({ require_tld: false }, { each: true })
+  @IsRedirectUri({ each: true })
   postLogoutRedirectUris?: string[];
 
   @IsOptional()

@@ -66,3 +66,64 @@ The auth server only accepts this request when the token's service claim key mat
 3. Verify signature, issuer, expiration, and audience.
 4. Read `https://lafamila.xyz/claims/service`.
 5. Reject if claim key does not match the current service.
+
+## body-lab Integration
+
+body-lab is registered in auth, not in local body-lab tables.
+
+Required service registry values:
+
+- serviceKey: `body-lab`
+- service name/label: `body-lab`
+- permission definition: `owner`
+- default `visitor`: no access in body-lab; the body-lab API must reject it.
+
+Required OIDC clients:
+
+- `body-lab-ios`
+  - client type: `public`
+  - client secret: none
+  - redirect URI: `bodylab://auth/callback`
+- `body-lab-mac`
+  - client type: `public`
+  - client secret: none
+  - redirect URI: `bodylab-mac://auth/callback`
+
+Both clients use Authorization Code + PKCE with these scopes:
+
+```text
+openid profile email service.permission
+```
+
+body-lab APIs validate access tokens with:
+
+- issuer: `https://auth.lafamila.xyz`
+- audience: `service:body-lab`
+- service claim key: `body-lab`
+- required permission: `owner`
+
+Example body-lab access token claim shape:
+
+```json
+{
+  "aud": "service:body-lab",
+  "scope": "openid profile email service.permission",
+  "https://lafamila.xyz/claims/service": {
+    "key": "body-lab",
+    "permission": "owner",
+    "permissionSchemaVersion": 2
+  }
+}
+```
+
+`permissionSchemaVersion` is issued from the auth service registry and may
+increase when body-lab permission definitions change. Consumers must not
+hardcode the example value.
+
+Consuming repos should map these values into their own config names:
+
+- API: auth discovery URL, issuer URL, JWKS URI or discovery-derived JWKS URI, audience `service:body-lab`, service key `body-lab`, required permission `owner`.
+- iPhone app: issuer/discovery URL, client ID `body-lab-ios`, redirect URI `bodylab://auth/callback`, scopes above.
+- Mac app: issuer/discovery URL, client ID `body-lab-mac`, redirect URI `bodylab-mac://auth/callback`, scopes above.
+
+No body-lab app should embed a client secret.
