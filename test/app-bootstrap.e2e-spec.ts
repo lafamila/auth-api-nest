@@ -13,6 +13,7 @@ import { AccountServicePermissionEntity } from '../src/database/entities/account
 import { AdminMfaEntity } from '../src/database/entities/admin-mfa.entity';
 import { OidcClientEntity } from '../src/database/entities/oidc-client.entity';
 import { ServiceCredentialEntity } from '../src/database/entities/service-credential.entity';
+import { ServiceOnboardingRequestEntity } from '../src/database/entities/service-onboarding-request.entity';
 import { ServicePermissionDefinitionEntity } from '../src/database/entities/service-permission-definition.entity';
 import { ServiceEntity } from '../src/database/entities/service.entity';
 import { AccountsService } from '../src/domain/accounts/accounts.service';
@@ -249,12 +250,135 @@ describe('App bootstrap (e2e)', () => {
     );
     expect(adminHtml).toContain('Service Onboarding Requests');
     expect(adminHtml).toContain('Account Access Requests');
+    expect(adminHtml).toContain('Create Service Onboarding Request');
+    expect(adminHtml).toContain('JSON Preview');
+    expect(adminHtml).toContain('Request-update-only secret');
+    expect(adminHtml).toContain('One-Time Operational Secrets');
+    expect(adminHtml).toContain('Copy Value');
+    expect(adminHtml).toContain('Concrete .env examples');
+    expect(adminHtml.indexOf('Service Onboarding Requests')).toBeLessThan(
+      adminHtml.indexOf('Account Access Requests'),
+    );
+    expect(adminHtml.indexOf('Account Access Requests')).toBeLessThan(
+      adminHtml.indexOf('Accounts'),
+    );
+    expect(adminHtml).not.toContain('Admin Surface');
+    expect(adminHtml).not.toContain('Latest Onboarding Secrets');
+    expect(adminHtml).not.toContain('Latest Credential Secret');
     expect(adminHtml).not.toContain('Create Account');
-    expect(adminHtml).not.toContain('Create Service');
     expect(adminHtml).not.toContain('Create Service Credential');
-    expect(adminHtml).not.toContain('Add Permission');
     expect(adminHtml).not.toContain('Create OIDC Client');
     expect(adminHtml).not.toContain('Assign Service Permission');
+  });
+
+  it('creates and revises a pending service onboarding request with its request secret', async () => {
+    const suffix = nextSuffix('pending-update');
+    const serviceKey = suffix;
+    const createResponse = await request(app.getHttpServer())
+      .post('/api/service-onboarding-requests')
+      .send({
+        serviceKey,
+        name: `Pending ${suffix}`,
+        requesterName: 'E2E Requester',
+        requesterEmail: `requester-${suffix}@lafamila.xyz`,
+        permissions: [{ key: 'member', label: 'Member' }],
+        oidcClients: [
+          {
+            clientId: `${suffix}-client`,
+            clientType: 'public',
+            redirectUris: [`https://example.com/${suffix}/callback`],
+            allowedScopes: ['openid', 'profile', 'email', 'service.permission'],
+            requirePkce: true,
+          },
+        ],
+        serviceCredentials: [
+          {
+            name: `${suffix} backend`,
+            scopes: ['account.search'],
+          },
+        ],
+      })
+      .expect(201);
+
+    expect(createResponse.body.request).toEqual(
+      expect.objectContaining({
+        serviceKey,
+        kind: 'create',
+        status: 'pending',
+        revision: 1,
+      }),
+    );
+    expect(createResponse.body.requestSecret).toBeTruthy();
+
+    const updateResponse = await request(app.getHttpServer())
+      .post(`/api/service-onboarding-requests/${createResponse.body.request.id}/update`)
+      .set('x-request-secret', createResponse.body.requestSecret)
+      .send({
+        serviceKey,
+        name: `Pending ${suffix} revised`,
+        requesterName: 'E2E Requester',
+        requesterEmail: `requester-${suffix}@lafamila.xyz`,
+        permissions: [
+          { key: 'member', label: 'Member' },
+          { key: 'admin', label: 'Admin' },
+        ],
+        oidcClients: [
+          {
+            clientId: `${suffix}-client`,
+            clientType: 'public',
+            redirectUris: [`https://example.com/${suffix}/callback`],
+            allowedScopes: ['openid', 'profile', 'email', 'service.permission'],
+            requirePkce: true,
+          },
+        ],
+        serviceCredentials: [
+          {
+            name: `${suffix} backend`,
+            scopes: ['account.search', 'permission.read'],
+          },
+        ],
+      })
+      .expect(201);
+
+    expect(updateResponse.body.request).toEqual(
+      expect.objectContaining({
+        serviceKey,
+        kind: 'update',
+        status: 'pending',
+        revision: 2,
+      }),
+    );
+    expect(updateResponse.body.request.requestedSpec.permissions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'admin' })]),
+    );
+
+    const requests = await dataSource.getRepository(ServiceOnboardingRequestEntity).find({
+      where: { serviceKey },
+      order: { revision: 'ASC' },
+    });
+    expect(requests).toHaveLength(2);
+    expect(requests[0].status).toBe('superseded');
+    expect(requests[1].status).toBe('pending');
+
+    await request(app.getHttpServer())
+      .get('/api/admin/service-onboarding-requests?status=pending')
+      .set('Cookie', adminCookie)
+      .expect(200)
+      .expect((response) => {
+        const body = response.body as Array<{
+          id: string;
+          serviceKey: string;
+          revision: number;
+        }>;
+        const matches = body.filter((item) => item.serviceKey === serviceKey);
+        expect(matches).toHaveLength(1);
+        expect(matches[0]).toEqual(
+          expect.objectContaining({
+            id: updateResponse.body.request.id,
+            revision: 2,
+          }),
+        );
+      });
   });
 
   it('removes direct admin write endpoints while keeping read and operational routes', async () => {

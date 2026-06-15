@@ -43,6 +43,14 @@ Service registry creation and core spec changes happen through service onboardin
 Services that want to integrate with Teddy Auth should submit their desired
 auth spec instead of relying on manual admin entry.
 
+Superadmins can also compose the same request from `/admin` after logging in.
+The admin console shows `Service Onboarding Requests` and `Account Access
+Requests` as the first action areas. Its `Create Service Onboarding Request`
+form builds the same public request payload, including service basics,
+permission definitions, OIDC clients, redirect/logout URIs, scopes, and service
+credentials. The JSON preview is the exact request body that will be sent to the
+public create API.
+
 Public service-side endpoints:
 
 - `POST /api/service-onboarding-requests`: submit a new service integration request. Response includes a one-time `requestSecret` for future update requests.
@@ -54,6 +62,15 @@ Admin review endpoints:
 - `GET /api/admin/service-onboarding-requests/{requestId}`
 - `POST /api/admin/service-onboarding-requests/{requestId}/approve`: creates or updates service registry, permissions, OIDC clients, and service credentials from the submitted spec. Returns any one-time client/credential secrets.
 - `POST /api/admin/service-onboarding-requests/{requestId}/reject`: records a rejection reason.
+
+The `requestSecret` returned by the create endpoint is a request-update-only
+secret. It lets the requester revise the pending onboarding request before
+approval; it is not an OIDC client secret, service credential secret, or value
+to put in a consuming service `.env`.
+
+If a pending request is updated with a valid request secret, the previous
+pending row is marked `superseded` and the revised request becomes the only
+pending revision for that `serviceKey`.
 
 Submitted specs can include:
 
@@ -67,6 +84,12 @@ Approved core spec fields are owned by the service request. Do not silently edit
 admin console. Changes require a new update request from the service. Admins may
 still disable/archive services, disable clients, and revoke/rotate credentials
 as operational controls.
+
+Approval and credential rotation can issue operational secrets. `/admin` shows
+those values only in a one-time modal with label/value rows, copy buttons that
+copy only the raw value, and concrete `.env` examples containing the issued
+values. Closing the modal clears the raw values from browser state; there is no
+fixed panel or later UI/API path to retrieve them.
 
 ## Permission Definitions
 

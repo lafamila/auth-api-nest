@@ -1,6 +1,8 @@
 ---
-status: PREPARED
+status: COMPLETED
 summary: "admin console 에 서비스 온보딩 요청 작성 UI 를 추가한다."
+completed_at: 2026-06-15
+completion_reason: "admin UI/service onboarding update/docs/tests 구현 완료 및 검증 통과"
 ---
 
 # AUTH_ADMIN_SERVICE_REQUEST_PAGE — auth-api-nest execution plan

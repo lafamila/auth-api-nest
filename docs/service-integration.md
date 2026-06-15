@@ -24,14 +24,33 @@ The request should include the intended `serviceKey`, display name, permission
 definitions, OIDC client specs, redirect URIs, scopes, client type, PKCE choice,
 and backend service credential scopes.
 
+There are two ways to create the same request:
+
+1. A service team or deployment agent sends the JSON directly to the public API.
+2. A logged-in superadmin uses `/admin` > `Create Service Onboarding Request` to
+   compose the same payload with structured fields and a JSON preview.
+
+Both paths create a pending `service_onboarding_requests` row and use the same
+approval lifecycle. The admin UI does not bypass the public request contract.
+
 Auth admins approve or reject the request in `/admin`. Approved core spec fields
 are not edited directly inside auth; if the service needs to change redirect
 URIs, permission keys, scopes, or client shape, it submits an update request
-using the one-time `requestSecret` returned by the original request.
+using the request-update-only `requestSecret` returned by the original request.
+That `requestSecret` is not a client secret or service credential secret and
+must not be copied into the consuming service's runtime `.env`.
+
+When a pending request is revised with a valid request secret, the previous
+pending revision is marked `superseded` and the revised payload becomes the only
+pending request for that `serviceKey`.
 
 The approval response may include one-time client or service credential secrets.
 The consuming service must store those in backend-only environment variables or
-a secret manager. Frontend/browser code must never receive those secrets.
+a secret manager. In `/admin`, approval and credential rotation secrets appear
+only in a one-time modal with label/value rows, value-only copy buttons, and
+concrete `.env` examples containing the actual issued values. Closing the modal
+clears raw secret values from browser state. Frontend/browser code must never
+receive those secrets.
 
 ## Permission Claim
 

@@ -85,7 +85,11 @@ export class ServiceOnboardingService {
     if (prior.serviceKey !== input.serviceKey) {
       throw new BadRequestException('serviceKey cannot change for an update request');
     }
-    await this.assertNoPendingForService(input.serviceKey);
+    await this.assertNoPendingForService(input.serviceKey, prior.id);
+    if (prior.status === 'pending') {
+      prior.status = 'superseded';
+      await this.requests.save(prior);
+    }
     const saved = await this.requests.save(
       this.requests.create({
         serviceKey: input.serviceKey,
@@ -259,8 +263,12 @@ export class ServiceOnboardingService {
     });
   }
 
-  private async assertNoPendingForService(serviceKey: string): Promise<void> {
-    if (await this.requests.existsBy({ serviceKey, status: 'pending' })) {
+  private async assertNoPendingForService(
+    serviceKey: string,
+    excludeRequestId?: string,
+  ): Promise<void> {
+    const pending = await this.requests.findOneBy({ serviceKey, status: 'pending' });
+    if (pending && pending.id !== excludeRequestId) {
       throw new ConflictException('A pending onboarding request already exists for this service');
     }
   }

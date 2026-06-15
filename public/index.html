@@ -58,9 +58,7 @@
       }
 
       main {
-        display: grid;
-        grid-template-columns: 320px 1fr;
-        gap: 18px;
+        display: block;
         padding: 22px 0 40px;
       }
 
@@ -161,6 +159,62 @@
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 18px;
+      }
+
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .form-grid .span-2 {
+        grid-column: 1 / -1;
+      }
+
+      .request-builder {
+        display: grid;
+        gap: 16px;
+      }
+
+      .request-builder h3 {
+        margin: 0 0 8px;
+        font-size: 14px;
+      }
+
+      .repeatable-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .repeatable-row {
+        display: grid;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+      }
+
+      .json-preview,
+      .env-example {
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #0f172a;
+        color: #e5e7eb;
+        font-family:
+          "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", monospace;
+        font-size: 12px;
+        line-height: 1.45;
+        margin: 0;
+        padding: 12px;
+      }
+
+      .create-result {
+        border: 1px dashed var(--line);
+        border-radius: 8px;
+        background: #fbfcfe;
+        padding: 12px;
       }
 
       table {
@@ -381,6 +435,34 @@
         padding: 20px;
       }
 
+      .secret-dialog {
+        width: min(840px, 100%);
+        max-height: min(820px, calc(100vh - 48px));
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 24px 70px rgb(22 32 51 / 28%);
+        padding: 20px;
+      }
+
+      .secret-row {
+        display: grid;
+        grid-template-columns: minmax(120px, 180px) minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        border-bottom: 1px solid var(--line);
+        padding: 10px 0;
+      }
+
+      .secret-row code {
+        overflow-wrap: anywhere;
+        font-family:
+          "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", monospace;
+        font-size: 12px;
+      }
+
       .workflow-help-dialog ol {
         display: grid;
         gap: 12px;
@@ -443,6 +525,11 @@
           grid-template-columns: 1fr;
         }
 
+        .form-grid,
+        .secret-row {
+          grid-template-columns: 1fr;
+        }
+
         .filters {
           grid-template-columns: 1fr;
         }
@@ -473,48 +560,134 @@
     </header>
 
     <main class="shell" hidden id="adminMain">
-      <aside class="stack">
-        <section>
-          <h2>Admin Surface</h2>
-          <div class="form">
-            <div class="hint">
-              Service registration and core spec changes now flow through
-              <strong>Service Onboarding Requests</strong>.
-            </div>
-            <div class="hint">
-              New accounts come from <code>/signup</code>. Account-service assignments are not
-              edited here; first service login lazily creates <code>visitor</code> only when no row
-              exists yet.
-            </div>
-            <div class="hint">
-              This console keeps read-only inventory views, account disable/reset operations,
-              service credential rotate/disable, and request approval surfaces.
-            </div>
-          </div>
-        </section>
-
-        <section>
-          <div class="toolbar">
-            <h2>Latest Onboarding Secrets</h2>
-            <button class="secondary" id="clearOnboardingSecret" type="button">Clear</button>
-          </div>
-          <div class="secret-card" id="onboardingSecretCard">
-            <div class="hint">No transient onboarding secrets in memory.</div>
-          </div>
-        </section>
-
-        <section>
-          <div class="toolbar">
-            <h2>Latest Credential Secret</h2>
-            <button class="secondary" id="clearCredentialSecret" type="button">Clear</button>
-          </div>
-          <div class="secret-card" id="credentialSecretCard">
-            <div class="hint">No transient secret in memory.</div>
-          </div>
-        </section>
-      </aside>
-
       <div class="stack content-stack">
+        <section id="topActionArea">
+          <div class="toolbar">
+            <h2>Service Onboarding Requests</h2>
+            <button class="secondary" id="loadOnboarding">Load Requests</button>
+          </div>
+          <div class="filters">
+            <label>
+              Status
+              <select id="onboardingStatusFilter">
+                <option value="all">all</option>
+                <option value="pending">pending</option>
+                <option value="approved">approved</option>
+                <option value="rejected">rejected</option>
+              </select>
+            </label>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Service</th>
+                <th>Kind</th>
+                <th>Status</th>
+                <th>Revision</th>
+                <th>Requester</th>
+                <th>Created</th>
+                <th>Spec</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="onboardingBody"></tbody>
+          </table>
+          <div class="list-pagination" id="onboardingPagination"></div>
+        </section>
+
+        <section>
+          <div class="toolbar">
+            <h2>Account Access Requests</h2>
+            <button class="secondary" id="loadApplications">Load Requests</button>
+          </div>
+          <div class="hint">
+            This section approves non-visitor access for existing service users. Service registration
+            and spec changes happen in Service Onboarding Requests above.
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th>Service</th>
+                <th>Message</th>
+                <th>Approve As</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="applicationsBody"></tbody>
+          </table>
+          <div class="list-pagination" id="applicationsPagination"></div>
+        </section>
+
+        <section>
+          <div class="toolbar">
+            <h2>Create Service Onboarding Request</h2>
+            <button class="secondary" id="resetServiceRequestForm" type="button">Reset</button>
+          </div>
+          <div class="request-builder">
+            <div>
+              <h3>Service Basics</h3>
+              <div class="form-grid">
+                <label>
+                  Service Key
+                  <input id="requestServiceKey" autocomplete="off" />
+                </label>
+                <label>
+                  Name
+                  <input id="requestServiceName" autocomplete="off" />
+                </label>
+                <label class="span-2">
+                  Description
+                  <textarea id="requestDescription"></textarea>
+                </label>
+                <label>
+                  Requester Name
+                  <input id="requesterName" autocomplete="name" />
+                </label>
+                <label>
+                  Requester Email
+                  <input id="requesterEmail" autocomplete="email" type="email" />
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <div class="toolbar">
+                <h3>Permissions</h3>
+                <button class="secondary" id="addPermissionRow" type="button">Add Permission</button>
+              </div>
+              <div class="repeatable-list" id="permissionRows"></div>
+            </div>
+
+            <div>
+              <div class="toolbar">
+                <h3>OIDC Clients</h3>
+                <button class="secondary" id="addClientRow" type="button">Add OIDC Client</button>
+              </div>
+              <div class="repeatable-list" id="clientRows"></div>
+            </div>
+
+            <div>
+              <div class="toolbar">
+                <h3>Service Credentials</h3>
+                <button class="secondary" id="addCredentialRow" type="button">Add Credential</button>
+              </div>
+              <div class="repeatable-list" id="credentialRows"></div>
+            </div>
+
+            <div>
+              <h3>JSON Preview</h3>
+              <pre class="json-preview" id="serviceRequestPreview"></pre>
+            </div>
+
+            <div class="inline-actions">
+              <button id="submitServiceRequest" type="button">Submit Request</button>
+            </div>
+            <div class="message" id="serviceRequestMessage"></div>
+            <div class="create-result" hidden id="serviceRequestResult"></div>
+          </div>
+        </section>
+
         <section>
           <div class="toolbar">
             <h2>Accounts</h2>
@@ -657,63 +830,6 @@
           <div class="list-pagination" id="credentialsPagination"></div>
         </section>
 
-        <section>
-          <div class="toolbar">
-            <h2>Service Onboarding Requests</h2>
-            <button class="secondary" id="loadOnboarding">Load Requests</button>
-          </div>
-          <div class="filters">
-            <label>
-              Status
-              <select id="onboardingStatusFilter">
-                <option value="all">all</option>
-                <option value="pending">pending</option>
-                <option value="approved">approved</option>
-                <option value="rejected">rejected</option>
-              </select>
-            </label>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Service</th>
-                <th>Kind</th>
-                <th>Status</th>
-                <th>Revision</th>
-                <th>Requester</th>
-                <th>Created</th>
-                <th>Spec</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody id="onboardingBody"></tbody>
-          </table>
-          <div class="list-pagination" id="onboardingPagination"></div>
-        </section>
-
-        <section>
-          <div class="toolbar">
-            <h2>Account Access Requests</h2>
-            <button class="secondary" id="loadApplications">Load Requests</button>
-          </div>
-          <div class="hint">
-            This section approves non-visitor access for existing service users. Service registration
-            and spec changes happen in Service Onboarding Requests above.
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Account</th>
-                <th>Service</th>
-                <th>Message</th>
-                <th>Approve As</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody id="applicationsBody"></tbody>
-          </table>
-          <div class="list-pagination" id="applicationsPagination"></div>
-        </section>
       </div>
     </main>
 
@@ -765,6 +881,28 @@
       </div>
     </div>
 
+    <div
+      aria-labelledby="secretModalTitle"
+      aria-modal="true"
+      class="modal-backdrop"
+      hidden
+      id="secretModal"
+      role="dialog"
+    >
+      <div class="secret-dialog">
+        <div class="admin-access-head">
+          <h2 id="secretModalTitle">One-Time Operational Secrets</h2>
+          <button aria-label="Close Secret Modal" class="icon-button" id="closeSecretModal">
+            X
+          </button>
+        </div>
+        <div class="hint" id="secretModalDescription"></div>
+        <div id="secretRows"></div>
+        <h3>Concrete .env examples</h3>
+        <pre class="env-example" id="secretEnvExamples"></pre>
+      </div>
+    </div>
+
     <div class="admin-access-float">
           <button class="admin-access-button" id="openAdminAccess">Admin Session</button>
       <div
@@ -813,12 +951,17 @@
         services: [],
         onboardingRequests: [],
         onboardingFilter: 'all',
-        onboardingSecret: null,
+        serviceRequestDraft: {
+          permissions: [],
+          oidcClients: [],
+          serviceCredentials: [],
+        },
+        serviceRequestResult: null,
+        secretModal: null,
         permissionsByService: {},
         clientsByService: {},
         credentialsByService: {},
         applications: [],
-        credentialSecret: null,
         adminSession: null,
         bootstrapChallengeId: null,
         requiresBootstrap: false,
@@ -856,6 +999,312 @@
       function setStatus(text, isError = false) {
         statusMessage.textContent = text;
         statusMessage.classList.toggle('error', isError);
+      }
+
+      function setServiceRequestMessage(text, isError = false) {
+        const target = $('serviceRequestMessage');
+        target.textContent = text;
+        target.classList.toggle('error', isError);
+      }
+
+      function splitList(value) {
+        return String(value || '')
+          .split(/[\n,]/)
+          .map((item) => item.trim())
+          .filter(Boolean);
+      }
+
+      function syncServiceRequestBasics() {
+        state.serviceRequestDraft.serviceKey = $('requestServiceKey').value.trim();
+        state.serviceRequestDraft.name = $('requestServiceName').value.trim();
+        state.serviceRequestDraft.description = $('requestDescription').value.trim();
+        state.serviceRequestDraft.requesterName = $('requesterName').value.trim();
+        state.serviceRequestDraft.requesterEmail = $('requesterEmail').value.trim();
+      }
+
+      function buildServiceRequestPayload() {
+        syncServiceRequestBasics();
+        const payload = {
+          serviceKey: state.serviceRequestDraft.serviceKey,
+          name: state.serviceRequestDraft.name,
+          permissions: state.serviceRequestDraft.permissions
+            .map((permission) => ({
+              key: permission.key.trim(),
+              label: permission.label.trim(),
+              description: permission.description.trim(),
+            }))
+            .filter((permission) => permission.key || permission.label || permission.description),
+        };
+        if (state.serviceRequestDraft.description) {
+          payload.description = state.serviceRequestDraft.description;
+        }
+        if (state.serviceRequestDraft.requesterName) {
+          payload.requesterName = state.serviceRequestDraft.requesterName;
+        }
+        if (state.serviceRequestDraft.requesterEmail) {
+          payload.requesterEmail = state.serviceRequestDraft.requesterEmail;
+        }
+        const oidcClients = state.serviceRequestDraft.oidcClients
+          .map((client) => ({
+            clientId: client.clientId.trim(),
+            clientType: client.clientType,
+            redirectUris: splitList(client.redirectUris),
+            postLogoutRedirectUris: splitList(client.postLogoutRedirectUris),
+            allowedScopes: splitList(client.allowedScopes),
+            requirePkce: Boolean(client.requirePkce),
+          }))
+          .filter(
+            (client) =>
+              client.clientId ||
+              client.redirectUris.length ||
+              client.postLogoutRedirectUris.length ||
+              client.allowedScopes.length,
+          )
+          .map((client) => {
+            const normalized = {
+              clientId: client.clientId,
+              clientType: client.clientType,
+              redirectUris: client.redirectUris,
+              requirePkce: client.requirePkce,
+            };
+            if (client.postLogoutRedirectUris.length) {
+              normalized.postLogoutRedirectUris = client.postLogoutRedirectUris;
+            }
+            if (client.allowedScopes.length) {
+              normalized.allowedScopes = client.allowedScopes;
+            }
+            return normalized;
+          });
+        if (oidcClients.length) {
+          payload.oidcClients = oidcClients;
+        }
+        const serviceCredentials = state.serviceRequestDraft.serviceCredentials
+          .map((credential) => ({
+            name: credential.name.trim(),
+            description: credential.description.trim(),
+            scopes: splitList(credential.scopes),
+          }))
+          .filter(
+            (credential) =>
+              credential.name || credential.description || credential.scopes.length,
+          )
+          .map((credential) => {
+            const normalized = {
+              name: credential.name,
+              scopes: credential.scopes,
+            };
+            if (credential.description) {
+              normalized.description = credential.description;
+            }
+            return normalized;
+          });
+        if (serviceCredentials.length) {
+          payload.serviceCredentials = serviceCredentials;
+        }
+        return payload;
+      }
+
+      function validateServiceRequestPayload(payload) {
+        const errors = [];
+        if (!payload.serviceKey) {
+          errors.push('Service key is required.');
+        }
+        if (!payload.name) {
+          errors.push('Service name is required.');
+        }
+        payload.permissions.forEach((permission, index) => {
+          if (!permission.key || !permission.label) {
+            errors.push(`Permission ${index + 1} needs key and label.`);
+          }
+        });
+        (payload.oidcClients || []).forEach((client, index) => {
+          if (!client.clientId) {
+            errors.push(`OIDC client ${index + 1} needs clientId.`);
+          }
+          if (!client.redirectUris.length) {
+            errors.push(`OIDC client ${index + 1} needs at least one redirect URI.`);
+          }
+        });
+        (payload.serviceCredentials || []).forEach((credential, index) => {
+          if (!credential.name) {
+            errors.push(`Service credential ${index + 1} needs a name.`);
+          }
+          if (!credential.scopes.length) {
+            errors.push(`Service credential ${index + 1} needs at least one scope.`);
+          }
+          credential.scopes.forEach((scope) => {
+            if (!['account.search', 'permission.read'].includes(scope)) {
+              errors.push(
+                `Service credential ${index + 1} scope ${scope} is not supported.`,
+              );
+            }
+          });
+        });
+        return errors;
+      }
+
+      function renderServiceRequestPreview() {
+        const payload = buildServiceRequestPayload();
+        $('serviceRequestPreview').textContent = JSON.stringify(payload, null, 2);
+      }
+
+      function resetServiceRequestForm() {
+        state.serviceRequestDraft = {
+          permissions: [],
+          oidcClients: [],
+          serviceCredentials: [],
+        };
+        state.serviceRequestResult = null;
+        $('requestServiceKey').value = '';
+        $('requestServiceName').value = '';
+        $('requestDescription').value = '';
+        $('requesterName').value = '';
+        $('requesterEmail').value = '';
+        $('serviceRequestResult').hidden = true;
+        $('serviceRequestResult').innerHTML = '';
+        setServiceRequestMessage('');
+        renderServiceRequestRows();
+        renderServiceRequestPreview();
+      }
+
+      function renderServiceRequestRows() {
+        $('permissionRows').innerHTML = state.serviceRequestDraft.permissions.length
+          ? state.serviceRequestDraft.permissions
+              .map(
+                (permission, index) => `
+                  <div class="repeatable-row">
+                    <div class="form-grid">
+                      <label>
+                        Key
+                        <input data-request-field="permissions.${index}.key" value="${escapeHtml(permission.key)}" />
+                      </label>
+                      <label>
+                        Label
+                        <input data-request-field="permissions.${index}.label" value="${escapeHtml(permission.label)}" />
+                      </label>
+                      <label class="span-2">
+                        Description
+                        <textarea data-request-field="permissions.${index}.description">${escapeHtml(permission.description)}</textarea>
+                      </label>
+                    </div>
+                    <div class="inline-actions">
+                      <button class="secondary" data-remove-request-row="permissions" data-row-index="${index}" type="button">Remove Permission</button>
+                    </div>
+                  </div>
+                `,
+              )
+              .join('')
+          : '<div class="hint">No permission definitions. Add rows for service-specific permissions beyond the default visitor.</div>';
+
+        $('clientRows').innerHTML = state.serviceRequestDraft.oidcClients.length
+          ? state.serviceRequestDraft.oidcClients
+              .map(
+                (client, index) => `
+                  <div class="repeatable-row">
+                    <div class="form-grid">
+                      <label>
+                        Client ID
+                        <input data-request-field="oidcClients.${index}.clientId" value="${escapeHtml(client.clientId)}" />
+                      </label>
+                      <label>
+                        Client Type
+                        <select data-request-field="oidcClients.${index}.clientType">
+                          <option value="public" ${client.clientType === 'public' ? 'selected' : ''}>public</option>
+                          <option value="confidential" ${client.clientType === 'confidential' ? 'selected' : ''}>confidential</option>
+                        </select>
+                      </label>
+                      <label>
+                        Require PKCE
+                        <select data-request-field="oidcClients.${index}.requirePkce">
+                          <option value="true" ${client.requirePkce ? 'selected' : ''}>true</option>
+                          <option value="false" ${client.requirePkce ? '' : 'selected'}>false</option>
+                        </select>
+                      </label>
+                      <label>
+                        Allowed Scopes
+                        <textarea data-request-field="oidcClients.${index}.allowedScopes">${escapeHtml(client.allowedScopes)}</textarea>
+                      </label>
+                      <label class="span-2">
+                        Redirect URIs
+                        <textarea data-request-field="oidcClients.${index}.redirectUris">${escapeHtml(client.redirectUris)}</textarea>
+                      </label>
+                      <label class="span-2">
+                        Post Logout Redirect URIs
+                        <textarea data-request-field="oidcClients.${index}.postLogoutRedirectUris">${escapeHtml(client.postLogoutRedirectUris)}</textarea>
+                      </label>
+                    </div>
+                    <div class="inline-actions">
+                      <button class="secondary" data-remove-request-row="oidcClients" data-row-index="${index}" type="button">Remove OIDC Client</button>
+                    </div>
+                  </div>
+                `,
+              )
+              .join('')
+          : '<div class="hint">No OIDC clients. Add one when the service needs browser or app login.</div>';
+
+        $('credentialRows').innerHTML = state.serviceRequestDraft.serviceCredentials.length
+          ? state.serviceRequestDraft.serviceCredentials
+              .map(
+                (credential, index) => `
+                  <div class="repeatable-row">
+                    <div class="form-grid">
+                      <label>
+                        Name
+                        <input data-request-field="serviceCredentials.${index}.name" value="${escapeHtml(credential.name)}" />
+                      </label>
+                      <label>
+                        Scopes
+                        <textarea data-request-field="serviceCredentials.${index}.scopes">${escapeHtml(credential.scopes)}</textarea>
+                      </label>
+                      <label class="span-2">
+                        Description
+                        <textarea data-request-field="serviceCredentials.${index}.description">${escapeHtml(credential.description)}</textarea>
+                      </label>
+                    </div>
+                    <div class="inline-actions">
+                      <button class="secondary" data-remove-request-row="serviceCredentials" data-row-index="${index}" type="button">Remove Credential</button>
+                    </div>
+                  </div>
+                `,
+              )
+              .join('')
+          : '<div class="hint">No service credentials. Add one for backend-to-auth internal API access.</div>';
+      }
+
+      function updateRequestDraftField(path, value) {
+        if (!path) {
+          return;
+        }
+        const [collection, indexText, key] = path.split('.');
+        if (!collection || indexText === undefined || !key) {
+          return;
+        }
+        const row = state.serviceRequestDraft[collection]?.[Number(indexText)];
+        if (!row) {
+          return;
+        }
+        row[key] = key === 'requirePkce' ? value === 'true' : value;
+        renderServiceRequestPreview();
+      }
+
+      function renderServiceRequestResult() {
+        const target = $('serviceRequestResult');
+        if (!state.serviceRequestResult) {
+          target.hidden = true;
+          target.innerHTML = '';
+          return;
+        }
+        const { request, requestSecret } = state.serviceRequestResult;
+        target.hidden = false;
+        target.innerHTML = `
+          <div class="form">
+            <div><strong>Request ID</strong><code>${escapeHtml(request.id)}</code></div>
+            <div><strong>Service</strong>: ${escapeHtml(request.serviceKey)}</div>
+            <div><strong>Status</strong>: ${escapeHtml(request.status)} / revision ${escapeHtml(request.revision)}</div>
+            <div><strong>Request-update-only secret</strong><code>${escapeHtml(requestSecret)}</code></div>
+            <div class="hint">This requestSecret is only for updating this pending onboarding request before approval. It is not an operational service .env secret.</div>
+          </div>
+        `;
       }
 
       function showAdminMain(isVisible) {
@@ -1155,47 +1604,92 @@
           : '<tr><td class="empty-state" colspan="6">No permission assignments.</td></tr>';
       }
 
-      function renderCredentialSecret() {
-        $('credentialSecretCard').innerHTML = state.credentialSecret
-          ? `
-              <div class="form">
-                <div><strong>Service</strong>: ${escapeHtml(state.credentialSecret.serviceKey)}</div>
-                <div><strong>Name</strong>: ${escapeHtml(state.credentialSecret.name)}</div>
-                <div><strong>Key ID</strong><code>${escapeHtml(state.credentialSecret.keyId)}</code></div>
-                <div><strong>Secret</strong><code>${escapeHtml(state.credentialSecret.secret)}</code></div>
-                <div class="hint">Copy this now. It is not stored anywhere in the admin console.</div>
-              </div>
-            `
-          : '<div class="hint">No transient secret in memory.</div>';
+      function envKey(prefix, value) {
+        return `${prefix}_${String(value || 'VALUE')
+          .toUpperCase()
+          .replace(/[^A-Z0-9]+/g, '_')
+          .replace(/^_+|_+$/g, '')}`;
       }
 
-      function renderOnboardingSecret() {
-        if (!state.onboardingSecret || !state.onboardingSecret.secrets?.length) {
-          $('onboardingSecretCard').innerHTML =
-            '<div class="hint">No transient onboarding secrets in memory.</div>';
+      function openSecretModal(title, description, entries, envLines) {
+        state.secretModal = { title, description, entries, envLines };
+        $('secretModalTitle').textContent = title;
+        $('secretModalDescription').textContent = description;
+        $('secretRows').innerHTML = entries
+          .map(
+            (entry, index) => `
+              <div class="secret-row">
+                <strong>${escapeHtml(entry.label)}</strong>
+                <code>${escapeHtml(entry.value)}</code>
+                <button class="secondary" data-copy-secret-index="${index}" type="button">Copy Value</button>
+              </div>
+            `,
+          )
+          .join('');
+        $('secretEnvExamples').textContent = envLines.join('\n');
+        $('secretModal').hidden = false;
+      }
+
+      function closeSecretModal() {
+        state.secretModal = null;
+        $('secretRows').innerHTML = '';
+        $('secretEnvExamples').textContent = '';
+        $('secretModalDescription').textContent = '';
+        $('secretModal').hidden = true;
+      }
+
+      function openApprovalSecretsModal(result) {
+        const serviceKey = result.request?.serviceKey || 'service';
+        const entries = [];
+        const envLines = [`# ${serviceKey} secrets issued by onboarding approval`];
+        (result.secrets || []).forEach((secret) => {
+          if (secret.kind === 'service_credential') {
+            entries.push({
+              label: `${secret.name || 'Service credential'} key ID`,
+              value: secret.keyId,
+            });
+            entries.push({
+              label: `${secret.name || 'Service credential'} secret`,
+              value: secret.secret,
+            });
+            const keyPrefix = envKey('AUTH_SERVICE_CREDENTIAL', secret.name || secret.keyId);
+            envLines.push(`${keyPrefix}_KEY_ID=${secret.keyId}`);
+            envLines.push(`${keyPrefix}_SECRET=${secret.secret}`);
+            return;
+          }
+          entries.push({
+            label: `${secret.clientId} client secret`,
+            value: secret.clientSecret,
+          });
+          envLines.push(`${envKey('OIDC_CLIENT', secret.clientId)}_SECRET=${secret.clientSecret}`);
+        });
+        if (!entries.length) {
+          setStatus('Service onboarding request approved. No operational secrets were issued.');
           return;
         }
-        $('onboardingSecretCard').innerHTML = `
-          <div class="form">
-            <div><strong>Request</strong>: ${escapeHtml(state.onboardingSecret.serviceKey)} / ${escapeHtml(state.onboardingSecret.kind)}</div>
-            ${state.onboardingSecret.secrets
-              .map((secret) => {
-                if (secret.kind === 'service_credential') {
-                  return `
-                    <div><strong>Service Credential</strong>: ${escapeHtml(secret.name)}</div>
-                    <div><strong>Key ID</strong><code>${escapeHtml(secret.keyId)}</code></div>
-                    <div><strong>Secret</strong><code>${escapeHtml(secret.secret)}</code></div>
-                  `;
-                }
-                return `
-                  <div><strong>OIDC Client</strong>: ${escapeHtml(secret.clientId)}</div>
-                  <div><strong>Client Secret</strong><code>${escapeHtml(secret.clientSecret)}</code></div>
-                `;
-              })
-              .join('<hr />')}
-            <div class="hint">These secrets are only shown in this card after approval.</div>
-          </div>
-        `;
+        openSecretModal(
+          'One-Time Approval Secrets',
+          'Copy these operational secrets now. Closing this modal clears the raw values from browser state.',
+          entries,
+          envLines,
+        );
+      }
+
+      function openCredentialRotationModal(secret) {
+        const keyPrefix = envKey('AUTH_SERVICE_CREDENTIAL', secret.name || secret.keyId);
+        openSecretModal(
+          'One-Time Rotated Credential Secret',
+          'Copy this rotated service credential now. Closing this modal clears the raw value from browser state.',
+          [
+            { label: `${secret.name || 'Service credential'} key ID`, value: secret.keyId },
+            { label: `${secret.name || 'Service credential'} secret`, value: secret.secret },
+          ],
+          [
+            `# ${secret.serviceKey || 'service'} rotated service credential`,
+            `${keyPrefix}_KEY_ID=${secret.keyId}`,
+            `${keyPrefix}_SECRET=${secret.secret}`,
+          ],
+        );
       }
 
       function onboardingSpecHtml(requestItem) {
@@ -1552,10 +2046,103 @@
       document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {
           $('workflowHelpModal').hidden = true;
+          closeSecretModal();
         }
       });
 
       $('refreshAll').addEventListener('click', () => void refreshAll());
+      ['requestServiceKey', 'requestServiceName', 'requestDescription', 'requesterName', 'requesterEmail'].forEach(
+        (id) => $(id).addEventListener('input', renderServiceRequestPreview),
+      );
+      $('addPermissionRow').addEventListener('click', () => {
+        state.serviceRequestDraft.permissions.push({
+          key: '',
+          label: '',
+          description: '',
+        });
+        renderServiceRequestRows();
+        renderServiceRequestPreview();
+      });
+      $('addClientRow').addEventListener('click', () => {
+        state.serviceRequestDraft.oidcClients.push({
+          clientId: '',
+          clientType: 'public',
+          requirePkce: true,
+          redirectUris: '',
+          postLogoutRedirectUris: '',
+          allowedScopes: 'openid, profile, email, service.permission',
+        });
+        renderServiceRequestRows();
+        renderServiceRequestPreview();
+      });
+      $('addCredentialRow').addEventListener('click', () => {
+        state.serviceRequestDraft.serviceCredentials.push({
+          name: '',
+          description: '',
+          scopes: 'account.search',
+        });
+        renderServiceRequestRows();
+        renderServiceRequestPreview();
+      });
+      $('resetServiceRequestForm').addEventListener('click', resetServiceRequestForm);
+      ['permissionRows', 'clientRows', 'credentialRows'].forEach((id) => {
+        $(id).addEventListener('input', (event) => {
+          const target = event.target;
+          if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+            updateRequestDraftField(target.dataset.requestField, target.value);
+          }
+        });
+        $(id).addEventListener('change', (event) => {
+          const target = event.target;
+          if (target instanceof HTMLSelectElement) {
+            updateRequestDraftField(target.dataset.requestField, target.value);
+          }
+        });
+        $(id).addEventListener('click', (event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLButtonElement)) {
+            return;
+          }
+          const collection = target.dataset.removeRequestRow;
+          const index = Number(target.dataset.rowIndex);
+          if (!collection || Number.isNaN(index)) {
+            return;
+          }
+          state.serviceRequestDraft[collection].splice(index, 1);
+          renderServiceRequestRows();
+          renderServiceRequestPreview();
+        });
+      });
+      $('submitServiceRequest').addEventListener('click', async () => {
+        const payload = buildServiceRequestPayload();
+        const errors = validateServiceRequestPayload(payload);
+        renderServiceRequestPreview();
+        state.serviceRequestResult = null;
+        renderServiceRequestResult();
+        if (errors.length) {
+          setServiceRequestMessage(errors.join(' '), true);
+          return;
+        }
+        try {
+          const result = await api('/api/service-onboarding-requests', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+          state.serviceRequestResult = result;
+          renderServiceRequestResult();
+          state.listPages.onboarding = 1;
+          await loadOnboardingRequests();
+          setServiceRequestMessage('Pending service onboarding request created.');
+          setStatus('Service onboarding request created');
+        } catch (error) {
+          const duplicateHint = /pending onboarding request|Service key already exists/i.test(
+            error.message,
+          )
+            ? ' Review existing pending requests or submit an update request with the requestSecret.'
+            : '';
+          setServiceRequestMessage(`${error.message}${duplicateHint}`, true);
+        }
+      });
       $('loadPermissions').addEventListener('click', () => {
         state.listPages.permissions = 1;
         void loadPermissions();
@@ -1691,16 +2278,16 @@
         }
         try {
           if (rotateId) {
-            state.credentialSecret = await api(
+            const rotatedSecret = await api(
               `/api/admin/services/${serviceId}/credentials/${rotateId}/rotate`,
               {
                 method: 'POST',
                 body: JSON.stringify({}),
               },
             );
-            renderCredentialSecret();
+            openCredentialRotationModal(rotatedSecret);
             await loadCredentials(serviceId);
-            setStatus('Service credential rotated. Secret is shown once below.');
+            setStatus('Service credential rotated. Secret is shown once in the modal.');
           }
           if (disableId) {
             await api(`/api/admin/services/${serviceId}/credentials/${disableId}/disable`, {
@@ -1731,12 +2318,7 @@
                 body: JSON.stringify({}),
               },
             );
-            state.onboardingSecret = {
-              serviceKey: result.request.serviceKey,
-              kind: result.request.kind,
-              secrets: result.secrets || [],
-            };
-            renderOnboardingSecret();
+            openApprovalSecretsModal(result);
             await refreshAll();
             setStatus('Service onboarding request approved');
           }
@@ -1789,19 +2371,28 @@
         }
       });
 
-      $('clearCredentialSecret').addEventListener('click', () => {
-        state.credentialSecret = null;
-        renderCredentialSecret();
-        setStatus('Transient credential secret cleared');
+      $('closeSecretModal').addEventListener('click', closeSecretModal);
+      $('secretModal').addEventListener('click', (event) => {
+        if (event.target === event.currentTarget) {
+          closeSecretModal();
+        }
       });
-      $('clearOnboardingSecret').addEventListener('click', () => {
-        state.onboardingSecret = null;
-        renderOnboardingSecret();
-        setStatus('Transient onboarding secrets cleared');
+      $('secretRows').addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) {
+          return;
+        }
+        const index = target.dataset.copySecretIndex;
+        const entry = state.secretModal?.entries[Number(index)];
+        if (!entry) {
+          return;
+        }
+        await navigator.clipboard.writeText(entry.value);
+        setStatus('Secret value copied');
       });
 
-      renderCredentialSecret();
-      renderOnboardingSecret();
+      renderServiceRequestRows();
+      renderServiceRequestPreview();
       void initializeAdminSession();
     </script>
   </body>
