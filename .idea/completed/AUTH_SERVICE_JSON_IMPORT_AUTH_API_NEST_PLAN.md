@@ -1,6 +1,8 @@
 ---
-status: PREPARED
+status: COMPLETED
 summary: "/service JSON import 로 service onboarding request form 을 자동 채운다."
+completed_at: 2026-06-15
+completion_reason: "JSON import UI/helper/docs/tests 구현과 lint/build/unit/e2e 및 local smoke 검증이 완료됨."
 ---
 
 # AUTH_SERVICE_JSON_IMPORT — auth-api-nest execution plan
