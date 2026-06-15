@@ -16,6 +16,7 @@ import { ServiceApplicationsModule } from './domain/service-applications/service
 import { ServiceOnboardingModule } from './domain/service-onboarding/service-onboarding.module';
 import { SignupModule } from './signup/signup.module';
 import { InternalModule } from './internal/internal.module';
+import { ServicePageController } from './service-page.controller';
 
 @Module({
   imports: [
@@ -39,6 +40,6 @@ import { InternalModule } from './internal/internal.module';
       exclude: ['/api/*', '/oauth/*', '/oidc/*', '/.well-known/*'],
     }),
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, ServicePageController],
 })
 export class AppModule {}

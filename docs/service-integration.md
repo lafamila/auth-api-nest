@@ -27,11 +27,18 @@ and backend service credential scopes.
 There are two ways to create the same request:
 
 1. A service team or deployment agent sends the JSON directly to the public API.
-2. A logged-in superadmin uses `/admin` > `Create Service Onboarding Request` to
-   compose the same payload with structured fields and a JSON preview.
+2. A logged-in superadmin uses `/service` to compose the same payload with
+   structured fields and a JSON preview.
 
 Both paths create a pending `service_onboarding_requests` row and use the same
-approval lifecycle. The admin UI does not bypass the public request contract.
+approval lifecycle. The `/service` UI does not bypass the public request
+contract.
+
+The `/service` page currently requires the same superadmin session as `/admin`.
+If there is no valid admin session, the request form is hidden and the floating
+Admin Session control opens bootstrap or login. When developer accounts are
+introduced later, `/service` can switch its identity source without changing the
+public request API contract.
 
 Auth admins approve or reject the request in `/admin`. Approved core spec fields
 are not edited directly inside auth; if the service needs to change redirect
@@ -48,9 +55,10 @@ The approval response may include one-time client or service credential secrets.
 The consuming service must store those in backend-only environment variables or
 a secret manager. In `/admin`, approval and credential rotation secrets appear
 only in a one-time modal with label/value rows, value-only copy buttons, and
-concrete `.env` examples containing the actual issued values. Closing the modal
-clears raw secret values from browser state. Frontend/browser code must never
-receive those secrets.
+concrete `.env` examples containing the actual issued values. Overlay clicks
+and copy clicks do not close the modal; only the top close button or bottom
+confirmation button clears raw secret values from browser state.
+Frontend/browser code must never receive those secrets.
 
 ## Permission Claim
 

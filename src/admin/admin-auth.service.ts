@@ -101,7 +101,7 @@ export class AdminAuthService {
     };
   }
 
-  async completeBootstrap(input: BootstrapCompleteDto) {
+  async completeBootstrap(input: BootstrapCompleteDto, request: Request, response: Response) {
     await this.assertBootstrapAvailable();
     const challenge = await this.bootstrapChallenges.findOneBy({
       id: input.challengeId,
@@ -157,7 +157,7 @@ export class AdminAuthService {
       afterJson: this.accounts.safeAccount(result),
     });
 
-    return { account: this.accounts.safeAccount(result) };
+    return this.issueAdminSession(result, request, response);
   }
 
   async login(input: AdminLoginDto, request: Request, response: Response) {
@@ -176,39 +176,7 @@ export class AdminAuthService {
     if (!this.totp.verify(otpSecret, input.otpCode)) {
       throw new UnauthorizedException('Invalid OTP code');
     }
-    const token = randomBytes(32).toString('base64url');
-    const now = new Date();
-    const session = await this.sessions.save(
-      this.sessions.create({
-        account,
-        accountId: account.id,
-        tokenHash: hashSecret(token),
-        idleExpiresAt: new Date(now.getTime() + ADMIN_IDLE_MS),
-        absoluteExpiresAt: new Date(now.getTime() + ADMIN_ABSOLUTE_MS),
-        lastSeenAt: now,
-        revokedAt: null,
-        ipAddress: this.ipAddress(request),
-        userAgent: request.header('user-agent') ?? null,
-      }),
-    );
-    response.cookie(this.config.adminSessionCookieName, token, {
-      httpOnly: true,
-      secure: this.config.nodeEnv === 'production',
-      sameSite: 'lax',
-      signed: true,
-      maxAge: ADMIN_ABSOLUTE_MS,
-    });
-    await this.auditLogs.record({
-      actorAccountId: account.id,
-      action: 'admin.session.create',
-      targetType: 'admin_session',
-      targetId: session.id,
-    });
-    return {
-      account: this.accounts.safeAccount(account),
-      idleExpiresAt: session.idleExpiresAt,
-      absoluteExpiresAt: session.absoluteExpiresAt,
-    };
+    return this.issueAdminSession(account, request, response);
   }
 
   async validateRequest(request: SignedCookieRequest): Promise<AccountEntity> {
@@ -253,6 +221,46 @@ export class AdminAuthService {
     if ((await this.accounts.countActiveSuperAdmins()) > 0) {
       throw new ConflictException('Bootstrap is closed');
     }
+  }
+
+  private async issueAdminSession(
+    account: AccountEntity,
+    request: Request,
+    response: Response,
+  ) {
+    const token = randomBytes(32).toString('base64url');
+    const now = new Date();
+    const session = await this.sessions.save(
+      this.sessions.create({
+        account,
+        accountId: account.id,
+        tokenHash: hashSecret(token),
+        idleExpiresAt: new Date(now.getTime() + ADMIN_IDLE_MS),
+        absoluteExpiresAt: new Date(now.getTime() + ADMIN_ABSOLUTE_MS),
+        lastSeenAt: now,
+        revokedAt: null,
+        ipAddress: this.ipAddress(request),
+        userAgent: request.header('user-agent') ?? null,
+      }),
+    );
+    response.cookie(this.config.adminSessionCookieName, token, {
+      httpOnly: true,
+      secure: this.config.nodeEnv === 'production',
+      sameSite: 'lax',
+      signed: true,
+      maxAge: ADMIN_ABSOLUTE_MS,
+    });
+    await this.auditLogs.record({
+      actorAccountId: account.id,
+      action: 'admin.session.create',
+      targetType: 'admin_session',
+      targetId: session.id,
+    });
+    return {
+      account: this.accounts.safeAccount(account),
+      idleExpiresAt: session.idleExpiresAt,
+      absoluteExpiresAt: session.absoluteExpiresAt,
+    };
   }
 
   private ipAddress(request: Request): string | null {

@@ -1,6 +1,7 @@
 # Admin API
 
-Admin routes use the superadmin session cookie issued by `/api/admin/login`.
+Admin routes use the superadmin session cookie issued by `/api/admin/login` or
+the first-superadmin `/api/admin/bootstrap/complete` flow.
 `x-admin-key` is no longer an admin authorization model.
 Internal service-to-service calls must use service credentials issued through the admin API.
 
@@ -8,7 +9,7 @@ Internal service-to-service calls must use service credentials issued through th
 
 - `GET /api/admin/bootstrap/status`: returns whether the connected DB needs first-superadmin bootstrap.
 - `POST /api/admin/bootstrap/start`: starts first-superadmin setup when no active superadmin exists. Returns a one-time OTP secret, otpauth URI, and QR image data for authenticator registration.
-- `POST /api/admin/bootstrap/complete`: verifies the OTP code and completes first-superadmin creation.
+- `POST /api/admin/bootstrap/complete`: verifies the OTP code, completes first-superadmin creation, issues the same HttpOnly admin session cookie as login, and returns the same session response shape: `account`, `idleExpiresAt`, and `absoluteExpiresAt`.
 - `POST /api/admin/login`: logs in an active superadmin with login ID, password, and Google OTP. Issues an HttpOnly admin session cookie.
 - `GET /api/admin/session`: returns the current superadmin session account.
 - `POST /api/admin/logout`: revokes the current admin session.
@@ -18,6 +19,12 @@ Admin session policy:
 - idle expiry: 30 minutes
 - absolute expiry: 12 hours
 - no refresh token
+
+The floating Admin Session control is state-based in both `/admin` and
+`/service`: while logged out it opens the bootstrap/login panel, and while
+logged in its label changes to `Logout` and it immediately revokes the session.
+Bootstrap fields are shown only when `bootstrap/status.requiresBootstrap` is
+`true`; otherwise the panel shows only login.
 
 ## Accounts
 
@@ -43,12 +50,13 @@ Service registry creation and core spec changes happen through service onboardin
 Services that want to integrate with Teddy Auth should submit their desired
 auth spec instead of relying on manual admin entry.
 
-Superadmins can also compose the same request from `/admin` after logging in.
-The admin console shows `Service Onboarding Requests` and `Account Access
-Requests` as the first action areas. Its `Create Service Onboarding Request`
-form builds the same public request payload, including service basics,
-permission definitions, OIDC clients, redirect/logout URIs, scopes, and service
-credentials. The JSON preview is the exact request body that will be sent to the
+Superadmins can compose the same request from `/service` after logging in with
+an admin session. `/admin` is now the review and operations console: it shows
+`Service Onboarding Requests`, `Account Access Requests`, account/service
+readouts, dashboards, and operational actions, but it does not include the
+request builder. `/service` contains the structured request form for service
+basics, permission definitions, OIDC clients, redirect/logout URIs, scopes, and
+service credentials. Its JSON preview is the exact request body sent to the
 public create API.
 
 Public service-side endpoints:
@@ -88,8 +96,10 @@ as operational controls.
 Approval and credential rotation can issue operational secrets. `/admin` shows
 those values only in a one-time modal with label/value rows, copy buttons that
 copy only the raw value, and concrete `.env` examples containing the issued
-values. Closing the modal clears the raw values from browser state; there is no
-fixed panel or later UI/API path to retrieve them.
+values. Overlay clicks, copy clicks, and ordinary modal-body clicks do not close
+the modal. Only the top close button or bottom confirmation button closes it,
+and closing clears the raw values from browser state. There is no fixed panel or
+later UI/API path to retrieve them.
 
 ## Permission Definitions
 

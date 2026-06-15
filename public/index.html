@@ -621,75 +621,6 @@
 
         <section>
           <div class="toolbar">
-            <h2>Create Service Onboarding Request</h2>
-            <button class="secondary" id="resetServiceRequestForm" type="button">Reset</button>
-          </div>
-          <div class="request-builder">
-            <div>
-              <h3>Service Basics</h3>
-              <div class="form-grid">
-                <label>
-                  Service Key
-                  <input id="requestServiceKey" autocomplete="off" />
-                </label>
-                <label>
-                  Name
-                  <input id="requestServiceName" autocomplete="off" />
-                </label>
-                <label class="span-2">
-                  Description
-                  <textarea id="requestDescription"></textarea>
-                </label>
-                <label>
-                  Requester Name
-                  <input id="requesterName" autocomplete="name" />
-                </label>
-                <label>
-                  Requester Email
-                  <input id="requesterEmail" autocomplete="email" type="email" />
-                </label>
-              </div>
-            </div>
-
-            <div>
-              <div class="toolbar">
-                <h3>Permissions</h3>
-                <button class="secondary" id="addPermissionRow" type="button">Add Permission</button>
-              </div>
-              <div class="repeatable-list" id="permissionRows"></div>
-            </div>
-
-            <div>
-              <div class="toolbar">
-                <h3>OIDC Clients</h3>
-                <button class="secondary" id="addClientRow" type="button">Add OIDC Client</button>
-              </div>
-              <div class="repeatable-list" id="clientRows"></div>
-            </div>
-
-            <div>
-              <div class="toolbar">
-                <h3>Service Credentials</h3>
-                <button class="secondary" id="addCredentialRow" type="button">Add Credential</button>
-              </div>
-              <div class="repeatable-list" id="credentialRows"></div>
-            </div>
-
-            <div>
-              <h3>JSON Preview</h3>
-              <pre class="json-preview" id="serviceRequestPreview"></pre>
-            </div>
-
-            <div class="inline-actions">
-              <button id="submitServiceRequest" type="button">Submit Request</button>
-            </div>
-            <div class="message" id="serviceRequestMessage"></div>
-            <div class="create-result" hidden id="serviceRequestResult"></div>
-          </div>
-        </section>
-
-        <section>
-          <div class="toolbar">
             <h2>Accounts</h2>
           </div>
           <table>
@@ -900,6 +831,9 @@
         <div id="secretRows"></div>
         <h3>Concrete .env examples</h3>
         <pre class="env-example" id="secretEnvExamples"></pre>
+        <div class="inline-actions">
+          <button id="confirmSecretModal" type="button">I copied these secrets</button>
+        </div>
       </div>
     </div>
 
@@ -935,10 +869,6 @@
           <label>Google OTP <input id="adminOtpCode" inputmode="numeric" /></label>
           <button id="adminLogin" type="button">Login</button>
         </div>
-        <div class="form" id="adminSessionForm" hidden>
-          <div class="hint" id="adminSessionSummary"></div>
-          <button class="secondary" id="adminLogout" type="button">Logout</button>
-        </div>
         <div class="message" id="statusMessage"></div>
       </div>
     </div>
@@ -951,12 +881,6 @@
         services: [],
         onboardingRequests: [],
         onboardingFilter: 'all',
-        serviceRequestDraft: {
-          permissions: [],
-          oidcClients: [],
-          serviceCredentials: [],
-        },
-        serviceRequestResult: null,
         secretModal: null,
         permissionsByService: {},
         clientsByService: {},
@@ -1001,312 +925,6 @@
         statusMessage.classList.toggle('error', isError);
       }
 
-      function setServiceRequestMessage(text, isError = false) {
-        const target = $('serviceRequestMessage');
-        target.textContent = text;
-        target.classList.toggle('error', isError);
-      }
-
-      function splitList(value) {
-        return String(value || '')
-          .split(/[\n,]/)
-          .map((item) => item.trim())
-          .filter(Boolean);
-      }
-
-      function syncServiceRequestBasics() {
-        state.serviceRequestDraft.serviceKey = $('requestServiceKey').value.trim();
-        state.serviceRequestDraft.name = $('requestServiceName').value.trim();
-        state.serviceRequestDraft.description = $('requestDescription').value.trim();
-        state.serviceRequestDraft.requesterName = $('requesterName').value.trim();
-        state.serviceRequestDraft.requesterEmail = $('requesterEmail').value.trim();
-      }
-
-      function buildServiceRequestPayload() {
-        syncServiceRequestBasics();
-        const payload = {
-          serviceKey: state.serviceRequestDraft.serviceKey,
-          name: state.serviceRequestDraft.name,
-          permissions: state.serviceRequestDraft.permissions
-            .map((permission) => ({
-              key: permission.key.trim(),
-              label: permission.label.trim(),
-              description: permission.description.trim(),
-            }))
-            .filter((permission) => permission.key || permission.label || permission.description),
-        };
-        if (state.serviceRequestDraft.description) {
-          payload.description = state.serviceRequestDraft.description;
-        }
-        if (state.serviceRequestDraft.requesterName) {
-          payload.requesterName = state.serviceRequestDraft.requesterName;
-        }
-        if (state.serviceRequestDraft.requesterEmail) {
-          payload.requesterEmail = state.serviceRequestDraft.requesterEmail;
-        }
-        const oidcClients = state.serviceRequestDraft.oidcClients
-          .map((client) => ({
-            clientId: client.clientId.trim(),
-            clientType: client.clientType,
-            redirectUris: splitList(client.redirectUris),
-            postLogoutRedirectUris: splitList(client.postLogoutRedirectUris),
-            allowedScopes: splitList(client.allowedScopes),
-            requirePkce: Boolean(client.requirePkce),
-          }))
-          .filter(
-            (client) =>
-              client.clientId ||
-              client.redirectUris.length ||
-              client.postLogoutRedirectUris.length ||
-              client.allowedScopes.length,
-          )
-          .map((client) => {
-            const normalized = {
-              clientId: client.clientId,
-              clientType: client.clientType,
-              redirectUris: client.redirectUris,
-              requirePkce: client.requirePkce,
-            };
-            if (client.postLogoutRedirectUris.length) {
-              normalized.postLogoutRedirectUris = client.postLogoutRedirectUris;
-            }
-            if (client.allowedScopes.length) {
-              normalized.allowedScopes = client.allowedScopes;
-            }
-            return normalized;
-          });
-        if (oidcClients.length) {
-          payload.oidcClients = oidcClients;
-        }
-        const serviceCredentials = state.serviceRequestDraft.serviceCredentials
-          .map((credential) => ({
-            name: credential.name.trim(),
-            description: credential.description.trim(),
-            scopes: splitList(credential.scopes),
-          }))
-          .filter(
-            (credential) =>
-              credential.name || credential.description || credential.scopes.length,
-          )
-          .map((credential) => {
-            const normalized = {
-              name: credential.name,
-              scopes: credential.scopes,
-            };
-            if (credential.description) {
-              normalized.description = credential.description;
-            }
-            return normalized;
-          });
-        if (serviceCredentials.length) {
-          payload.serviceCredentials = serviceCredentials;
-        }
-        return payload;
-      }
-
-      function validateServiceRequestPayload(payload) {
-        const errors = [];
-        if (!payload.serviceKey) {
-          errors.push('Service key is required.');
-        }
-        if (!payload.name) {
-          errors.push('Service name is required.');
-        }
-        payload.permissions.forEach((permission, index) => {
-          if (!permission.key || !permission.label) {
-            errors.push(`Permission ${index + 1} needs key and label.`);
-          }
-        });
-        (payload.oidcClients || []).forEach((client, index) => {
-          if (!client.clientId) {
-            errors.push(`OIDC client ${index + 1} needs clientId.`);
-          }
-          if (!client.redirectUris.length) {
-            errors.push(`OIDC client ${index + 1} needs at least one redirect URI.`);
-          }
-        });
-        (payload.serviceCredentials || []).forEach((credential, index) => {
-          if (!credential.name) {
-            errors.push(`Service credential ${index + 1} needs a name.`);
-          }
-          if (!credential.scopes.length) {
-            errors.push(`Service credential ${index + 1} needs at least one scope.`);
-          }
-          credential.scopes.forEach((scope) => {
-            if (!['account.search', 'permission.read'].includes(scope)) {
-              errors.push(
-                `Service credential ${index + 1} scope ${scope} is not supported.`,
-              );
-            }
-          });
-        });
-        return errors;
-      }
-
-      function renderServiceRequestPreview() {
-        const payload = buildServiceRequestPayload();
-        $('serviceRequestPreview').textContent = JSON.stringify(payload, null, 2);
-      }
-
-      function resetServiceRequestForm() {
-        state.serviceRequestDraft = {
-          permissions: [],
-          oidcClients: [],
-          serviceCredentials: [],
-        };
-        state.serviceRequestResult = null;
-        $('requestServiceKey').value = '';
-        $('requestServiceName').value = '';
-        $('requestDescription').value = '';
-        $('requesterName').value = '';
-        $('requesterEmail').value = '';
-        $('serviceRequestResult').hidden = true;
-        $('serviceRequestResult').innerHTML = '';
-        setServiceRequestMessage('');
-        renderServiceRequestRows();
-        renderServiceRequestPreview();
-      }
-
-      function renderServiceRequestRows() {
-        $('permissionRows').innerHTML = state.serviceRequestDraft.permissions.length
-          ? state.serviceRequestDraft.permissions
-              .map(
-                (permission, index) => `
-                  <div class="repeatable-row">
-                    <div class="form-grid">
-                      <label>
-                        Key
-                        <input data-request-field="permissions.${index}.key" value="${escapeHtml(permission.key)}" />
-                      </label>
-                      <label>
-                        Label
-                        <input data-request-field="permissions.${index}.label" value="${escapeHtml(permission.label)}" />
-                      </label>
-                      <label class="span-2">
-                        Description
-                        <textarea data-request-field="permissions.${index}.description">${escapeHtml(permission.description)}</textarea>
-                      </label>
-                    </div>
-                    <div class="inline-actions">
-                      <button class="secondary" data-remove-request-row="permissions" data-row-index="${index}" type="button">Remove Permission</button>
-                    </div>
-                  </div>
-                `,
-              )
-              .join('')
-          : '<div class="hint">No permission definitions. Add rows for service-specific permissions beyond the default visitor.</div>';
-
-        $('clientRows').innerHTML = state.serviceRequestDraft.oidcClients.length
-          ? state.serviceRequestDraft.oidcClients
-              .map(
-                (client, index) => `
-                  <div class="repeatable-row">
-                    <div class="form-grid">
-                      <label>
-                        Client ID
-                        <input data-request-field="oidcClients.${index}.clientId" value="${escapeHtml(client.clientId)}" />
-                      </label>
-                      <label>
-                        Client Type
-                        <select data-request-field="oidcClients.${index}.clientType">
-                          <option value="public" ${client.clientType === 'public' ? 'selected' : ''}>public</option>
-                          <option value="confidential" ${client.clientType === 'confidential' ? 'selected' : ''}>confidential</option>
-                        </select>
-                      </label>
-                      <label>
-                        Require PKCE
-                        <select data-request-field="oidcClients.${index}.requirePkce">
-                          <option value="true" ${client.requirePkce ? 'selected' : ''}>true</option>
-                          <option value="false" ${client.requirePkce ? '' : 'selected'}>false</option>
-                        </select>
-                      </label>
-                      <label>
-                        Allowed Scopes
-                        <textarea data-request-field="oidcClients.${index}.allowedScopes">${escapeHtml(client.allowedScopes)}</textarea>
-                      </label>
-                      <label class="span-2">
-                        Redirect URIs
-                        <textarea data-request-field="oidcClients.${index}.redirectUris">${escapeHtml(client.redirectUris)}</textarea>
-                      </label>
-                      <label class="span-2">
-                        Post Logout Redirect URIs
-                        <textarea data-request-field="oidcClients.${index}.postLogoutRedirectUris">${escapeHtml(client.postLogoutRedirectUris)}</textarea>
-                      </label>
-                    </div>
-                    <div class="inline-actions">
-                      <button class="secondary" data-remove-request-row="oidcClients" data-row-index="${index}" type="button">Remove OIDC Client</button>
-                    </div>
-                  </div>
-                `,
-              )
-              .join('')
-          : '<div class="hint">No OIDC clients. Add one when the service needs browser or app login.</div>';
-
-        $('credentialRows').innerHTML = state.serviceRequestDraft.serviceCredentials.length
-          ? state.serviceRequestDraft.serviceCredentials
-              .map(
-                (credential, index) => `
-                  <div class="repeatable-row">
-                    <div class="form-grid">
-                      <label>
-                        Name
-                        <input data-request-field="serviceCredentials.${index}.name" value="${escapeHtml(credential.name)}" />
-                      </label>
-                      <label>
-                        Scopes
-                        <textarea data-request-field="serviceCredentials.${index}.scopes">${escapeHtml(credential.scopes)}</textarea>
-                      </label>
-                      <label class="span-2">
-                        Description
-                        <textarea data-request-field="serviceCredentials.${index}.description">${escapeHtml(credential.description)}</textarea>
-                      </label>
-                    </div>
-                    <div class="inline-actions">
-                      <button class="secondary" data-remove-request-row="serviceCredentials" data-row-index="${index}" type="button">Remove Credential</button>
-                    </div>
-                  </div>
-                `,
-              )
-              .join('')
-          : '<div class="hint">No service credentials. Add one for backend-to-auth internal API access.</div>';
-      }
-
-      function updateRequestDraftField(path, value) {
-        if (!path) {
-          return;
-        }
-        const [collection, indexText, key] = path.split('.');
-        if (!collection || indexText === undefined || !key) {
-          return;
-        }
-        const row = state.serviceRequestDraft[collection]?.[Number(indexText)];
-        if (!row) {
-          return;
-        }
-        row[key] = key === 'requirePkce' ? value === 'true' : value;
-        renderServiceRequestPreview();
-      }
-
-      function renderServiceRequestResult() {
-        const target = $('serviceRequestResult');
-        if (!state.serviceRequestResult) {
-          target.hidden = true;
-          target.innerHTML = '';
-          return;
-        }
-        const { request, requestSecret } = state.serviceRequestResult;
-        target.hidden = false;
-        target.innerHTML = `
-          <div class="form">
-            <div><strong>Request ID</strong><code>${escapeHtml(request.id)}</code></div>
-            <div><strong>Service</strong>: ${escapeHtml(request.serviceKey)}</div>
-            <div><strong>Status</strong>: ${escapeHtml(request.status)} / revision ${escapeHtml(request.revision)}</div>
-            <div><strong>Request-update-only secret</strong><code>${escapeHtml(requestSecret)}</code></div>
-            <div class="hint">This requestSecret is only for updating this pending onboarding request before approval. It is not an operational service .env secret.</div>
-          </div>
-        `;
-      }
-
       function showAdminMain(isVisible) {
         $('adminMain').hidden = !isVisible;
         $('refreshAll').disabled = !isVisible;
@@ -1316,7 +934,10 @@
         $('adminAccessPanel').hidden = false;
         $('bootstrapForm').hidden = mode !== 'bootstrap';
         $('adminLoginForm').hidden = mode !== 'login';
-        $('adminSessionForm').hidden = mode !== 'session';
+      }
+
+      function updateAdminAccessButton() {
+        $('openAdminAccess').textContent = state.adminSession ? 'Logout' : 'Admin Session';
       }
 
       function updateWorkflowHelpVisibility() {
@@ -1916,14 +1537,15 @@
           const session = await sessionRequest('/api/admin/session');
           state.adminSession = session.account;
           state.requiresBootstrap = false;
-          $('adminSessionSummary').textContent = `Logged in as ${session.account.loginId}`;
-          showAccessPanel('session');
+          $('adminAccessPanel').hidden = true;
+          updateAdminAccessButton();
           showAdminMain(true);
           updateWorkflowHelpVisibility();
           await refreshAll();
           return;
         } catch {
           state.adminSession = null;
+          updateAdminAccessButton();
           showAdminMain(false);
         }
 
@@ -1972,16 +1594,22 @@
 
       $('completeBootstrap').addEventListener('click', async () => {
         try {
-          await sessionRequest('/api/admin/bootstrap/complete', {
+          const result = await sessionRequest('/api/admin/bootstrap/complete', {
             method: 'POST',
             body: JSON.stringify({
               challengeId: state.bootstrapChallengeId,
               otpCode: $('bootstrapOtpCode').value,
             }),
           });
-          setStatus('Bootstrap completed. Log in with the new superadmin.');
+          state.adminSession = result.account;
+          state.requiresBootstrap = false;
           state.bootstrapChallengeId = null;
-          await initializeAdminSession();
+          $('adminAccessPanel').hidden = true;
+          updateAdminAccessButton();
+          showAdminMain(true);
+          updateWorkflowHelpVisibility();
+          await refreshAll();
+          setStatus('Bootstrap completed and logged in');
         } catch (error) {
           setStatus(error.message, true);
         }
@@ -1999,8 +1627,8 @@
           });
           state.adminSession = result.account;
           state.requiresBootstrap = false;
-          $('adminSessionSummary').textContent = `Logged in as ${result.account.loginId}`;
-          showAccessPanel('session');
+          $('adminAccessPanel').hidden = true;
+          updateAdminAccessButton();
           showAdminMain(true);
           updateWorkflowHelpVisibility();
           await refreshAll();
@@ -2010,7 +1638,7 @@
         }
       });
 
-      $('adminLogout').addEventListener('click', async () => {
+      async function logoutAdminSession() {
         try {
           await sessionRequest('/api/admin/logout', {
             method: 'POST',
@@ -2020,13 +1648,18 @@
           // Session may already be expired; reset the UI either way.
         }
         state.adminSession = null;
+        updateAdminAccessButton();
         showAdminMain(false);
         updateWorkflowHelpVisibility();
         await initializeAdminSession();
         setStatus('Logged out');
-      });
+      }
 
       $('openAdminAccess').addEventListener('click', () => {
+        if (state.adminSession) {
+          void logoutAdminSession();
+          return;
+        }
         $('adminAccessPanel').hidden = false;
       });
       $('closeAdminAccess').addEventListener('click', () => {
@@ -2046,103 +1679,10 @@
       document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {
           $('workflowHelpModal').hidden = true;
-          closeSecretModal();
         }
       });
 
       $('refreshAll').addEventListener('click', () => void refreshAll());
-      ['requestServiceKey', 'requestServiceName', 'requestDescription', 'requesterName', 'requesterEmail'].forEach(
-        (id) => $(id).addEventListener('input', renderServiceRequestPreview),
-      );
-      $('addPermissionRow').addEventListener('click', () => {
-        state.serviceRequestDraft.permissions.push({
-          key: '',
-          label: '',
-          description: '',
-        });
-        renderServiceRequestRows();
-        renderServiceRequestPreview();
-      });
-      $('addClientRow').addEventListener('click', () => {
-        state.serviceRequestDraft.oidcClients.push({
-          clientId: '',
-          clientType: 'public',
-          requirePkce: true,
-          redirectUris: '',
-          postLogoutRedirectUris: '',
-          allowedScopes: 'openid, profile, email, service.permission',
-        });
-        renderServiceRequestRows();
-        renderServiceRequestPreview();
-      });
-      $('addCredentialRow').addEventListener('click', () => {
-        state.serviceRequestDraft.serviceCredentials.push({
-          name: '',
-          description: '',
-          scopes: 'account.search',
-        });
-        renderServiceRequestRows();
-        renderServiceRequestPreview();
-      });
-      $('resetServiceRequestForm').addEventListener('click', resetServiceRequestForm);
-      ['permissionRows', 'clientRows', 'credentialRows'].forEach((id) => {
-        $(id).addEventListener('input', (event) => {
-          const target = event.target;
-          if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-            updateRequestDraftField(target.dataset.requestField, target.value);
-          }
-        });
-        $(id).addEventListener('change', (event) => {
-          const target = event.target;
-          if (target instanceof HTMLSelectElement) {
-            updateRequestDraftField(target.dataset.requestField, target.value);
-          }
-        });
-        $(id).addEventListener('click', (event) => {
-          const target = event.target;
-          if (!(target instanceof HTMLButtonElement)) {
-            return;
-          }
-          const collection = target.dataset.removeRequestRow;
-          const index = Number(target.dataset.rowIndex);
-          if (!collection || Number.isNaN(index)) {
-            return;
-          }
-          state.serviceRequestDraft[collection].splice(index, 1);
-          renderServiceRequestRows();
-          renderServiceRequestPreview();
-        });
-      });
-      $('submitServiceRequest').addEventListener('click', async () => {
-        const payload = buildServiceRequestPayload();
-        const errors = validateServiceRequestPayload(payload);
-        renderServiceRequestPreview();
-        state.serviceRequestResult = null;
-        renderServiceRequestResult();
-        if (errors.length) {
-          setServiceRequestMessage(errors.join(' '), true);
-          return;
-        }
-        try {
-          const result = await api('/api/service-onboarding-requests', {
-            method: 'POST',
-            body: JSON.stringify(payload),
-          });
-          state.serviceRequestResult = result;
-          renderServiceRequestResult();
-          state.listPages.onboarding = 1;
-          await loadOnboardingRequests();
-          setServiceRequestMessage('Pending service onboarding request created.');
-          setStatus('Service onboarding request created');
-        } catch (error) {
-          const duplicateHint = /pending onboarding request|Service key already exists/i.test(
-            error.message,
-          )
-            ? ' Review existing pending requests or submit an update request with the requestSecret.'
-            : '';
-          setServiceRequestMessage(`${error.message}${duplicateHint}`, true);
-        }
-      });
       $('loadPermissions').addEventListener('click', () => {
         state.listPages.permissions = 1;
         void loadPermissions();
@@ -2372,12 +1912,9 @@
       });
 
       $('closeSecretModal').addEventListener('click', closeSecretModal);
-      $('secretModal').addEventListener('click', (event) => {
-        if (event.target === event.currentTarget) {
-          closeSecretModal();
-        }
-      });
+      $('confirmSecretModal').addEventListener('click', closeSecretModal);
       $('secretRows').addEventListener('click', async (event) => {
+        event.stopPropagation();
         const target = event.target;
         if (!(target instanceof HTMLButtonElement)) {
           return;
@@ -2391,8 +1928,7 @@
         setStatus('Secret value copied');
       });
 
-      renderServiceRequestRows();
-      renderServiceRequestPreview();
+      updateAdminAccessButton();
       void initializeAdminSession();
     </script>
   </body>

@@ -7,10 +7,9 @@ import { join } from 'node:path';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
-import { AesGcmService } from '../src/common/crypto/aes-gcm.service';
 import { TotpService } from '../src/common/crypto/totp.service';
 import { AccountServicePermissionEntity } from '../src/database/entities/account-service-permission.entity';
-import { AdminMfaEntity } from '../src/database/entities/admin-mfa.entity';
+import { AccountEntity } from '../src/database/entities/account.entity';
 import { OidcClientEntity } from '../src/database/entities/oidc-client.entity';
 import { ServiceCredentialEntity } from '../src/database/entities/service-credential.entity';
 import { ServiceOnboardingRequestEntity } from '../src/database/entities/service-onboarding-request.entity';
@@ -37,6 +36,7 @@ describe('App bootstrap (e2e)', () => {
   let app: INestApplication;
   let dataSource: DataSource;
   let adminCookie: string[];
+  let bootstrapCompleteBody: Record<string, unknown>;
   let uniqueCounter = 0;
 
   beforeAll(async () => {
@@ -77,32 +77,40 @@ describe('App bootstrap (e2e)', () => {
     const suffix = nextSuffix('superadmin-e2e');
     const loginId = suffix;
     const password = 'Superadmin-password!';
-    const otpSecret = 'JBSWY3DPEHPK3PXP';
-    const accounts = app.get(AccountsService);
-    const aes = app.get(AesGcmService);
     const totp = app.get(TotpService);
-    const account = await accounts.create({
-      loginId,
-      name: 'E2E Super Admin',
-      email: `${loginId}@lafamila.xyz`,
-      password,
-      isSuperAdmin: true,
-    });
-    await dataSource.getRepository(AdminMfaEntity).save(
-      dataSource.getRepository(AdminMfaEntity).create({
-        account,
-        accountId: account.id,
-        encryptedOtpSecret: aes.encrypt(otpSecret),
-        verifiedAt: new Date(),
-      }),
-    );
-    const otpCode = (totp as unknown as { generateCode(secret: string, now: number): string })
-      .generateCode(otpSecret, Date.now());
-    const response = await request(app.getHttpServer())
-      .post('/api/admin/login')
-      .send({ loginId, password, otpCode })
+
+    await dataSource
+      .getRepository(AccountEntity)
+      .update({ isSuperAdmin: true, status: 'active' }, { status: 'disabled' });
+
+    await request(app.getHttpServer())
+      .get('/api/admin/bootstrap/status')
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.requiresBootstrap).toBe(true);
+      });
+
+    const startResponse = await request(app.getHttpServer())
+      .post('/api/admin/bootstrap/start')
+      .send({
+        loginId,
+        name: 'E2E Super Admin',
+        email: `${loginId}@lafamila.xyz`,
+        password,
+      })
       .expect(201);
-    const setCookie = response.headers['set-cookie'];
+
+    const otpCode = (
+      totp as unknown as { generateCode(secret: string, now: number): string }
+    ).generateCode(startResponse.body.otpSecret, Date.now());
+
+    const completeResponse = await request(app.getHttpServer())
+      .post('/api/admin/bootstrap/complete')
+      .send({ challengeId: startResponse.body.challengeId, otpCode })
+      .expect(201);
+
+    bootstrapCompleteBody = completeResponse.body;
+    const setCookie = completeResponse.headers['set-cookie'];
     return Array.isArray(setCookie) ? setCookie : [setCookie];
   }
 
@@ -243,6 +251,33 @@ describe('App bootstrap (e2e)', () => {
       .expect({ status: 'ok' });
   });
 
+  it('completes bootstrap with the same admin session cookie and response shape as login', async () => {
+    expect(adminCookie.join(';')).toContain('tas_admin_session');
+    expect(bootstrapCompleteBody).toEqual(
+      expect.objectContaining({
+        account: expect.objectContaining({
+          loginId: expect.stringContaining('superadmin-e2e'),
+          isSuperAdmin: true,
+        }),
+        idleExpiresAt: expect.any(String),
+        absoluteExpiresAt: expect.any(String),
+      }),
+    );
+
+    await request(app.getHttpServer())
+      .get('/api/admin/session')
+      .set('Cookie', adminCookie)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.account).toEqual(
+          expect.objectContaining({
+            loginId: expect.stringContaining('superadmin-e2e'),
+            isSuperAdmin: true,
+          }),
+        );
+      });
+  });
+
   it('serves the cleaned admin UI surface', async () => {
     const adminHtml = readFileSync(
       join(process.cwd(), 'public', 'index.html'),
@@ -250,12 +285,18 @@ describe('App bootstrap (e2e)', () => {
     );
     expect(adminHtml).toContain('Service Onboarding Requests');
     expect(adminHtml).toContain('Account Access Requests');
-    expect(adminHtml).toContain('Create Service Onboarding Request');
-    expect(adminHtml).toContain('JSON Preview');
-    expect(adminHtml).toContain('Request-update-only secret');
+    expect(adminHtml).not.toContain('Create Service Onboarding Request');
+    expect(adminHtml).not.toContain('JSON Preview');
+    expect(adminHtml).not.toContain('Request-update-only secret');
     expect(adminHtml).toContain('One-Time Operational Secrets');
     expect(adminHtml).toContain('Copy Value');
+    expect(adminHtml).toContain('confirmSecretModal');
+    expect(adminHtml).toContain('I copied these secrets');
     expect(adminHtml).toContain('Concrete .env examples');
+    expect(adminHtml).toContain("state.adminSession ? 'Logout' : 'Admin Session'");
+    expect(adminHtml).not.toContain('adminSessionForm');
+    expect(adminHtml).not.toContain('adminLogout');
+    expect(adminHtml).not.toContain("$('secretModal').addEventListener('click'");
     expect(adminHtml.indexOf('Service Onboarding Requests')).toBeLessThan(
       adminHtml.indexOf('Account Access Requests'),
     );
@@ -269,6 +310,36 @@ describe('App bootstrap (e2e)', () => {
     expect(adminHtml).not.toContain('Create Service Credential');
     expect(adminHtml).not.toContain('Create OIDC Client');
     expect(adminHtml).not.toContain('Assign Service Permission');
+
+    await request(app.getHttpServer())
+      .get('/admin')
+      .expect(200)
+      .expect((response) => {
+        expect(response.text).toContain('Service Onboarding Requests');
+        expect(response.text).not.toContain('Create Service Onboarding Request');
+      });
+  });
+
+  it('serves the service request builder on /service', async () => {
+    const serviceHtml = readFileSync(
+      join(process.cwd(), 'public', 'service.html'),
+      'utf8',
+    );
+    expect(serviceHtml).toContain('Create Service Onboarding Request');
+    expect(serviceHtml).toContain('JSON Preview');
+    expect(serviceHtml).toContain('Request-update-only secret');
+    expect(serviceHtml).toContain('Admin Session required');
+    expect(serviceHtml).toContain("state.adminSession ? 'Logout' : 'Admin Session'");
+    expect(serviceHtml).not.toContain('adminSessionForm');
+    expect(serviceHtml).not.toContain('adminLogout');
+
+    await request(app.getHttpServer())
+      .get('/service')
+      .expect(200)
+      .expect((response) => {
+        expect(response.text).toContain('Create Service Onboarding Request');
+        expect(response.text).toContain('JSON Preview');
+      });
   });
 
   it('creates and revises a pending service onboarding request with its request secret', async () => {

@@ -23,8 +23,12 @@ export class AdminAuthController {
   }
 
   @Post('bootstrap/complete')
-  completeBootstrap(@Body() body: BootstrapCompleteDto) {
-    return this.adminAuth.completeBootstrap(body);
+  completeBootstrap(
+    @Body() body: BootstrapCompleteDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    return this.adminAuth.completeBootstrap(body, request, response);
   }
 
   @Post('login')
