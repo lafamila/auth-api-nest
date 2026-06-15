@@ -9,6 +9,30 @@ Services integrate with Teddy Auth as an OIDC relying party.
 - JWKS URI from discovery.
 - Audience: `service:{serviceKey}` for access tokens.
 
+## Service Onboarding Request
+
+New services should prepare a service onboarding request before they expect
+central login to work. The request is the service-owned auth spec and can be
+submitted to:
+
+```http
+POST /api/service-onboarding-requests
+Content-Type: application/json
+```
+
+The request should include the intended `serviceKey`, display name, permission
+definitions, OIDC client specs, redirect URIs, scopes, client type, PKCE choice,
+and backend service credential scopes.
+
+Auth admins approve or reject the request in `/admin`. Approved core spec fields
+are not edited directly inside auth; if the service needs to change redirect
+URIs, permission keys, scopes, or client shape, it submits an update request
+using the one-time `requestSecret` returned by the original request.
+
+The approval response may include one-time client or service credential secrets.
+The consuming service must store those in backend-only environment variables or
+a secret manager. Frontend/browser code must never receive those secrets.
+
 ## Permission Claim
 
 Access tokens include a namespaced service permission claim:

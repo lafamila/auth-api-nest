@@ -13,6 +13,9 @@ export class SeedService implements OnApplicationBootstrap {
 
   async onApplicationBootstrap(): Promise<void> {
     const seed = this.config.seedAdmin;
+    if (!seed.enabled) {
+      return;
+    }
     const existing = await this.accounts.findByLoginId(seed.loginId);
     if (existing) {
       return;

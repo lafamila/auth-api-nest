@@ -28,12 +28,36 @@ export class AppConfigService {
     return this.config.get<string>('RUN_MIGRATIONS', 'false') === 'true';
   }
 
-  get adminApiKey(): string {
-    return this.config.get<string>('ADMIN_API_KEY', 'dev-admin-key');
-  }
-
   get cookieSecret(): string {
     return this.config.get<string>('COOKIE_SECRET', 'dev-cookie-secret');
+  }
+
+  get adminSessionCookieName(): string {
+    return this.config.get<string>('ADMIN_SESSION_COOKIE_NAME', 'tas_admin_session');
+  }
+
+  get adminOtpEncryptionKey(): string {
+    return this.config.get<string>(
+      'ADMIN_OTP_ENCRYPTION_KEY',
+      'dev-admin-otp-encryption-key-change-me',
+    );
+  }
+
+  get signupEmailCodePepper(): string {
+    return this.config.get<string>(
+      'SIGNUP_EMAIL_CODE_PEPPER',
+      this.cookieSecret,
+    );
+  }
+
+  get smtp() {
+    return {
+      host: this.config.get<string>('SMTP_HOST', ''),
+      port: Number(this.config.get<string>('SMTP_PORT', '587')),
+      user: this.config.get<string>('SMTP_USER', ''),
+      password: this.config.get<string>('SMTP_PASSWORD', ''),
+      from: this.config.get<string>('SMTP_FROM', 'auth@lafamila.xyz'),
+    };
   }
 
   get corsOrigins(): string[] {
@@ -49,10 +73,11 @@ export class AppConfigService {
       loginId: this.config.get<string>('SEED_ADMIN_LOGIN_ID', 'superadmin'),
       password: this.config.get<string>(
         'SEED_ADMIN_PASSWORD',
-        'superadmin-password',
+        'Superadmin-password!',
       ),
       email: this.config.get<string>('SEED_ADMIN_EMAIL', 'admin@lafamila.xyz'),
       name: this.config.get<string>('SEED_ADMIN_NAME', 'Teddy Super Admin'),
+      enabled: this.config.get<string>('SEED_ADMIN_ENABLED', 'false') === 'true',
     };
   }
 }

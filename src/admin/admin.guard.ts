@@ -2,21 +2,17 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { AppConfigService } from '../config/app-config.service';
+import { AdminAuthService } from './admin-auth.service';
 
 @Injectable()
 export class AdminGuard implements CanActivate {
-  constructor(private readonly config: AppConfigService) {}
+  constructor(private readonly adminAuth: AdminAuthService) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
-    const apiKey = request.header('x-admin-key');
-    if (apiKey && apiKey === this.config.adminApiKey) {
-      return true;
-    }
-    throw new UnauthorizedException('Admin API key is required');
+    await this.adminAuth.validateRequest(request);
+    return true;
   }
 }

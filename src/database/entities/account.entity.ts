@@ -34,6 +34,12 @@ export class AccountEntity {
   @Column({ name: 'is_super_admin', default: false })
   isSuperAdmin!: boolean;
 
+  @Column({ name: 'password_reset_required', default: false })
+  passwordResetRequired!: boolean;
+
+  @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
+  emailVerifiedAt!: Date | null;
+
   @Column({ name: 'last_login_at', type: 'timestamptz', nullable: true })
   lastLoginAt!: Date | null;
 

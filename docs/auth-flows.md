@@ -32,3 +32,20 @@ The token request for these clients must include `client_id`, `code`,
 - Access token: 15 minutes
 - Refresh token: 7 days
 - Auth session cookie: 12 hours in Phase 1
+- Admin session cookie: idle 30 minutes, absolute 12 hours
+
+## Admin Bootstrap + Login
+
+1. `/admin` calls `GET /api/admin/bootstrap/status`.
+2. If there is no active superadmin, the bootstrap page calls `POST /api/admin/bootstrap/start`.
+3. The response shows the OTP secret and otpauth URI once so the user can register Google Authenticator.
+4. `/api/admin/bootstrap/complete` verifies the OTP code and only then creates the first superadmin.
+5. If an active superadmin exists, `/admin` shows login and calls `POST /api/admin/login` with login ID, password, and OTP.
+6. Admin APIs require the HttpOnly admin session cookie. `x-admin-key` is not an admin authorization model.
+
+## Signup
+
+1. `/signup` or a service-owned link calls `POST /api/signup/start` with an email.
+2. Auth sends a 6-character alphanumeric code by SMTP. Local development may log the code instead.
+3. The user completes signup with login ID, name, email, code, and password at `POST /api/signup/complete`.
+4. The account receives the default `visitor` permission for every active service.

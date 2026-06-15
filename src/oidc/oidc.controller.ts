@@ -113,6 +113,12 @@ export class OidcController {
           errorDescription: 'Account is not active',
         });
       }
+      if (account.passwordResetRequired) {
+        return this.redirectOAuthError(response, redirectUri, state, {
+          error: 'access_denied',
+          errorDescription: 'Password reset is required',
+        });
+      }
       const permission = await this.accountPermissions.findActive(
         account.id,
         client.serviceId,
@@ -170,6 +176,9 @@ export class OidcController {
         throw new OAuthError('invalid_grant', 'PKCE verification failed');
       }
       const account = await this.accounts.findById(code.accountId);
+      if (account.passwordResetRequired) {
+        throw new OAuthError('access_denied', 'Password reset is required', 403);
+      }
       const permission = await this.requirePermission(account.id, client.serviceId);
       return this.tokens.issueTokens(account, client, permission);
     }
@@ -182,6 +191,9 @@ export class OidcController {
       throw new UnauthorizedException('Refresh token client mismatch');
     }
     const account = await this.accounts.findById(refresh.accountId);
+    if (account.passwordResetRequired) {
+      throw new OAuthError('access_denied', 'Password reset is required', 403);
+    }
     const permission = await this.requirePermission(account.id, client.serviceId);
     return this.tokens.issueTokens(account, client, permission, refresh.familyId);
   }

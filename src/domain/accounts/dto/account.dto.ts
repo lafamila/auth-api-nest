@@ -12,7 +12,7 @@ export class CreateAccountDto {
   email!: string;
 
   @IsString()
-  @MinLength(12)
+  @MinLength(8)
   password!: string;
 
   @IsOptional()
@@ -35,7 +35,20 @@ export class UpdateAccountDto {
 }
 
 export class ResetPasswordDto {
+  @IsOptional()
   @IsString()
-  @MinLength(12)
-  password!: string;
+  @MinLength(8)
+  password?: string;
+}
+
+export class CompletePasswordResetDto {
+  @IsString()
+  loginId!: string;
+
+  @IsString()
+  currentPassword!: string;
+
+  @IsString()
+  @MinLength(8)
+  newPassword!: string;
 }

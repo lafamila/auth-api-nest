@@ -5,17 +5,22 @@ import {
   UpdateServiceCredentialDto,
 } from '../../domain/service-credentials/dto/service-credential.dto';
 import { AdminGuard } from '../admin.guard';
+import { ServiceOnboardingService } from '../../domain/service-onboarding/service-onboarding.service';
 
 @UseGuards(AdminGuard)
 @Controller('api/admin/services/:serviceId/credentials')
 export class AdminServiceCredentialsController {
-  constructor(private readonly credentials: ServiceCredentialsService) {}
+  constructor(
+    private readonly credentials: ServiceCredentialsService,
+    private readonly onboarding: ServiceOnboardingService,
+  ) {}
 
   @Post()
-  create(
+  async create(
     @Param('serviceId') serviceId: string,
     @Body() body: CreateServiceCredentialDto,
   ) {
+    await this.onboarding.assertManualCoreSpecEditAllowed(serviceId);
     return this.credentials.create(serviceId, body);
   }
 
@@ -25,11 +30,14 @@ export class AdminServiceCredentialsController {
   }
 
   @Patch(':credentialId')
-  update(
+  async update(
     @Param('serviceId') serviceId: string,
     @Param('credentialId') credentialId: string,
     @Body() body: UpdateServiceCredentialDto,
   ) {
+    if (body.scopes !== undefined) {
+      await this.onboarding.assertManualCoreSpecEditAllowed(serviceId);
+    }
     return this.credentials.update(serviceId, credentialId, body);
   }
 

@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { AdminGuard } from '../../admin/admin.guard';
+import { AdminModule } from '../../admin/admin.module';
 import { AppConfigModule } from '../../config/app-config.module';
 import { AccountServicePermissionEntity } from '../../database/entities/account-service-permission.entity';
 import { AccountEntity } from '../../database/entities/account.entity';
@@ -22,11 +22,12 @@ import { ServiceApplicationsService } from './service-applications.service';
       ServiceApplicationEntity,
     ]),
     AppConfigModule,
+    AdminModule,
     AuditLogsModule,
     OidcModule,
   ],
   controllers: [ServiceApplicationsController],
-  providers: [ServiceApplicationsService, AdminGuard],
+  providers: [ServiceApplicationsService],
   exports: [ServiceApplicationsService],
 })
 export class ServiceApplicationsModule {}

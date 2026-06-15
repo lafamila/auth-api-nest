@@ -11,6 +11,10 @@ import { OidcClientEntity } from '../src/database/entities/oidc-client.entity';
 import { ServiceCredentialEntity } from '../src/database/entities/service-credential.entity';
 import { ServicePermissionDefinitionEntity } from '../src/database/entities/service-permission-definition.entity';
 import { ServiceEntity } from '../src/database/entities/service.entity';
+import { AdminMfaEntity } from '../src/database/entities/admin-mfa.entity';
+import { AesGcmService } from '../src/common/crypto/aes-gcm.service';
+import { TotpService } from '../src/common/crypto/totp.service';
+import { AccountsService } from '../src/domain/accounts/accounts.service';
 import { TokenService } from '../src/oidc/token.service';
 
 interface PermissionDashboardTestRow {
@@ -26,13 +30,13 @@ interface PermissionDashboardTestPage {
 describe('App bootstrap (e2e)', () => {
   let app: INestApplication;
   let dataSource: DataSource;
+  let adminCookie: string[];
 
   beforeAll(async () => {
     process.env.NODE_ENV = 'test';
     process.env.DATABASE_URL =
       process.env.TEST_DATABASE_URL ??
       'postgres://postgres:postgres@localhost:35432/teddy_auth';
-    process.env.ADMIN_API_KEY = 'test-admin-key';
     process.env.COOKIE_SECRET = 'test-cookie-secret';
     process.env.SEED_ADMIN_LOGIN_ID = 'superadmin-test';
     process.env.SEED_ADMIN_PASSWORD = 'superadmin-password';
@@ -53,11 +57,45 @@ describe('App bootstrap (e2e)', () => {
     );
     await app.init();
     dataSource = app.get(DataSource);
+    adminCookie = await createAdminSessionCookie();
   });
 
   afterAll(async () => {
     await app?.close();
   });
+
+  async function createAdminSessionCookie(): Promise<string[]> {
+    const suffix = Date.now();
+    const loginId = `superadmin-e2e-${suffix}`;
+    const password = 'Superadmin-password!';
+    const otpSecret = 'JBSWY3DPEHPK3PXP';
+    const accounts = app.get(AccountsService);
+    const aes = app.get(AesGcmService);
+    const totp = app.get(TotpService);
+    const account = await accounts.create({
+      loginId,
+      name: 'E2E Super Admin',
+      email: `${loginId}@lafamila.xyz`,
+      password,
+      isSuperAdmin: true,
+    });
+    await dataSource.getRepository(AdminMfaEntity).save(
+      dataSource.getRepository(AdminMfaEntity).create({
+        account,
+        accountId: account.id,
+        encryptedOtpSecret: aes.encrypt(otpSecret),
+        verifiedAt: new Date(),
+      }),
+    );
+    const otpCode = (totp as unknown as { generateCode(secret: string, now: number): string })
+      .generateCode(otpSecret, Date.now());
+    const response = await request(app.getHttpServer())
+      .post('/api/admin/login')
+      .send({ loginId, password, otpCode })
+      .expect(201);
+    const setCookie = response.headers['set-cookie'];
+    return Array.isArray(setCookie) ? setCookie : [setCookie];
+  }
 
   it('boots the full app and serves health', async () => {
     await request(app.getHttpServer())
@@ -70,7 +108,7 @@ describe('App bootstrap (e2e)', () => {
     const suffix = Date.now();
     const serviceResponse = await request(app.getHttpServer())
       .post('/api/admin/services')
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         serviceKey: `todo-${suffix}`,
         name: `Todo ${suffix}`,
@@ -86,7 +124,7 @@ describe('App bootstrap (e2e)', () => {
 
     await request(app.getHttpServer())
       .post(`/api/admin/services/${serviceId}/permissions/${visitor.id}/deprecate`)
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .expect(400);
 
     const seedVisitorCount = await dataSource
@@ -100,7 +138,7 @@ describe('App bootstrap (e2e)', () => {
 
     const accountResponse = await request(app.getHttpServer())
       .post('/api/admin/accounts')
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         loginId: `user-${suffix}`,
         name: `User ${suffix}`,
@@ -121,7 +159,7 @@ describe('App bootstrap (e2e)', () => {
 
     const adminPermissionResponse = await request(app.getHttpServer())
       .post(`/api/admin/services/${serviceId}/permissions`)
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         key: `admin-${suffix}`,
         label: 'Admin',
@@ -163,7 +201,7 @@ describe('App bootstrap (e2e)', () => {
 
     await request(app.getHttpServer())
       .get('/api/admin/service-applications?status=pending')
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .expect(200)
       .expect((response) => {
         const applications = response.body as Array<{ id: string }>;
@@ -174,7 +212,7 @@ describe('App bootstrap (e2e)', () => {
 
     await request(app.getHttpServer())
       .post(`/api/admin/service-applications/${applicationResponse.body.id}/approve`)
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         targetPermissionDefinitionId: adminPermissionResponse.body.id,
       })
@@ -194,7 +232,7 @@ describe('App bootstrap (e2e)', () => {
     const suffix = Date.now();
     const serviceResponse = await request(app.getHttpServer())
       .post('/api/admin/services')
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         serviceKey: `svc-cred-${suffix}`,
         name: `Service Credential ${suffix}`,
@@ -203,7 +241,7 @@ describe('App bootstrap (e2e)', () => {
 
     const createResponse = await request(app.getHttpServer())
       .post(`/api/admin/services/${serviceResponse.body.id}/credentials`)
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         name: 'todo-api local',
         description: 'account search integration',
@@ -224,7 +262,7 @@ describe('App bootstrap (e2e)', () => {
 
     const listResponse = await request(app.getHttpServer())
       .get(`/api/admin/services/${serviceResponse.body.id}/credentials`)
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .expect(200);
 
     expect(listResponse.body).toEqual(
@@ -245,7 +283,7 @@ describe('App bootstrap (e2e)', () => {
       .patch(
         `/api/admin/services/${serviceResponse.body.id}/credentials/${createResponse.body.id}`,
       )
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         name: 'todo-api updated',
         description: 'updated account search integration',
@@ -266,7 +304,7 @@ describe('App bootstrap (e2e)', () => {
       .post(
         `/api/admin/services/${serviceResponse.body.id}/credentials/${createResponse.body.id}/rotate`,
       )
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({})
       .expect(400);
 
@@ -276,7 +314,7 @@ describe('App bootstrap (e2e)', () => {
       .patch(
         `/api/admin/services/${serviceResponse.body.id}/credentials/${createResponse.body.id}`,
       )
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         status: 'active',
       })
@@ -286,7 +324,7 @@ describe('App bootstrap (e2e)', () => {
       .post(
         `/api/admin/services/${serviceResponse.body.id}/credentials/${createResponse.body.id}/rotate`,
       )
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({})
       .expect(201)
       .expect((response) => {
@@ -300,7 +338,7 @@ describe('App bootstrap (e2e)', () => {
     const suffix = Date.now();
     const serviceResponse = await request(app.getHttpServer())
       .post('/api/admin/services')
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         serviceKey: `dashboard-${suffix}`,
         name: `Dashboard ${suffix}`,
@@ -308,7 +346,7 @@ describe('App bootstrap (e2e)', () => {
       .expect(201);
     const otherServiceResponse = await request(app.getHttpServer())
       .post('/api/admin/services')
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         serviceKey: `dashboard-other-${suffix}`,
         name: `Dashboard Other ${suffix}`,
@@ -317,7 +355,7 @@ describe('App bootstrap (e2e)', () => {
 
     const permissionResponse = await request(app.getHttpServer())
       .post(`/api/admin/services/${serviceResponse.body.id}/permissions`)
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         key: `manager-${suffix}`,
         label: 'Manager',
@@ -326,7 +364,7 @@ describe('App bootstrap (e2e)', () => {
       .expect(201);
     const otherPermissionResponse = await request(app.getHttpServer())
       .post(`/api/admin/services/${otherServiceResponse.body.id}/permissions`)
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         key: `manager-${suffix}`,
         label: 'Manager',
@@ -336,7 +374,7 @@ describe('App bootstrap (e2e)', () => {
 
     const accountResponse = await request(app.getHttpServer())
       .post('/api/admin/accounts')
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         loginId: `dashboard-user-${suffix}`,
         name: `Dashboard User ${suffix}`,
@@ -346,7 +384,7 @@ describe('App bootstrap (e2e)', () => {
       .expect(201);
     const otherAccountResponse = await request(app.getHttpServer())
       .post('/api/admin/accounts')
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         loginId: `dashboard-other-user-${suffix}`,
         name: `Dashboard Other User ${suffix}`,
@@ -361,14 +399,14 @@ describe('App bootstrap (e2e)', () => {
 
     await request(app.getHttpServer())
       .get('/api/admin/permission-dashboard')
-      .set('x-admin-key', 'wrong-key')
+      .set('Cookie', ['tas_admin_session=s:invalid-signature'])
       .expect(401);
 
     await request(app.getHttpServer())
       .put(
         `/api/admin/accounts/${accountResponse.body.id}/services/${serviceResponse.body.id}/permission`,
       )
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         permissionDefinitionId: permissionResponse.body.id,
       })
@@ -377,7 +415,7 @@ describe('App bootstrap (e2e)', () => {
       .put(
         `/api/admin/accounts/${otherAccountResponse.body.id}/services/${otherServiceResponse.body.id}/permission`,
       )
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         permissionDefinitionId: otherPermissionResponse.body.id,
       })
@@ -385,7 +423,7 @@ describe('App bootstrap (e2e)', () => {
 
     await request(app.getHttpServer())
       .get('/api/admin/permission-dashboard?page=1&pageSize=1')
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .expect(200)
       .expect((response) => {
         expect(response.body).toEqual(
@@ -407,7 +445,7 @@ describe('App bootstrap (e2e)', () => {
     await request(app.getHttpServer())
       .get('/api/admin/permission-dashboard')
       .query({ serviceKey: serviceResponse.body.serviceKey, page: 1, pageSize: 25 })
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .expect(200)
       .expect((response) => {
         expect(response.body.items).toEqual(
@@ -441,13 +479,13 @@ describe('App bootstrap (e2e)', () => {
       .delete(
         `/api/admin/accounts/${accountResponse.body.id}/services/${serviceResponse.body.id}/permission`,
       )
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .expect(200);
 
     await request(app.getHttpServer())
       .get('/api/admin/permission-dashboard')
       .query({ serviceKey: serviceResponse.body.serviceKey })
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .expect(200)
       .expect((response) => {
         const dashboard = response.body as PermissionDashboardTestPage;
@@ -464,7 +502,7 @@ describe('App bootstrap (e2e)', () => {
       .put(
         `/api/admin/accounts/${accountResponse.body.id}/services/${serviceResponse.body.id}/permission`,
       )
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         permissionDefinitionId: permissionResponse.body.id,
       })
@@ -472,7 +510,7 @@ describe('App bootstrap (e2e)', () => {
 
     await request(app.getHttpServer())
       .patch(`/api/admin/accounts/${accountResponse.body.id}`)
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({ status: 'disabled' })
       .expect(200)
       .expect((response) => {
@@ -482,7 +520,7 @@ describe('App bootstrap (e2e)', () => {
     await request(app.getHttpServer())
       .get('/api/admin/permission-dashboard')
       .query({ serviceKey: serviceResponse.body.serviceKey })
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .expect(200)
       .expect((response) => {
         const dashboard = response.body as PermissionDashboardTestPage;
@@ -516,7 +554,7 @@ describe('App bootstrap (e2e)', () => {
     const suffix = Date.now();
     const serviceResponse = await request(app.getHttpServer())
       .post('/api/admin/services')
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         serviceKey: `oidc-${suffix}`,
         name: `OIDC ${suffix}`,
@@ -525,7 +563,7 @@ describe('App bootstrap (e2e)', () => {
 
     const createResponse = await request(app.getHttpServer())
       .post(`/api/admin/services/${serviceResponse.body.id}/clients`)
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         clientId: `oidc-client-${suffix}`,
         clientType: 'confidential',
@@ -538,7 +576,7 @@ describe('App bootstrap (e2e)', () => {
 
     await request(app.getHttpServer())
       .get(`/api/admin/services/${serviceResponse.body.id}/clients`)
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .expect(200)
       .expect((response) => {
         expect(response.body).toEqual(
@@ -557,7 +595,7 @@ describe('App bootstrap (e2e)', () => {
 
     await request(app.getHttpServer())
       .patch(`/api/admin/services/${serviceResponse.body.id}/clients/${createResponse.body.id}`)
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         status: 'disabled',
         redirectUris: ['http://127.0.0.1/updated-callback'],
@@ -591,7 +629,7 @@ describe('App bootstrap (e2e)', () => {
 
     const serviceCreateResponse = await request(app.getHttpServer())
       .post('/api/admin/services')
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         serviceKey: 'body-lab',
         name: 'body-lab',
@@ -603,7 +641,7 @@ describe('App bootstrap (e2e)', () => {
     if (service.status !== 'active') {
       await request(app.getHttpServer())
         .patch(`/api/admin/services/${service.id}`)
-        .set('x-admin-key', 'test-admin-key')
+        .set('Cookie', adminCookie)
         .send({ status: 'active' })
         .expect(200);
       service = await serviceRepository.findOneByOrFail({ serviceKey: 'body-lab' });
@@ -611,7 +649,7 @@ describe('App bootstrap (e2e)', () => {
 
     const ownerCreateResponse = await request(app.getHttpServer())
       .post(`/api/admin/services/${service.id}/permissions`)
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         key: 'owner',
         label: 'Owner',
@@ -626,7 +664,7 @@ describe('App bootstrap (e2e)', () => {
     if (ownerPermission.status !== 'active') {
       await request(app.getHttpServer())
         .patch(`/api/admin/services/${service.id}/permissions/${ownerPermission.id}`)
-        .set('x-admin-key', 'test-admin-key')
+        .set('Cookie', adminCookie)
         .send({ status: 'active' })
         .expect(200);
       ownerPermission = await permissionRepository.findOneByOrFail({
@@ -652,7 +690,7 @@ describe('App bootstrap (e2e)', () => {
       if (existingClient) {
         await request(app.getHttpServer())
           .patch(`/api/admin/services/${service.id}/clients/${existingClient.id}`)
-          .set('x-admin-key', 'test-admin-key')
+          .set('Cookie', adminCookie)
           .send({
             clientType: 'public',
             status: 'active',
@@ -665,7 +703,7 @@ describe('App bootstrap (e2e)', () => {
       } else {
         await request(app.getHttpServer())
           .post(`/api/admin/services/${service.id}/clients`)
-          .set('x-admin-key', 'test-admin-key')
+          .set('Cookie', adminCookie)
           .send({
             ...client,
             clientType: 'public',
@@ -689,7 +727,7 @@ describe('App bootstrap (e2e)', () => {
     const accountPassword = 'body-lab-password-1234';
     const accountResponse = await request(app.getHttpServer())
       .post('/api/admin/accounts')
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         loginId: `body-lab-owner-${suffix}`,
         name: `Body Lab Owner ${suffix}`,
@@ -702,7 +740,7 @@ describe('App bootstrap (e2e)', () => {
       .put(
         `/api/admin/accounts/${accountResponse.body.id}/services/${service.id}/permission`,
       )
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         permissionDefinitionId: ownerPermission.id,
       })
@@ -769,7 +807,7 @@ describe('App bootstrap (e2e)', () => {
     const suffix = Date.now();
     const todoServiceResponse = await request(app.getHttpServer())
       .post('/api/admin/services')
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         serviceKey: `todo-${suffix}`,
         name: `Todo ${suffix}`,
@@ -777,7 +815,7 @@ describe('App bootstrap (e2e)', () => {
       .expect(201);
     const otherServiceResponse = await request(app.getHttpServer())
       .post('/api/admin/services')
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         serviceKey: `other-${suffix}`,
         name: `Other ${suffix}`,
@@ -786,7 +824,7 @@ describe('App bootstrap (e2e)', () => {
 
     const accountResponse = await request(app.getHttpServer())
       .post('/api/admin/accounts')
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         loginId: `lookup-${suffix}`,
         name: `Lookup ${suffix}`,
@@ -797,7 +835,7 @@ describe('App bootstrap (e2e)', () => {
 
     const searchCredentialResponse = await request(app.getHttpServer())
       .post(`/api/admin/services/${todoServiceResponse.body.id}/credentials`)
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         name: 'search credential',
         scopes: ['account.search'],
@@ -806,7 +844,7 @@ describe('App bootstrap (e2e)', () => {
 
     const wrongScopeCredentialResponse = await request(app.getHttpServer())
       .post(`/api/admin/services/${todoServiceResponse.body.id}/credentials`)
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({
         name: 'wrong scope credential',
         scopes: ['permission.read'],
@@ -820,7 +858,7 @@ describe('App bootstrap (e2e)', () => {
 
     await request(app.getHttpServer())
       .get('/api/internal/service-accounts/search')
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .query({ serviceKey: todoServiceResponse.body.serviceKey, q: 'lookup' })
       .expect(401);
 
@@ -876,7 +914,7 @@ describe('App bootstrap (e2e)', () => {
       .post(
         `/api/admin/services/${todoServiceResponse.body.id}/credentials/${searchCredentialResponse.body.id}/disable`,
       )
-      .set('x-admin-key', 'test-admin-key')
+      .set('Cookie', adminCookie)
       .send({})
       .expect(201);
 

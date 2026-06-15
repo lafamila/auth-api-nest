@@ -97,17 +97,18 @@ Content-Type: application/json
 `todo-api-fastapi` can look up candidate accounts through:
 
 ```http
-GET /api/admin/accounts/service-search?serviceKey=todo&q=lafamila
-x-admin-key: {ADMIN_API_KEY}
+GET /api/internal/service-accounts/search?serviceKey=todo&q=lafamila
+x-auth-service-key-id: {TODO_AUTH_SERVICE_KEY_ID}
+x-auth-service-secret: {TODO_AUTH_SERVICE_SECRET}
 ```
 
 The response already includes `permissionKey`, which is enough to distinguish current `visitor` users from already approved members.
 
 ## Temporary Constraint
 
-Until the separate auth service credential plan is implemented, todo integration still depends on the Phase 1 admin credential path:
+Current todo integration uses auth service credentials for backend-to-auth calls:
 
-- service setup uses `x-admin-key`
-- account invite search uses `x-admin-key`
+- service setup is owned by the auth admin/service onboarding flow
+- account invite search uses `x-auth-service-key-id` and `x-auth-service-secret`
 
 That is expected for this split. This repo should not implement `AUTH_SERVICE_KEYS_PLAN` as part of the current work.

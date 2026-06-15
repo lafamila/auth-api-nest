@@ -472,7 +472,7 @@
       </div>
     </header>
 
-    <main class="shell">
+    <main class="shell" hidden id="adminMain">
       <aside class="stack">
         <section>
           <h2>Create Account</h2>
@@ -794,7 +794,7 @@
     </div>
 
     <div class="admin-access-float">
-      <button class="admin-access-button" id="openAdminAccess">Admin Access</button>
+          <button class="admin-access-button" id="openAdminAccess">Admin Session</button>
       <div
         aria-labelledby="adminAccessTitle"
         class="admin-access-panel"
@@ -803,20 +803,33 @@
         role="dialog"
       >
         <div class="admin-access-head">
-          <h2 id="adminAccessTitle">Admin Access</h2>
+          <h2 id="adminAccessTitle">Admin Session</h2>
           <button aria-label="Close Admin Access" class="icon-button" id="closeAdminAccess">
             X
           </button>
         </div>
-        <div class="form">
-          <label>
-            x-admin-key
-            <input id="adminKey" type="password" autocomplete="off" />
-          </label>
-          <button id="saveKey">Save Key</button>
-          <button class="secondary" id="clearKey" type="button">Clear Key</button>
-          <div class="message" id="statusMessage"></div>
+        <div class="form" id="bootstrapForm" hidden>
+          <label>Login ID <input id="bootstrapLoginId" autocomplete="username" /></label>
+          <label>Name <input id="bootstrapName" autocomplete="name" /></label>
+          <label>Email <input id="bootstrapEmail" type="email" autocomplete="email" /></label>
+          <label>Password <input id="bootstrapPassword" type="password" autocomplete="new-password" /></label>
+          <button id="startBootstrap" type="button">Create OTP Setup</button>
+          <div class="secret-card" hidden id="bootstrapOtpCard"></div>
+          <label>OTP Code <input id="bootstrapOtpCode" inputmode="numeric" /></label>
+          <button id="completeBootstrap" type="button">Complete Bootstrap</button>
+          <div class="hint">Superadmin 계정이 없을 때만 표시됩니다. OTP 등록과 검증이 끝나야 계정 생성이 완료됩니다.</div>
         </div>
+        <div class="form" id="adminLoginForm" hidden>
+          <label>Login ID <input id="adminLoginId" autocomplete="username" /></label>
+          <label>Password <input id="adminPassword" type="password" autocomplete="current-password" /></label>
+          <label>Google OTP <input id="adminOtpCode" inputmode="numeric" /></label>
+          <button id="adminLogin" type="button">Login</button>
+        </div>
+        <div class="form" id="adminSessionForm" hidden>
+          <div class="hint" id="adminSessionSummary"></div>
+          <button class="secondary" id="adminLogout" type="button">Logout</button>
+        </div>
+        <div class="message" id="statusMessage"></div>
       </div>
     </div>
 
@@ -847,13 +860,12 @@
         },
         applications: [],
         credentialSecret: null,
+        adminSession: null,
+        bootstrapChallengeId: null,
       };
 
       const $ = (id) => document.getElementById(id);
-      const adminKeyInput = $('adminKey');
       const statusMessage = $('statusMessage');
-
-      adminKeyInput.value = sessionStorage.getItem('teddy-auth-admin-key') || '';
 
       function escapeHtml(value) {
         return String(value ?? '')
@@ -878,18 +890,40 @@
           .filter(Boolean);
       }
 
-      function requireAdminKey() {
-        const key = adminKeyInput.value.trim();
-        if (!key) {
-          setStatus('Admin key required', true);
-          throw new Error('Admin key required');
-        }
-        return key;
-      }
-
       function setStatus(text, isError = false) {
         statusMessage.textContent = text;
         statusMessage.classList.toggle('error', isError);
+      }
+
+      function showAdminMain(isVisible) {
+        $('adminMain').hidden = !isVisible;
+        $('refreshAll').disabled = !isVisible;
+      }
+
+      function showAccessPanel(mode) {
+        $('adminAccessPanel').hidden = false;
+        $('bootstrapForm').hidden = mode !== 'bootstrap';
+        $('adminLoginForm').hidden = mode !== 'login';
+        $('adminSessionForm').hidden = mode !== 'session';
+      }
+
+      async function sessionRequest(path, options = {}) {
+        const response = await fetch(path, {
+          ...options,
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(options.headers || {}),
+          },
+        });
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          throw new Error(error.message || error.error || response.statusText);
+        }
+        if (response.status === 204) {
+          return null;
+        }
+        return response.json();
       }
 
       function pageItems(key, items) {
@@ -931,12 +965,11 @@
       }
 
       async function api(path, options = {}) {
-        const adminKey = requireAdminKey();
         const response = await fetch(path, {
           ...options,
+          credentials: 'same-origin',
           headers: {
             'Content-Type': 'application/json',
-            'x-admin-key': adminKey,
             ...(options.headers || {}),
           },
         });
@@ -1349,8 +1382,8 @@
       }
 
       async function refreshAll() {
-        if (!adminKeyInput.value.trim()) {
-          setStatus('Admin key required');
+        if (!state.adminSession) {
+          setStatus('Admin login required');
           return;
         }
         try {
@@ -1459,23 +1492,106 @@
         return Object.fromEntries(new FormData(form).entries());
       }
 
-      $('saveKey').addEventListener('click', () => {
-        const key = adminKeyInput.value.trim();
-        if (!key) {
-          sessionStorage.removeItem('teddy-auth-admin-key');
-          setStatus('Admin key required', true);
+      async function initializeAdminSession() {
+        try {
+          const session = await sessionRequest('/api/admin/session');
+          state.adminSession = session.account;
+          $('adminSessionSummary').textContent = `Logged in as ${session.account.loginId}`;
+          showAccessPanel('session');
+          showAdminMain(true);
+          await refreshAll();
           return;
+        } catch {
+          state.adminSession = null;
+          showAdminMain(false);
         }
-        sessionStorage.setItem('teddy-auth-admin-key', key);
-        adminKeyInput.value = key;
-        setStatus('Saved for this tab');
-        void refreshAll();
+
+        try {
+          const status = await sessionRequest('/api/admin/bootstrap/status');
+          showAccessPanel(status.requiresBootstrap ? 'bootstrap' : 'login');
+          setStatus(status.requiresBootstrap ? 'Create the first superadmin account' : 'Admin login required');
+        } catch (error) {
+          showAccessPanel('login');
+          setStatus(error.message, true);
+        }
+      }
+
+      $('startBootstrap').addEventListener('click', async () => {
+        try {
+          const result = await sessionRequest('/api/admin/bootstrap/start', {
+            method: 'POST',
+            body: JSON.stringify({
+              loginId: $('bootstrapLoginId').value,
+              name: $('bootstrapName').value,
+              email: $('bootstrapEmail').value,
+              password: $('bootstrapPassword').value,
+            }),
+          });
+          state.bootstrapChallengeId = result.challengeId;
+          $('bootstrapOtpCard').hidden = false;
+          $('bootstrapOtpCard').innerHTML = `
+            <div class="form">
+              <div><strong>OTP Secret</strong><code>${escapeHtml(result.otpSecret)}</code></div>
+              <div><strong>Authenticator URI</strong><code>${escapeHtml(result.otpauthUri)}</code></div>
+              <div class="hint">Google Authenticator 등에 등록한 뒤 OTP Code를 입력하세요. 이 값은 이 화면에서만 표시됩니다.</div>
+            </div>
+          `;
+          setStatus('OTP setup generated');
+        } catch (error) {
+          setStatus(error.message, true);
+        }
       });
 
-      $('clearKey').addEventListener('click', () => {
-        adminKeyInput.value = '';
-        sessionStorage.removeItem('teddy-auth-admin-key');
-        setStatus('Cleared');
+      $('completeBootstrap').addEventListener('click', async () => {
+        try {
+          await sessionRequest('/api/admin/bootstrap/complete', {
+            method: 'POST',
+            body: JSON.stringify({
+              challengeId: state.bootstrapChallengeId,
+              otpCode: $('bootstrapOtpCode').value,
+            }),
+          });
+          setStatus('Bootstrap completed. Log in with the new superadmin.');
+          showAccessPanel('login');
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      });
+
+      $('adminLogin').addEventListener('click', async () => {
+        try {
+          const result = await sessionRequest('/api/admin/login', {
+            method: 'POST',
+            body: JSON.stringify({
+              loginId: $('adminLoginId').value,
+              password: $('adminPassword').value,
+              otpCode: $('adminOtpCode').value,
+            }),
+          });
+          state.adminSession = result.account;
+          $('adminSessionSummary').textContent = `Logged in as ${result.account.loginId}`;
+          showAccessPanel('session');
+          showAdminMain(true);
+          await refreshAll();
+          setStatus('Logged in');
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      });
+
+      $('adminLogout').addEventListener('click', async () => {
+        try {
+          await sessionRequest('/api/admin/logout', {
+            method: 'POST',
+            body: JSON.stringify({}),
+          });
+        } catch {
+          // Session may already be expired; reset the UI either way.
+        }
+        state.adminSession = null;
+        showAdminMain(false);
+        showAccessPanel('login');
+        setStatus('Logged out');
       });
 
       $('openAdminAccess').addEventListener('click', () => {
@@ -2012,7 +2128,7 @@
       });
 
       renderCredentialSecret();
-      void refreshAll();
+      void initializeAdminSession();
     </script>
   </body>
 </html>

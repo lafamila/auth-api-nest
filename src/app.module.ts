@@ -13,6 +13,8 @@ import { OidcModule } from './oidc/oidc.module';
 import { PermissionsModule } from './domain/permissions/permissions.module';
 import { ServiceRegistryModule } from './domain/service-registry/service-registry.module';
 import { ServiceApplicationsModule } from './domain/service-applications/service-applications.module';
+import { ServiceOnboardingModule } from './domain/service-onboarding/service-onboarding.module';
+import { SignupModule } from './signup/signup.module';
 import { InternalModule } from './internal/internal.module';
 
 @Module({
@@ -29,6 +31,8 @@ import { InternalModule } from './internal/internal.module';
     InternalModule,
     OidcModule,
     ServiceApplicationsModule,
+    ServiceOnboardingModule,
+    SignupModule,
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'public'),
       serveRoot: '/admin',

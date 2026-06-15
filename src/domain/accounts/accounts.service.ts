@@ -7,6 +7,11 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { PasswordService } from '../../common/crypto/password.service';
+import {
+  ADMIN_TEMPORARY_RESET_PASSWORD,
+  validateNormalPassword,
+  validatePasswordOrTemporaryReset,
+} from '../../common/crypto/password-policy';
 import { AccountServicePermissionEntity } from '../../database/entities/account-service-permission.entity';
 import { AccountEntity } from '../../database/entities/account.entity';
 import { ServicePermissionDefinitionEntity } from '../../database/entities/service-permission-definition.entity';
@@ -106,13 +111,26 @@ export class AccountsService {
     return this.accounts.findOneBy({ loginId });
   }
 
-  async create(input: CreateAccountDto, actorAccountId?: string | null): Promise<AccountEntity> {
+  findByEmail(email: string): Promise<AccountEntity | null> {
+    return this.accounts.findOneBy({ email });
+  }
+
+  countActiveSuperAdmins(): Promise<number> {
+    return this.accounts.countBy({ isSuperAdmin: true, status: 'active' });
+  }
+
+  async create(
+    input: CreateAccountDto,
+    actorAccountId?: string | null,
+    options?: { emailVerifiedAt?: Date | null; passwordResetRequired?: boolean },
+  ): Promise<AccountEntity> {
     const exists = await this.accounts.exists({
       where: [{ loginId: input.loginId }, { email: input.email }],
     });
     if (exists) {
       throw new ConflictException('Account loginId or email already exists');
     }
+    validateNormalPassword(input.password);
     const passwordHash = await this.passwordService.hash(input.password);
     const account = await this.dataSource.transaction(async (manager) => {
       const saved = await manager.save(
@@ -123,6 +141,8 @@ export class AccountsService {
           passwordHash,
           isSuperAdmin: input.isSuperAdmin ?? false,
           status: 'active',
+          passwordResetRequired: options?.passwordResetRequired ?? false,
+          emailVerifiedAt: options?.emailVerifiedAt ?? null,
         }),
       );
       await this.grantVisitorForAllServices(saved, manager);
@@ -173,9 +193,12 @@ export class AccountsService {
     return saved.updated;
   }
 
-  async resetPassword(id: string, password: string): Promise<void> {
+  async resetPassword(id: string, password?: string): Promise<void> {
     const account = await this.findById(id);
-    account.passwordHash = await this.passwordService.hash(password);
+    const nextPassword = password ?? ADMIN_TEMPORARY_RESET_PASSWORD;
+    const resetRequired = validatePasswordOrTemporaryReset(nextPassword);
+    account.passwordHash = await this.passwordService.hash(nextPassword);
+    account.passwordResetRequired = resetRequired;
     await this.accounts.save(account);
     await this.auditLogs.record({
       action: 'account.reset_password',
@@ -193,6 +216,43 @@ export class AccountsService {
     if (!valid) {
       throw new UnauthorizedException('Invalid credentials');
     }
+    if (account.passwordResetRequired) {
+      throw new UnauthorizedException('Password reset is required');
+    }
+    account.lastLoginAt = new Date();
+    return this.accounts.save(account);
+  }
+
+  async authenticateIgnoringResetRequirement(
+    loginId: string,
+    password: string,
+  ): Promise<AccountEntity> {
+    const account = await this.findByLoginId(loginId);
+    if (!account || account.status !== 'active') {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    const valid = await this.passwordService.verify(account.passwordHash, password);
+    if (!valid) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    return account;
+  }
+
+  async completePasswordReset(
+    loginId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<AccountEntity> {
+    const account = await this.authenticateIgnoringResetRequirement(
+      loginId,
+      currentPassword,
+    );
+    if (!account.passwordResetRequired) {
+      throw new ConflictException('Password reset is not required');
+    }
+    validateNormalPassword(newPassword);
+    account.passwordHash = await this.passwordService.hash(newPassword);
+    account.passwordResetRequired = false;
     account.lastLoginAt = new Date();
     return this.accounts.save(account);
   }
@@ -205,13 +265,15 @@ export class AccountsService {
       email: account.email,
       status: account.status,
       isSuperAdmin: account.isSuperAdmin,
+      passwordResetRequired: account.passwordResetRequired,
+      emailVerifiedAt: account.emailVerifiedAt,
       createdAt: account.createdAt,
       updatedAt: account.updatedAt,
       lastLoginAt: account.lastLoginAt,
     };
   }
 
-  private async grantVisitorForAllServices(
+  async grantVisitorForAllServices(
     account: AccountEntity,
     manager: EntityManager,
   ): Promise<void> {
