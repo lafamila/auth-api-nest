@@ -293,6 +293,12 @@ describe('App bootstrap (e2e)', () => {
     expect(adminHtml).toContain('confirmSecretModal');
     expect(adminHtml).toContain('I copied these secrets');
     expect(adminHtml).toContain('Concrete .env examples');
+    expect(adminHtml).toContain('[hidden]');
+    expect(adminHtml).toContain('display: none !important;');
+    expect(adminHtml).toContain("mode === 'bootstrap' && state.requiresBootstrap");
+    expect(adminHtml).toContain(
+      'Bootstrap is unavailable because an active superadmin already exists.',
+    );
     expect(adminHtml).toContain("state.adminSession ? 'Logout' : 'Admin Session'");
     expect(adminHtml).not.toContain('adminSessionForm');
     expect(adminHtml).not.toContain('adminLogout');
@@ -338,6 +344,10 @@ describe('App bootstrap (e2e)', () => {
     expect(serviceHtml).toContain('visitor permission is');
     expect(serviceHtml).toContain('readonly');
     expect(serviceHtml).toContain('Requester identity always comes from');
+    expect(serviceHtml).toContain("mode === 'bootstrap' && state.requiresBootstrap");
+    expect(serviceHtml).toContain(
+      'Bootstrap is unavailable because an active superadmin already exists.',
+    );
     expect(serviceHtml).toContain("state.adminSession ? 'Logout' : 'Admin Session'");
     expect(serviceHtml).not.toContain('adminSessionForm');
     expect(serviceHtml).not.toContain('adminLogout');

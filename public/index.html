@@ -494,8 +494,8 @@
         padding: 16px;
       }
 
-      .admin-access-panel[hidden] {
-        display: none;
+      [hidden] {
+        display: none !important;
       }
 
       .admin-access-head {
@@ -931,9 +931,15 @@
       }
 
       function showAccessPanel(mode) {
+        const safeMode = mode === 'bootstrap' && state.requiresBootstrap ? 'bootstrap' : 'login';
         $('adminAccessPanel').hidden = false;
-        $('bootstrapForm').hidden = mode !== 'bootstrap';
-        $('adminLoginForm').hidden = mode !== 'login';
+        $('bootstrapForm').hidden = safeMode !== 'bootstrap';
+        $('adminLoginForm').hidden = safeMode !== 'login';
+        if (safeMode !== 'bootstrap') {
+          $('bootstrapOtpCard').hidden = true;
+          $('bootstrapOtpCard').innerHTML = '';
+          state.bootstrapChallengeId = null;
+        }
       }
 
       function updateAdminAccessButton() {
@@ -1566,6 +1572,11 @@
       }
 
       $('startBootstrap').addEventListener('click', async () => {
+        if (!state.requiresBootstrap) {
+          showAccessPanel('login');
+          setStatus('Bootstrap is unavailable because an active superadmin already exists.', true);
+          return;
+        }
         try {
           const result = await sessionRequest('/api/admin/bootstrap/start', {
             method: 'POST',
@@ -1593,6 +1604,11 @@
       });
 
       $('completeBootstrap').addEventListener('click', async () => {
+        if (!state.requiresBootstrap) {
+          showAccessPanel('login');
+          setStatus('Bootstrap is unavailable because an active superadmin already exists.', true);
+          return;
+        }
         try {
           const result = await sessionRequest('/api/admin/bootstrap/complete', {
             method: 'POST',
