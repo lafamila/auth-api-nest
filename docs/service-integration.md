@@ -30,6 +30,25 @@ There are two ways to create the same request:
 2. A logged-in superadmin uses `/service` to compose the same payload with
    structured fields and a JSON preview.
 
+The `/service` builder also accepts a saved request JSON file by drag-and-drop
+or file picker import. Import replaces the full current form state instead of
+merging field-by-field.
+
+During import and during submit payload construction, `/service` always rewrites
+`requesterName` and `requesterEmail` from the current admin session account. The
+imported JSON values for those fields are ignored, and the requester inputs are
+read-only in the UI.
+
+Unknown top-level JSON fields are ignored and surfaced as warnings in `/service`
+instead of being forwarded to the request API. If the imported permissions array
+contains `visitor`, `/service` removes that row and warns because auth manages
+the default visitor permission automatically.
+
+If the file is not valid JSON, or if a supported field uses the wrong type
+(`permissions`, `oidcClients`, `serviceCredentials`, or nested string/boolean
+fields), `/service` keeps the existing form state unchanged and shows an import
+error.
+
 Both paths create a pending `service_onboarding_requests` row and use the same
 approval lifecycle. The `/service` UI does not bypass the public request
 contract.

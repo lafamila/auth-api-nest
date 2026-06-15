@@ -13,4 +13,9 @@ export class ServicePageController {
   service(@Res() response: Response) {
     return response.sendFile(join(process.cwd(), 'public', 'service.html'));
   }
+
+  @Get('service-request-import.js')
+  serviceRequestImport(@Res() response: Response) {
+    return response.sendFile(join(process.cwd(), 'public', 'service-request-import.js'));
+  }
 }

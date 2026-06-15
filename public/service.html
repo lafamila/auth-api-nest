@@ -170,6 +170,10 @@
         color: #a33b2e;
       }
 
+      .message.warning {
+        color: #8a5a00;
+      }
+
       .form,
       .request-builder,
       .repeatable-list,
@@ -198,11 +202,38 @@
 
       .repeatable-row,
       .create-result,
-      .secret-card {
+      .secret-card,
+      .import-panel {
         background: #f8fafc;
         border: 1px solid #dce4ef;
         border-radius: 8px;
         padding: 14px;
+      }
+
+      .drop-zone {
+        align-items: center;
+        background: rgba(36, 107, 104, 0.04);
+        border: 2px dashed #90a4bf;
+        border-radius: 8px;
+        display: grid;
+        gap: 8px;
+        justify-items: center;
+        padding: 22px 18px;
+        text-align: center;
+        transition:
+          border-color 120ms ease,
+          background-color 120ms ease,
+          transform 120ms ease;
+      }
+
+      .drop-zone.drag-over {
+        background: rgba(36, 107, 104, 0.1);
+        border-color: #246b68;
+        transform: translateY(-1px);
+      }
+
+      .file-picker-input {
+        display: none;
       }
 
       .json-preview {
@@ -298,6 +329,37 @@
           <button class="secondary" id="resetServiceRequestForm" type="button">Reset</button>
         </div>
         <div class="request-builder">
+          <div class="import-panel">
+            <div class="toolbar">
+              <div>
+                <h3>Import Request JSON</h3>
+                <div class="hint">
+                  Import replaces the full current form state. Requester identity always comes from
+                  the current admin session.
+                </div>
+              </div>
+              <div class="inline-actions">
+                <input
+                  accept=".json,application/json"
+                  class="file-picker-input"
+                  id="serviceRequestImportInput"
+                  type="file"
+                />
+                <button class="secondary" id="chooseServiceRequestImport" type="button">
+                  Choose JSON File
+                </button>
+              </div>
+            </div>
+            <div class="drop-zone" id="serviceRequestImportDropZone">
+              <strong>Drop a service request JSON file here</strong>
+              <div class="hint">
+                Unknown JSON fields are ignored and reported as warnings. visitor permission is
+                removed during import.
+              </div>
+            </div>
+            <div class="message" id="serviceRequestImportMessage"></div>
+          </div>
+
           <div>
             <h3>Service Basics</h3>
             <div class="form-grid">
@@ -315,11 +377,11 @@
               </label>
               <label>
                 Requester Name
-                <input id="requesterName" autocomplete="name" />
+                <input id="requesterName" autocomplete="name" readonly />
               </label>
               <label>
                 Requester Email
-                <input id="requesterEmail" autocomplete="email" type="email" />
+                <input id="requesterEmail" autocomplete="email" readonly type="email" />
               </label>
             </div>
           </div>
@@ -398,12 +460,18 @@
       </div>
     </div>
 
+    <script src="/service-request-import.js"></script>
     <script>
       const state = {
         adminSession: null,
         bootstrapChallengeId: null,
         requiresBootstrap: false,
         serviceRequestDraft: {
+          serviceKey: '',
+          name: '',
+          description: '',
+          requesterName: '',
+          requesterEmail: '',
           permissions: [],
           oidcClients: [],
           serviceCredentials: [],
@@ -430,6 +498,24 @@
       function setServiceRequestMessage(text, isError = false) {
         $('serviceRequestMessage').textContent = text;
         $('serviceRequestMessage').classList.toggle('error', isError);
+      }
+
+      function setImportMessage(summary, options = {}) {
+        const target = $('serviceRequestImportMessage');
+        const details = Array.isArray(options.details) ? options.details : [];
+        const tone = options.tone || '';
+        target.classList.remove('error', 'warning');
+        if (tone === 'error') target.classList.add('error');
+        if (tone === 'warning') target.classList.add('warning');
+        if (!summary) {
+          target.textContent = '';
+          return;
+        }
+        const escapedSummary = escapeHtml(summary);
+        const detailList = details.length
+          ? `<ul>${details.map((detail) => `<li>${escapeHtml(detail)}</li>`).join('')}</ul>`
+          : '';
+        target.innerHTML = `<div>${escapedSummary}</div>${detailList}`;
       }
 
       function splitList(value) {
@@ -473,12 +559,33 @@
         $('openAdminAccess').textContent = state.adminSession ? 'Logout' : 'Admin Session';
       }
 
+      function getSessionRequester() {
+        return {
+          name: String(state.adminSession?.name ?? '').trim(),
+          email: String(state.adminSession?.email ?? '').trim(),
+        };
+      }
+
+      function syncRequesterFromSession() {
+        const requester = getSessionRequester();
+        state.serviceRequestDraft.requesterName = requester.name;
+        state.serviceRequestDraft.requesterEmail = requester.email;
+        $('requesterName').value = requester.name;
+        $('requesterEmail').value = requester.email;
+      }
+
+      function renderServiceRequestBasics() {
+        $('requestServiceKey').value = state.serviceRequestDraft.serviceKey ?? '';
+        $('requestServiceName').value = state.serviceRequestDraft.name ?? '';
+        $('requestDescription').value = state.serviceRequestDraft.description ?? '';
+        syncRequesterFromSession();
+      }
+
       function syncServiceRequestBasics() {
         state.serviceRequestDraft.serviceKey = $('requestServiceKey').value.trim();
         state.serviceRequestDraft.name = $('requestServiceName').value.trim();
         state.serviceRequestDraft.description = $('requestDescription').value.trim();
-        state.serviceRequestDraft.requesterName = $('requesterName').value.trim();
-        state.serviceRequestDraft.requesterEmail = $('requesterEmail').value.trim();
+        syncRequesterFromSession();
       }
 
       function buildServiceRequestPayload() {
@@ -664,21 +771,81 @@
         renderServiceRequestPreview();
       }
 
-      function resetServiceRequestForm() {
-        state.serviceRequestDraft = {
+      function createEmptyServiceRequestDraft() {
+        const requester = getSessionRequester();
+        return {
+          serviceKey: '',
+          name: '',
+          description: '',
+          requesterName: requester.name,
+          requesterEmail: requester.email,
           permissions: [],
           oidcClients: [],
           serviceCredentials: [],
         };
+      }
+
+      function applyImportedServiceRequest(draft) {
+        state.serviceRequestDraft = {
+          serviceKey: draft.serviceKey ?? '',
+          name: draft.name ?? '',
+          description: draft.description ?? '',
+          requesterName: draft.requesterName ?? '',
+          requesterEmail: draft.requesterEmail ?? '',
+          permissions: Array.isArray(draft.permissions) ? draft.permissions : [],
+          oidcClients: Array.isArray(draft.oidcClients) ? draft.oidcClients : [],
+          serviceCredentials: Array.isArray(draft.serviceCredentials)
+            ? draft.serviceCredentials
+            : [],
+        };
+        renderServiceRequestBasics();
+        renderServiceRequestRows();
+        renderServiceRequestPreview();
+      }
+
+      async function importServiceRequestFile(file) {
+        if (!state.adminSession) {
+          setImportMessage('Admin session is required before importing.', { tone: 'error' });
+          return;
+        }
+        if (!(file instanceof File)) {
+          setImportMessage('Choose a JSON file to import.', { tone: 'error' });
+          return;
+        }
+        try {
+          const helper = globalThis.ServiceRequestImport;
+          if (!helper?.parseImportedServiceRequestText) {
+            throw new Error('Import helper failed to load.');
+          }
+          const imported = helper.parseImportedServiceRequestText(await file.text(), state.adminSession);
+          applyImportedServiceRequest(imported.draft);
+          setServiceRequestMessage('');
+          setImportMessage(
+            imported.warnings.length
+              ? `Imported ${file.name} with warnings.`
+              : `Imported ${file.name}.`,
+            {
+              tone: imported.warnings.length ? 'warning' : 'success',
+              details: imported.warnings,
+            },
+          );
+        } catch (error) {
+          setImportMessage(error.message, { tone: 'error' });
+        } finally {
+          $('serviceRequestImportInput').value = '';
+          $('serviceRequestImportDropZone').classList.remove('drag-over');
+        }
+      }
+
+      function resetServiceRequestForm() {
+        state.serviceRequestDraft = createEmptyServiceRequestDraft();
         state.serviceRequestResult = null;
-        $('requestServiceKey').value = '';
-        $('requestServiceName').value = '';
-        $('requestDescription').value = '';
-        $('requesterName').value = '';
-        $('requesterEmail').value = '';
+        $('serviceRequestImportInput').value = '';
         $('serviceRequestResult').hidden = true;
         $('serviceRequestResult').innerHTML = '';
         setServiceRequestMessage('');
+        setImportMessage('');
+        renderServiceRequestBasics();
         renderServiceRequestRows();
         renderServiceRequestPreview();
       }
@@ -711,12 +878,16 @@
           $('adminAccessPanel').hidden = true;
           updateAdminAccessButton();
           showServiceMain(true);
+          syncRequesterFromSession();
+          renderServiceRequestPreview();
           setStatus(`Logged in as ${session.account.loginId}`);
           return;
         } catch {
           state.adminSession = null;
           updateAdminAccessButton();
           showServiceMain(false);
+          syncRequesterFromSession();
+          renderServiceRequestPreview();
         }
 
         try {
@@ -739,6 +910,8 @@
         $('adminAccessPanel').hidden = true;
         updateAdminAccessButton();
         showServiceMain(true);
+        syncRequesterFromSession();
+        renderServiceRequestPreview();
         setStatus(message);
       }
 
@@ -754,6 +927,8 @@
         state.adminSession = null;
         updateAdminAccessButton();
         showServiceMain(false);
+        syncRequesterFromSession();
+        renderServiceRequestPreview();
         await initializeAdminSession();
         setStatus('Logged out');
       }
@@ -828,9 +1003,33 @@
         $('adminAccessPanel').hidden = true;
       });
 
-      ['requestServiceKey', 'requestServiceName', 'requestDescription', 'requesterName', 'requesterEmail'].forEach(
+      ['requestServiceKey', 'requestServiceName', 'requestDescription'].forEach(
         (id) => $(id).addEventListener('input', renderServiceRequestPreview),
       );
+      $('chooseServiceRequestImport').addEventListener('click', () => {
+        $('serviceRequestImportInput').click();
+      });
+      $('serviceRequestImportInput').addEventListener('change', (event) => {
+        const file = event.target instanceof HTMLInputElement ? event.target.files?.[0] : null;
+        void importServiceRequestFile(file);
+      });
+      ['dragenter', 'dragover'].forEach((eventName) => {
+        $('serviceRequestImportDropZone').addEventListener(eventName, (event) => {
+          event.preventDefault();
+          $('serviceRequestImportDropZone').classList.add('drag-over');
+        });
+      });
+      ['dragleave', 'dragend'].forEach((eventName) => {
+        $('serviceRequestImportDropZone').addEventListener(eventName, (event) => {
+          event.preventDefault();
+          $('serviceRequestImportDropZone').classList.remove('drag-over');
+        });
+      });
+      $('serviceRequestImportDropZone').addEventListener('drop', (event) => {
+        event.preventDefault();
+        const file = event.dataTransfer?.files?.[0] ?? null;
+        void importServiceRequestFile(file);
+      });
       $('addPermissionRow').addEventListener('click', () => {
         state.serviceRequestDraft.permissions.push({ key: '', label: '', description: '' });
         renderServiceRequestRows();

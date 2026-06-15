@@ -326,9 +326,18 @@ describe('App bootstrap (e2e)', () => {
       'utf8',
     );
     expect(serviceHtml).toContain('Create Service Onboarding Request');
+    expect(serviceHtml).toContain('Import Request JSON');
+    expect(serviceHtml).toContain('Drop a service request JSON file here');
+    expect(serviceHtml).toContain('serviceRequestImportInput');
+    expect(serviceHtml).toContain('serviceRequestImportMessage');
+    expect(serviceHtml).toContain('service-request-import.js');
     expect(serviceHtml).toContain('JSON Preview');
     expect(serviceHtml).toContain('Request-update-only secret');
     expect(serviceHtml).toContain('Admin Session required');
+    expect(serviceHtml).toContain('Unknown JSON fields are ignored and reported as warnings.');
+    expect(serviceHtml).toContain('visitor permission is');
+    expect(serviceHtml).toContain('readonly');
+    expect(serviceHtml).toContain('Requester identity always comes from');
     expect(serviceHtml).toContain("state.adminSession ? 'Logout' : 'Admin Session'");
     expect(serviceHtml).not.toContain('adminSessionForm');
     expect(serviceHtml).not.toContain('adminLogout');
@@ -338,7 +347,17 @@ describe('App bootstrap (e2e)', () => {
       .expect(200)
       .expect((response) => {
         expect(response.text).toContain('Create Service Onboarding Request');
+        expect(response.text).toContain('Import Request JSON');
         expect(response.text).toContain('JSON Preview');
+      });
+
+    await request(app.getHttpServer())
+      .get('/service-request-import.js')
+      .expect(200)
+      .expect((response) => {
+        expect(response.text).toContain('normalizeImportedServiceRequest');
+        expect(response.text).toContain('Ignored unknown top-level fields');
+        expect(response.text).toContain('Removed visitor permission');
       });
   });
 
