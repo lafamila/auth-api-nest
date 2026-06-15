@@ -18,7 +18,7 @@ Planning-stage NestJS authentication service for the workspace-wide OIDC/OAuth2 
 8. **Service onboarding request 우선** — 새 서비스 등록과 기존 서비스 spec 변경은 service onboarding request 를 통해 진행한다. 서비스가 제출한 approved core spec(`serviceKey`, permission keys, redirect URIs, scopes, client type, PKCE, service credential scopes)은 auth admin 이 임의 수정하지 않는다. 수정이 필요하면 서비스가 update request 를 제출하고 superadmin 이 승인/거절한다. 운영상 disable/archive, credential revoke/rotate, client disable 은 admin 조치로 허용한다.
 9. **Admin access 는 superadmin session 기반** — `/admin` UI 와 `/api/admin/**` 는 `x-admin-key` 가 아니라 `accounts.is_super_admin` 계정의 admin session 으로 보호한다. Superadmin 이 없을 때만 bootstrap 을 열고, Google OTP 등록/검증까지 완료되어야 superadmin 생성이 완료된다. OTP 기기 분실 등 복구는 DB 에서 해당 superadmin 을 직접 삭제하고 bootstrap 을 다시 여는 방식으로 처리한다.
 10. **Secret one-time exposure** — OTP secret, OIDC client secret, service credential secret, request secret 등 raw secret 은 생성/승인/rotate 과정에서 한 번만 보여준다. 저장 후 재조회 가능한 API/UI 를 만들지 않는다. 브라우저에 노출되는 secret 은 사용자가 직접 등록/저장해야 하는 bootstrap 또는 approval completion 순간으로 제한한다.
-11. **Signup and email verification** — 일반 회원가입은 email 인증을 요구한다. 인증번호는 알파벳+숫자 6자리, 5분 유효, email 기준 30분 내 5회 및 IP 기준 1시간 10회 제한을 따른다. 신규 계정은 모든 active service 에 `visitor` 를 받는다.
+11. **Signup and email verification** — 일반 회원가입은 email 인증을 요구한다. 인증번호는 알파벳+숫자 6자리, 5분 유효, email 기준 30분 내 5회 및 IP 기준 1시간 10회 제한을 따른다. 신규 계정은 account row 만 생성되고, 특정 서비스에 최초 로그인할 때 해당 account-service row 가 전혀 없으면 그 시점에만 `visitor` 가 lazy 생성된다. revoked/disabled/suspended row 는 자동 복구하지 않는다.
 12. **Cross-repo 영향 보고** — 이 레포의 변경이 다른 repo, 공통 API 계약, auth claim/permission, env var, Docker/deploy 설정, 공통 문서에 영향을 준다고 판단되면 현재 orchestrator 에게 반드시 보고한다. 직접 보고할 수 없으면 워크스페이스 루트 `../.idea/` 에 `{REPO_NAME}_CROSS_REPO_IMPACT_{YYYYMMDD}.md` 형식의 handoff 문서를 남긴다.
 13. **사용자 결정 필요사항 에스컬레이션** — 사용자가 결정해야 하는 주요 사안은 임의로 판단하지 않고 작업을 중단한 뒤 현재 orchestrator 에게 전달하여 결정받고 진행한다. orchestrator 에 보고할 수 없으면 workspace root `../.idea/` 에 handoff 문서를 남긴다.
 
@@ -104,7 +104,7 @@ When auth APIs, claims, admin console flows, or credential scope semantics chang
 - Admin session uses HttpOnly cookies with idle 30 minutes and absolute 12 hours. There is no admin refresh token.
 - `x-admin-key` is not the admin authorization model. Do not add new admin UI/API paths that depend on it.
 - OTP secrets are encrypted at rest using `ADMIN_OTP_ENCRYPTION_KEY` and exposed only during initial registration.
-- General signup requires email verification. Signup-created accounts receive `visitor` on all active services.
+- General signup requires email verification. Signup-created accounts do not receive eager account-service rows; `visitor` is created lazily on first login to an active service only when no row exists yet.
 - Normal passwords require at least 8 characters and at least one special character. Admin reset value `123456789` is a forced temporary password and must set a reset-required state so the user changes it after login.
 
 ## Security & Configuration Tips

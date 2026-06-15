@@ -475,95 +475,42 @@
     <main class="shell" hidden id="adminMain">
       <aside class="stack">
         <section>
-          <h2>Create Account</h2>
-          <form class="form" id="accountForm">
-            <label>Login ID <input name="loginId" required /></label>
-            <label>Name <input name="name" required /></label>
-            <label>Email <input name="email" type="email" required /></label>
-            <label>Password <input name="password" type="password" required minlength="12" /></label>
-            <button>Create Account</button>
-          </form>
+          <h2>Admin Surface</h2>
+          <div class="form">
+            <div class="hint">
+              Service registration and core spec changes now flow through
+              <strong>Service Onboarding Requests</strong>.
+            </div>
+            <div class="hint">
+              New accounts come from <code>/signup</code>. Account-service assignments are not
+              edited here; first service login lazily creates <code>visitor</code> only when no row
+              exists yet.
+            </div>
+            <div class="hint">
+              This console keeps read-only inventory views, account disable/reset operations,
+              service credential rotate/disable, and request approval surfaces.
+            </div>
+          </div>
         </section>
 
         <section>
-          <h2>Create Service</h2>
-          <form class="form" id="serviceForm">
-            <label>Service Key <input name="serviceKey" required /></label>
-            <label>Name <input name="name" required /></label>
-            <label>Description <textarea name="description"></textarea></label>
-            <button>Create Service</button>
-          </form>
+          <div class="toolbar">
+            <h2>Latest Onboarding Secrets</h2>
+            <button class="secondary" id="clearOnboardingSecret" type="button">Clear</button>
+          </div>
+          <div class="secret-card" id="onboardingSecretCard">
+            <div class="hint">No transient onboarding secrets in memory.</div>
+          </div>
         </section>
 
         <section>
-          <h2>Create Service Credential</h2>
-          <form class="form" id="credentialForm">
-            <label>Service <select name="serviceId" id="credentialService"></select></label>
-            <label>Name <input name="name" required /></label>
-            <label>Description <textarea name="description"></textarea></label>
-            <label>Expires At <input name="expiresAt" type="datetime-local" /></label>
-            <label>
-              Scopes
-              <span class="checkbox-group">
-                <span class="checkbox-item">
-                  <input checked name="scopes" type="checkbox" value="account.search" />
-                  <span>account.search</span>
-                </span>
-                <span class="checkbox-item">
-                  <input name="scopes" type="checkbox" value="permission.read" />
-                  <span>permission.read</span>
-                </span>
-              </span>
-            </label>
-            <div class="hint">Raw secrets are shown once after create or rotate and are not stored.</div>
-            <button>Create Credential</button>
-          </form>
-        </section>
-
-        <section>
-          <h2>Add Permission</h2>
-          <form class="form" id="permissionForm">
-            <label>Service <select name="serviceId" id="permissionService"></select></label>
-            <label>Key <input name="key" required /></label>
-            <label>Label <input name="label" required /></label>
-            <label>Description <textarea name="description"></textarea></label>
-            <button>Add Permission</button>
-          </form>
-        </section>
-
-        <section>
-          <h2>Create OIDC Client</h2>
-          <form class="form" id="clientForm">
-            <label>Service <select name="serviceId" id="clientService"></select></label>
-            <label>Client ID <input name="clientId" required /></label>
-            <label>
-              Client Type
-              <select name="clientType" id="clientType">
-                <option value="public">public</option>
-                <option value="confidential">confidential</option>
-              </select>
-            </label>
-            <label>Client Secret <input name="clientSecret" type="password" minlength="16" /></label>
-            <label>
-              Redirect URIs
-              <textarea
-                name="redirectUris"
-                required
-              ></textarea>
-            </label>
-            <button>Create Client</button>
-          </form>
-        </section>
-
-        <section>
-          <h2>Assign Service Permission</h2>
-          <form class="form" id="assignmentForm">
-            <label>Account <select name="accountId" id="assignmentAccount"></select></label>
-            <label>Service <select name="serviceId" id="assignmentService"></select></label>
-            <label>Permission <select name="permissionDefinitionId" id="assignmentPermission"></select></label>
-            <button>Assign Permission</button>
-            <button class="secondary" id="revokePermission" type="button">Revoke Service Access</button>
-          </form>
+          <div class="toolbar">
+            <h2>Latest Credential Secret</h2>
+            <button class="secondary" id="clearCredentialSecret" type="button">Clear</button>
+          </div>
+          <div class="secret-card" id="credentialSecretCard">
+            <div class="hint">No transient secret in memory.</div>
+          </div>
         </section>
       </aside>
 
@@ -629,13 +576,12 @@
                   <th>Account</th>
                   <th>Name</th>
                   <th>Email</th>
-                  <th>Service</th>
-                  <th>Permission</th>
-                  <th>Granted</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="permissionDashboardBody"></tbody>
+                <th>Service</th>
+                <th>Permission</th>
+                <th>Granted</th>
+              </tr>
+            </thead>
+            <tbody id="permissionDashboardBody"></tbody>
             </table>
           </div>
         </section>
@@ -656,7 +602,6 @@
                 <th>Status</th>
                 <th>Description</th>
                 <th>Active Assignments</th>
-                <th>Actions</th>
               </tr>
             </thead>
             <tbody id="permissionsBody"></tbody>
@@ -680,7 +625,6 @@
                 <th>Status</th>
                 <th>Redirect URIs</th>
                 <th>Settings</th>
-                <th>Actions</th>
               </tr>
             </thead>
             <tbody id="clientsBody"></tbody>
@@ -715,18 +659,46 @@
 
         <section>
           <div class="toolbar">
-            <h2>Latest Credential Secret</h2>
-            <button class="secondary" id="clearCredentialSecret" type="button">Clear</button>
+            <h2>Service Onboarding Requests</h2>
+            <button class="secondary" id="loadOnboarding">Load Requests</button>
           </div>
-          <div class="secret-card" id="credentialSecretCard">
-            <div class="hint">No transient secret in memory.</div>
+          <div class="filters">
+            <label>
+              Status
+              <select id="onboardingStatusFilter">
+                <option value="all">all</option>
+                <option value="pending">pending</option>
+                <option value="approved">approved</option>
+                <option value="rejected">rejected</option>
+              </select>
+            </label>
           </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Service</th>
+                <th>Kind</th>
+                <th>Status</th>
+                <th>Revision</th>
+                <th>Requester</th>
+                <th>Created</th>
+                <th>Spec</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="onboardingBody"></tbody>
+          </table>
+          <div class="list-pagination" id="onboardingPagination"></div>
         </section>
 
         <section>
           <div class="toolbar">
-            <h2>Service Applications</h2>
+            <h2>Account Access Requests</h2>
             <button class="secondary" id="loadApplications">Load Requests</button>
+          </div>
+          <div class="hint">
+            This section approves non-visitor access for existing service users. Service registration
+            and spec changes happen in Service Onboarding Requests above.
           </div>
           <table>
             <thead>
@@ -745,7 +717,7 @@
       </div>
     </main>
 
-    <div class="workflow-help-float">
+    <div class="workflow-help-float" hidden id="workflowHelpLaunch">
       <button class="secondary workflow-help-button" id="openWorkflowHelp">도움말</button>
     </div>
 
@@ -766,28 +738,28 @@
         </div>
         <ol>
           <li>
-            먼저 <strong>Services</strong> 에 새 서비스를 등록합니다. 이 값은 각 서비스가 auth 에 자신을 식별할 때 쓰는 안정적인 <code>serviceKey</code> 입니다.
+            서비스 팀은 먼저 공개 <code>service onboarding request</code> API 로
+            <code>serviceKey</code>, 권한 정의, OIDC client, service credential spec 을 제출합니다.
           </li>
           <li>
-            해당 서비스에서 사용할 권한 레벨을 <strong>Permission Definitions</strong> 로 등록합니다. 계정 하나는 서비스 하나에 대해 한 개의 권한 레벨을 받고, 실제 분기는 각 서비스가 처리합니다.
+            superadmin 은 <strong>Service Onboarding Requests</strong> 에서 요청 spec 을 검토하고
+            approve 또는 reject 합니다. approve 시에만 auth-side service spec 이 반영됩니다.
           </li>
           <li>
-            브라우저 로그인/OIDC callback 이 필요한 서비스라면 <strong>OIDC Client</strong> 를 만들고 redirect URI 를 등록합니다.
+            approve 응답에서 OIDC client secret 또는 service credential secret 이 생성되면 이 화면에
+            한 번만 표시됩니다. secret manager 또는 backend env 로 즉시 옮기고 브라우저에는 남기지 않습니다.
           </li>
           <li>
-            서비스 backend 가 auth 의 internal API 를 호출해야 한다면 <strong>Service Credential</strong> 을 발급합니다. 필요한 scope 만 최소로 선택합니다.
+            각 active 서비스는 <code>visitor</code> permission definition 을 갖지만 계정 생성이나
+            서비스 승인 시 전체 조합 visitor row 를 벌크 생성하지 않습니다.
           </li>
           <li>
-            발급된 <code>keyId</code> 와 1회 표시되는 <code>secret</code> 은 해당 서비스 backend 의 환경변수 또는 secret manager 에만 저장합니다. 프론트 코드에는 절대 넣지 않습니다.
+            사용자가 특정 서비스에 처음 OIDC 로그인할 때만, 아직 row 가 전혀 없는 경우에 한해
+            <code>visitor</code> assignment 가 lazy 생성됩니다. revoked 또는 disabled row 는 자동 복구되지 않습니다.
           </li>
           <li>
-            환경변수 이름은 서비스별 prefix 를 붙여 구분합니다. 예: <code>{SERVICE}_AUTH_SERVICE_KEY_ID</code>, <code>{SERVICE}_AUTH_SERVICE_SECRET</code>
-          </li>
-          <li>
-            credential 을 소비하는 backend 만 재시작하거나 환경변수를 다시 로드합니다. secret 을 잃어버렸거나 노출이 의심되면 기존 값을 조회하지 말고 rotate 합니다.
-          </li>
-          <li>
-            마지막으로 <strong>Permission Dashboard</strong> 에서 계정별 서비스 권한을 부여하거나 revoke 하고, 권한 없음 화면은 각 서비스 정책에 맞춰 처리합니다.
+            권한 상승은 <strong>Account Access Requests</strong> 에서 approve/reject 하고,
+            <strong>Account-Service Permission Dashboard</strong> 는 read-only 운영 현황판으로 유지됩니다.
           </li>
         </ol>
       </div>
@@ -839,9 +811,17 @@
       const state = {
         accounts: [],
         services: [],
+        onboardingRequests: [],
+        onboardingFilter: 'all',
+        onboardingSecret: null,
         permissionsByService: {},
         clientsByService: {},
         credentialsByService: {},
+        applications: [],
+        credentialSecret: null,
+        adminSession: null,
+        bootstrapChallengeId: null,
+        requiresBootstrap: false,
         permissionDashboard: {
           items: [],
           page: 1,
@@ -856,12 +836,9 @@
           permissions: 1,
           clients: 1,
           credentials: 1,
+          onboarding: 1,
           applications: 1,
         },
-        applications: [],
-        credentialSecret: null,
-        adminSession: null,
-        bootstrapChallengeId: null,
       };
 
       const $ = (id) => document.getElementById(id);
@@ -874,20 +851,6 @@
           .replaceAll('>', '&gt;')
           .replaceAll('"', '&quot;')
           .replaceAll("'", '&#039;');
-      }
-
-      function splitLines(value) {
-        return String(value ?? '')
-          .split(/\r?\n/)
-          .map((item) => item.trim())
-          .filter(Boolean);
-      }
-
-      function splitWords(value) {
-        return String(value ?? '')
-          .split(/[,\s]+/)
-          .map((item) => item.trim())
-          .filter(Boolean);
       }
 
       function setStatus(text, isError = false) {
@@ -907,7 +870,14 @@
         $('adminSessionForm').hidden = mode !== 'session';
       }
 
-      async function sessionRequest(path, options = {}) {
+      function updateWorkflowHelpVisibility() {
+        $('workflowHelpLaunch').hidden = !state.adminSession;
+        if (!state.adminSession) {
+          $('workflowHelpModal').hidden = true;
+        }
+      }
+
+      async function requestJson(path, options = {}) {
         const response = await fetch(path, {
           ...options,
           credentials: 'same-origin',
@@ -925,6 +895,9 @@
         }
         return response.json();
       }
+
+      const api = requestJson;
+      const sessionRequest = requestJson;
 
       function pageItems(key, items) {
         const totalPages = Math.max(1, Math.ceil(items.length / LIST_PAGE_SIZE));
@@ -955,237 +928,6 @@
         `;
       }
 
-      function rerenderList(key) {
-        if (key === 'accounts') renderAccounts();
-        if (key === 'services') renderServices();
-        if (key === 'permissions') renderPermissions(state.permissionsByService[$('permissionListService').value] || []);
-        if (key === 'clients') renderClients(state.clientsByService[$('clientListService').value] || []);
-        if (key === 'credentials') renderCredentials();
-        if (key === 'applications') renderApplications();
-      }
-
-      async function api(path, options = {}) {
-        const response = await fetch(path, {
-          ...options,
-          credentials: 'same-origin',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(options.headers || {}),
-          },
-        });
-        if (!response.ok) {
-          const error = await response.json().catch(() => ({}));
-          throw new Error(error.message || error.error || response.statusText);
-        }
-        if (response.status === 204) {
-          return null;
-        }
-        return response.json();
-      }
-
-      function renderAccounts() {
-        const activeSuperAdminCount = state.accounts.filter(
-          (account) => account.isSuperAdmin && account.status === 'active',
-        ).length;
-        const rows = pageItems('accounts', state.accounts);
-        $('accountsBody').innerHTML = rows
-          .map(
-            (account) => {
-              const disableBlocked =
-                account.isSuperAdmin &&
-                account.status === 'active' &&
-                activeSuperAdminCount <= 1;
-              const disableHint = disableBlocked
-                ? '<div class="hint">Last active super admin</div>'
-                : '';
-              return `
-              <tr>
-                <td>${escapeHtml(account.loginId)}</td>
-                <td>${escapeHtml(account.name)}</td>
-                <td>${escapeHtml(account.email)}</td>
-                <td><span class="badge">${account.status}</span></td>
-                <td>${account.isSuperAdmin ? 'super admin' : 'user'}</td>
-                <td>
-                  <div class="table-actions">
-                    <button
-                      class="secondary"
-                      data-disable-account="${account.id}"
-                      ${account.status !== 'active' || disableBlocked ? 'disabled' : ''}
-                    >
-                      Disable
-                    </button>
-                    ${disableHint}
-                  </div>
-                </td>
-              </tr>
-            `;
-            },
-          )
-          .join('');
-        renderListPagination('accounts', state.accounts.length);
-
-        $('assignmentAccount').innerHTML = state.accounts
-          .filter((account) => account.status === 'active')
-          .map((account) => `<option value="${account.id}">${account.loginId}</option>`)
-          .join('');
-      }
-
-      function renderServices() {
-        const rows = pageItems('services', state.services);
-        $('servicesBody').innerHTML = rows
-          .map(
-            (service) => `
-              <tr>
-                <td>${service.serviceKey}</td>
-                <td>${service.name}</td>
-                <td><span class="badge">${service.status}</span></td>
-                <td>${service.permissionSchemaVersion}</td>
-              </tr>
-            `,
-          )
-          .join('');
-        renderListPagination('services', state.services.length);
-
-        const options = state.services
-          .map((service) => `<option value="${service.id}">${escapeHtml(service.serviceKey)}</option>`)
-          .join('');
-        $('permissionService').innerHTML = options;
-        $('permissionListService').innerHTML = options;
-        $('assignmentService').innerHTML = options;
-        $('clientService').innerHTML = options;
-        $('clientListService').innerHTML = options;
-        $('credentialService').innerHTML = options;
-        $('credentialListService').innerHTML = options;
-        $('dashboardServiceFilter').innerHTML = `<option value="">All services</option>${state.services
-          .map((service) => `<option value="${service.serviceKey}">${escapeHtml(service.serviceKey)}</option>`)
-          .join('')}`;
-        $('dashboardServiceFilter').value = state.permissionDashboard.serviceKey;
-      }
-
-      function renderAssignmentPermissions(serviceId = $('assignmentService').value) {
-        const permissions = state.permissionsByService[serviceId] || [];
-        $('assignmentPermission').innerHTML = permissions
-          .filter((permission) => permission.status === 'active')
-          .map(
-            (permission) =>
-              `<option value="${permission.id}">${permission.key} - ${permission.label}</option>`,
-          )
-          .join('');
-      }
-
-      function renderPermissions(permissions) {
-        const rows = pageItems('permissions', permissions);
-        $('permissionsBody').innerHTML = rows
-          .map(
-            (permission) => {
-              const activeAssignments = permission.activeAssignmentCount ?? 0;
-              const activeOptions = permissions
-                .filter(
-                  (target) =>
-                    target.status === 'active' &&
-                    target.id !== permission.id &&
-                    target.key !== 'visitor',
-                )
-                .map(
-                  (target) =>
-                    `<option value="${target.id}">${escapeHtml(target.key)} - ${escapeHtml(target.label)}</option>`,
-                )
-                .join('');
-              return `
-              <tr>
-                <td>${escapeHtml(permission.key)}</td>
-                <td><input class="table-input" data-permission-label="${permission.id}" value="${escapeHtml(permission.label)}" /></td>
-                <td><span class="badge">${permission.status}</span></td>
-                <td><textarea class="table-textarea" data-permission-description="${permission.id}">${escapeHtml(permission.description || '')}</textarea></td>
-                <td>${activeAssignments}</td>
-                <td>
-                  <div class="table-actions">
-                    <button data-update-permission="${permission.id}" data-service-id="${permission.serviceId}">Update</button>
-                    <button class="secondary" data-deprecate-permission="${permission.id}" data-service-id="${permission.serviceId}" ${
-                      permission.status !== 'active' || permission.key === 'visitor' ? 'disabled' : ''
-                    }>Deprecate</button>
-                    <label>
-                      Migrate to
-                      <select class="table-select" data-permission-target="${permission.id}">
-                        <option value="">No target</option>
-                        ${activeOptions}
-                      </select>
-                    </label>
-                    <button class="secondary" data-remove-permission="${permission.id}" data-service-id="${permission.serviceId}" ${
-                      permission.status === 'removed' || permission.key === 'visitor' ? 'disabled' : ''
-                    }>Remove</button>
-                  </div>
-                </td>
-              </tr>
-            `;
-            },
-          )
-          .join('');
-        renderListPagination('permissions', permissions.length);
-      }
-
-      function renderClients(clients) {
-        const serviceId = $('clientListService').value;
-        if (serviceId) {
-          state.clientsByService[serviceId] = clients;
-        }
-        const rows = pageItems('clients', clients);
-        $('clientsBody').innerHTML = rows
-          .map(
-            (client) => `
-              <tr>
-                <td class="mono">${escapeHtml(client.clientId)}</td>
-                <td>
-                  <select class="table-select" data-client-type="${client.id}">
-                    <option value="public" ${client.clientType === 'public' ? 'selected' : ''}>public</option>
-                    <option value="confidential" ${client.clientType === 'confidential' ? 'selected' : ''}>confidential</option>
-                  </select>
-                </td>
-                <td>
-                  <select class="table-select" data-client-status="${client.id}">
-                    <option value="active" ${client.status === 'active' ? 'selected' : ''}>active</option>
-                    <option value="disabled" ${client.status === 'disabled' ? 'selected' : ''}>disabled</option>
-                  </select>
-                </td>
-                <td><textarea class="table-textarea" data-client-redirects="${client.id}">${escapeHtml(client.redirectUris.join('\n'))}</textarea></td>
-                <td>
-                  <div class="cell-stack">
-                    <label>
-                      Post Logout URIs
-                      <textarea class="table-textarea" data-client-post-logout="${client.id}">${escapeHtml((client.postLogoutRedirectUris || []).join('\n'))}</textarea>
-                    </label>
-                    <label>
-                      Grant Types
-                      <input class="table-input" data-client-grants="${client.id}" value="${escapeHtml((client.allowedGrantTypes || []).join(' '))}" />
-                    </label>
-                    <label>
-                      Scopes
-                      <input class="table-input" data-client-scopes="${client.id}" value="${escapeHtml((client.allowedScopes || []).join(' '))}" />
-                    </label>
-                    <label class="checkbox-item">
-                      <input data-client-pkce="${client.id}" type="checkbox" ${client.requirePkce ? 'checked' : ''} />
-                      <span>Require PKCE</span>
-                    </label>
-                  </div>
-                </td>
-                <td>
-                  <div class="inline-actions">
-                    <button data-update-client="${client.id}" data-service-id="${client.serviceId}">Update</button>
-                    <button class="secondary" data-rotate-client="${client.id}" data-service-id="${client.serviceId}" ${
-                      client.clientType !== 'confidential' ? 'disabled' : ''
-                    }>Rotate Secret</button>
-                    <button class="secondary" data-disable-client="${client.id}" data-service-id="${client.serviceId}" ${
-                      client.status !== 'active' ? 'disabled' : ''
-                    }>Disable</button>
-                  </div>
-                </td>
-              </tr>
-            `,
-          )
-          .join('');
-        renderListPagination('clients', clients.length);
-      }
-
       function formatDate(value) {
         if (!value) {
           return '-';
@@ -1195,81 +937,192 @@
           return '-';
         }
         const part = (number) => String(number).padStart(2, '0');
-        const year = part(date.getFullYear() % 100);
-        const month = part(date.getMonth() + 1);
-        const day = part(date.getDate());
-        const hours = part(date.getHours());
-        const minutes = part(date.getMinutes());
-        const seconds = part(date.getSeconds());
-        return `${year}.${month}.${day} ${hours}:${minutes}:${seconds}`;
+        return `${part(date.getFullYear() % 100)}.${part(date.getMonth() + 1)}.${part(
+          date.getDate(),
+        )} ${part(date.getHours())}:${part(date.getMinutes())}:${part(date.getSeconds())}`;
+      }
+
+      function setServiceSelectOptions(selectId, options, preferredValue) {
+        const select = $(selectId);
+        select.innerHTML = options
+          .map(
+            (service) =>
+              `<option value="${service.id}">${escapeHtml(service.serviceKey)}</option>`,
+          )
+          .join('');
+        const nextValue =
+          options.some((service) => service.id === preferredValue)
+            ? preferredValue
+            : options[0]?.id || '';
+        select.value = nextValue;
+      }
+
+      function renderAccounts() {
+        const activeSuperAdminCount = state.accounts.filter(
+          (account) => account.isSuperAdmin && account.status === 'active',
+        ).length;
+        const rows = pageItems('accounts', state.accounts);
+        $('accountsBody').innerHTML = rows
+          .map((account) => {
+            const disableBlocked =
+              account.isSuperAdmin &&
+              account.status === 'active' &&
+              activeSuperAdminCount <= 1;
+            return `
+              <tr>
+                <td>${escapeHtml(account.loginId)}</td>
+                <td>${escapeHtml(account.name)}</td>
+                <td>${escapeHtml(account.email)}</td>
+                <td><span class="badge">${escapeHtml(account.status)}</span></td>
+                <td>${account.isSuperAdmin ? 'super admin' : 'user'}</td>
+                <td>
+                  <div class="inline-actions">
+                    <button
+                      class="secondary"
+                      data-disable-account="${account.id}"
+                      ${account.status !== 'active' || disableBlocked ? 'disabled' : ''}
+                    >
+                      Disable
+                    </button>
+                    <button
+                      class="secondary"
+                      data-reset-account="${account.id}"
+                      ${account.status !== 'active' ? 'disabled' : ''}
+                    >
+                      Reset Password
+                    </button>
+                  </div>
+                  ${disableBlocked ? '<div class="hint">Last active super admin</div>' : ''}
+                </td>
+              </tr>
+            `;
+          })
+          .join('');
+        renderListPagination('accounts', state.accounts.length);
+      }
+
+      function renderServices() {
+        const rows = pageItems('services', state.services);
+        $('servicesBody').innerHTML = rows
+          .map(
+            (service) => `
+              <tr>
+                <td class="mono">${escapeHtml(service.serviceKey)}</td>
+                <td>${escapeHtml(service.name)}</td>
+                <td><span class="badge">${escapeHtml(service.status)}</span></td>
+                <td>${service.permissionSchemaVersion}</td>
+              </tr>
+            `,
+          )
+          .join('');
+        renderListPagination('services', state.services.length);
+
+        const permissionValue = $('permissionListService').value;
+        const clientValue = $('clientListService').value;
+        const credentialValue = $('credentialListService').value;
+        setServiceSelectOptions('permissionListService', state.services, permissionValue);
+        setServiceSelectOptions('clientListService', state.services, clientValue);
+        setServiceSelectOptions('credentialListService', state.services, credentialValue);
+        $('dashboardServiceFilter').innerHTML = `<option value="">All services</option>${state.services
+          .map(
+            (service) =>
+              `<option value="${service.serviceKey}">${escapeHtml(service.serviceKey)}</option>`,
+          )
+          .join('')}`;
+        $('dashboardServiceFilter').value = state.permissionDashboard.serviceKey;
+      }
+
+      function renderPermissions(permissions) {
+        const rows = pageItems('permissions', permissions);
+        $('permissionsBody').innerHTML = rows.length
+          ? rows
+              .map(
+                (permission) => `
+                  <tr>
+                    <td class="mono">${escapeHtml(permission.key)}</td>
+                    <td>${escapeHtml(permission.label)}</td>
+                    <td><span class="badge">${escapeHtml(permission.status)}</span></td>
+                    <td>${escapeHtml(permission.description || '-')}</td>
+                    <td>${permission.activeAssignmentCount ?? 0}</td>
+                  </tr>
+                `,
+              )
+              .join('')
+          : '<tr><td class="empty-state" colspan="5">No permissions.</td></tr>';
+        renderListPagination('permissions', permissions.length);
+      }
+
+      function renderClients(clients) {
+        const rows = pageItems('clients', clients);
+        $('clientsBody').innerHTML = rows.length
+          ? rows
+              .map(
+                (client) => `
+                  <tr>
+                    <td class="mono">${escapeHtml(client.clientId)}</td>
+                    <td>${escapeHtml(client.clientType)}</td>
+                    <td><span class="badge">${escapeHtml(client.status)}</span></td>
+                    <td>${client.redirectUris.map((uri) => `<div class="mono">${escapeHtml(uri)}</div>`).join('')}</td>
+                    <td>
+                      <div class="cell-stack">
+                        <div><strong>PKCE</strong>: ${client.requirePkce ? 'required' : 'optional'}</div>
+                        <div><strong>Post Logout</strong>: ${client.postLogoutRedirectUris.length ? client.postLogoutRedirectUris.map((uri) => `<div class="mono">${escapeHtml(uri)}</div>`).join('') : '-'}</div>
+                        <div><strong>Grant Types</strong>: ${escapeHtml((client.allowedGrantTypes || []).join(', ') || '-')}</div>
+                        <div><strong>Scopes</strong>: ${escapeHtml((client.allowedScopes || []).join(', ') || '-')}</div>
+                      </div>
+                    </td>
+                  </tr>
+                `,
+              )
+              .join('')
+          : '<tr><td class="empty-state" colspan="5">No OIDC clients.</td></tr>';
+        renderListPagination('clients', clients.length);
       }
 
       function renderCredentials(serviceId = $('credentialListService').value) {
         const credentials = state.credentialsByService[serviceId] || [];
         const rows = pageItems('credentials', credentials);
-        $('credentialsBody').innerHTML = rows
-          .map(
-            (credential) => `
-              <tr>
-                <td><code>${escapeHtml(credential.keyId)}</code></td>
-                <td>
-                  <div class="cell-stack">
-                    <input class="table-input" data-credential-name="${credential.id}" value="${escapeHtml(credential.name)}" />
-                    <textarea class="table-textarea" data-credential-description="${credential.id}">${escapeHtml(credential.description || '')}</textarea>
-                  </div>
-                </td>
-                <td>
-                  <div class="scope-grid">
-                    <label class="checkbox-item">
-                      <input data-credential-scope="${credential.id}" type="checkbox" value="account.search" ${
-                        credential.scopes.includes('account.search') ? 'checked' : ''
-                      } />
-                      <span>account.search</span>
-                    </label>
-                    <label class="checkbox-item">
-                      <input data-credential-scope="${credential.id}" type="checkbox" value="permission.read" ${
-                        credential.scopes.includes('permission.read') ? 'checked' : ''
-                      } />
-                      <span>permission.read</span>
-                    </label>
-                  </div>
-                </td>
-                <td>
-                  <select class="table-select" data-credential-status="${credential.id}">
-                    <option value="active" ${credential.status === 'active' ? 'selected' : ''}>active</option>
-                    <option value="disabled" ${credential.status === 'disabled' ? 'selected' : ''}>disabled</option>
-                  </select>
-                </td>
-                <td>${formatDate(credential.lastUsedAt)}<br /><span class="hint">${credential.lastUsedFrom || ''}</span></td>
-                <td><input class="table-input" data-credential-expires="${credential.id}" type="datetime-local" value="${dateInputValue(credential.expiresAt)}" /></td>
-                <td>
-                  <div class="inline-actions">
-                    <button data-update-credential="${credential.id}" data-service-id="${credential.serviceId}">Update</button>
-                    <button data-rotate-credential="${credential.id}" data-service-id="${credential.serviceId}" ${
-                      credential.status !== 'active' ? 'disabled' : ''
-                    }>Rotate</button>
-                    <button class="secondary" data-disable-credential="${credential.id}" data-service-id="${credential.serviceId}" ${
-                      credential.status !== 'active' ? 'disabled' : ''
-                    }>Disable</button>
-                  </div>
-                </td>
-              </tr>
-            `,
-          )
-          .join('');
+        $('credentialsBody').innerHTML = rows.length
+          ? rows
+              .map(
+                (credential) => `
+                  <tr>
+                    <td><code>${escapeHtml(credential.keyId)}</code></td>
+                    <td>
+                      <div class="cell-stack">
+                        <strong>${escapeHtml(credential.name)}</strong>
+                        <span class="hint">${escapeHtml(credential.description || '-')}</span>
+                      </div>
+                    </td>
+                    <td>${credential.scopes.map((scope) => `<div class="mono">${escapeHtml(scope)}</div>`).join('')}</td>
+                    <td><span class="badge">${escapeHtml(credential.status)}</span></td>
+                    <td>${formatDate(credential.lastUsedAt)}<br /><span class="hint">${escapeHtml(credential.lastUsedFrom || '')}</span></td>
+                    <td>${formatDate(credential.expiresAt)}</td>
+                    <td>
+                      <div class="inline-actions">
+                        <button
+                          data-rotate-credential="${credential.id}"
+                          data-service-id="${credential.serviceId}"
+                          ${credential.status !== 'active' ? 'disabled' : ''}
+                        >
+                          Rotate
+                        </button>
+                        <button
+                          class="secondary"
+                          data-disable-credential="${credential.id}"
+                          data-service-id="${credential.serviceId}"
+                          ${credential.status !== 'active' ? 'disabled' : ''}
+                        >
+                          Disable
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                `,
+              )
+              .join('')
+          : '<tr><td class="empty-state" colspan="7">No service credentials.</td></tr>';
         renderListPagination('credentials', credentials.length);
-      }
-
-      function dateInputValue(value) {
-        if (!value) {
-          return '';
-        }
-        const date = new Date(value);
-        if (Number.isNaN(date.getTime())) {
-          return '';
-        }
-        const offset = date.getTimezoneOffset() * 60000;
-        return new Date(date.getTime() - offset).toISOString().slice(0, 16);
       }
 
       function renderPermissionDashboardRange() {
@@ -1284,101 +1137,243 @@
       function renderPermissionDashboard() {
         const rows = state.permissionDashboard.items;
         renderPermissionDashboardRange();
-        if (!rows.length) {
-          $('permissionDashboardBody').innerHTML = `
-            <tr><td class="empty-state" colspan="7">No permission assignments.</td></tr>
-          `;
-          return;
-        }
-        $('permissionDashboardBody').innerHTML = rows
-          .map((row) => {
-            const permissions = state.permissionsByService[row.serviceId] || [];
-            const options = permissions
-              .filter((permission) => permission.status === 'active')
+        $('permissionDashboardBody').innerHTML = rows.length
+          ? rows
               .map(
-                (permission) =>
-                  `<option value="${permission.id}" ${permission.id === row.permissionDefinitionId ? 'selected' : ''}>${escapeHtml(permission.key)} - ${escapeHtml(permission.label)}</option>`,
+                (row) => `
+                  <tr>
+                    <td class="mono">${escapeHtml(row.loginId)}</td>
+                    <td>${escapeHtml(row.accountName)}</td>
+                    <td>${escapeHtml(row.email)}</td>
+                    <td><span class="mono">${escapeHtml(row.serviceKey)}</span><br /><span class="hint">${escapeHtml(row.serviceName)}</span></td>
+                    <td><strong>${escapeHtml(row.permissionKey)}</strong><br /><span class="hint">${escapeHtml(row.permissionLabel)}</span></td>
+                    <td>${formatDate(row.grantedAt)}</td>
+                  </tr>
+                `,
               )
-              .join('');
-            return `
-              <tr>
-                <td class="mono">${escapeHtml(row.loginId)}</td>
-                <td>${escapeHtml(row.accountName)}</td>
-                <td>${escapeHtml(row.email)}</td>
-                <td>
-                  <span class="mono">${escapeHtml(row.serviceKey)}</span><br />
-                  <span class="hint">${escapeHtml(row.serviceName)}</span>
-                </td>
-                <td>
-                  <select class="table-select" data-dashboard-permission="${row.id}">
-                    ${options}
-                  </select>
-                  <div class="hint">${escapeHtml(row.permissionStatus)}</div>
-                </td>
-                <td>${formatDate(row.grantedAt)}</td>
-                <td>
-                  <div class="inline-actions">
-                    <button data-dashboard-update="${row.id}" data-account-id="${row.accountId}" data-service-id="${row.serviceId}">Update</button>
-                    <button class="secondary" data-dashboard-revoke="${row.id}" data-account-id="${row.accountId}" data-service-id="${row.serviceId}">Revoke</button>
-                  </div>
-                </td>
-              </tr>
-            `;
-          })
-          .join('');
+              .join('')
+          : '<tr><td class="empty-state" colspan="6">No permission assignments.</td></tr>';
       }
 
       function renderCredentialSecret() {
-        if (!state.credentialSecret) {
-          $('credentialSecretCard').innerHTML =
-            '<div class="hint">No transient secret in memory.</div>';
+        $('credentialSecretCard').innerHTML = state.credentialSecret
+          ? `
+              <div class="form">
+                <div><strong>Service</strong>: ${escapeHtml(state.credentialSecret.serviceKey)}</div>
+                <div><strong>Name</strong>: ${escapeHtml(state.credentialSecret.name)}</div>
+                <div><strong>Key ID</strong><code>${escapeHtml(state.credentialSecret.keyId)}</code></div>
+                <div><strong>Secret</strong><code>${escapeHtml(state.credentialSecret.secret)}</code></div>
+                <div class="hint">Copy this now. It is not stored anywhere in the admin console.</div>
+              </div>
+            `
+          : '<div class="hint">No transient secret in memory.</div>';
+      }
+
+      function renderOnboardingSecret() {
+        if (!state.onboardingSecret || !state.onboardingSecret.secrets?.length) {
+          $('onboardingSecretCard').innerHTML =
+            '<div class="hint">No transient onboarding secrets in memory.</div>';
           return;
         }
-        $('credentialSecretCard').innerHTML = `
+        $('onboardingSecretCard').innerHTML = `
           <div class="form">
-            <div><strong>Service</strong>: ${state.credentialSecret.serviceKey}</div>
-            <div><strong>Name</strong>: ${state.credentialSecret.name}</div>
-            <div><strong>Key ID</strong><code>${state.credentialSecret.keyId}</code></div>
-            <div><strong>Secret</strong><code>${state.credentialSecret.secret}</code></div>
-            <div class="hint">Copy this now. It is not stored anywhere in the admin console.</div>
+            <div><strong>Request</strong>: ${escapeHtml(state.onboardingSecret.serviceKey)} / ${escapeHtml(state.onboardingSecret.kind)}</div>
+            ${state.onboardingSecret.secrets
+              .map((secret) => {
+                if (secret.kind === 'service_credential') {
+                  return `
+                    <div><strong>Service Credential</strong>: ${escapeHtml(secret.name)}</div>
+                    <div><strong>Key ID</strong><code>${escapeHtml(secret.keyId)}</code></div>
+                    <div><strong>Secret</strong><code>${escapeHtml(secret.secret)}</code></div>
+                  `;
+                }
+                return `
+                  <div><strong>OIDC Client</strong>: ${escapeHtml(secret.clientId)}</div>
+                  <div><strong>Client Secret</strong><code>${escapeHtml(secret.clientSecret)}</code></div>
+                `;
+              })
+              .join('<hr />')}
+            <div class="hint">These secrets are only shown in this card after approval.</div>
           </div>
         `;
       }
 
+      function onboardingSpecHtml(requestItem) {
+        const spec = requestItem.requestedSpec || {};
+        const permissions = (spec.permissions || []).map((item) => item.key).join(', ') || '-';
+        const clients = (spec.oidcClients || []).map((item) => item.clientId).join(', ') || '-';
+        const credentials =
+          (spec.serviceCredentials || []).map((item) => item.name).join(', ') || '-';
+        return `
+          <details>
+            <summary>requestedSpec</summary>
+            <div class="cell-stack">
+              <div><strong>Name</strong>: ${escapeHtml(spec.name || '-')}</div>
+              <div><strong>Description</strong>: ${escapeHtml(spec.description || '-')}</div>
+              <div><strong>Permissions</strong>: ${escapeHtml(permissions)}</div>
+              <div><strong>OIDC Clients</strong>: ${escapeHtml(clients)}</div>
+              <div><strong>Credentials</strong>: ${escapeHtml(credentials)}</div>
+              ${requestItem.decisionReason ? `<div><strong>Decision Reason</strong>: ${escapeHtml(requestItem.decisionReason)}</div>` : ''}
+              ${requestItem.decidedAt ? `<div><strong>Decided</strong>: ${escapeHtml(formatDate(requestItem.decidedAt))}</div>` : ''}
+            </div>
+          </details>
+        `;
+      }
+
+      function renderOnboardingRequests() {
+        const rows = pageItems('onboarding', state.onboardingRequests);
+        $('onboardingBody').innerHTML = rows.length
+          ? rows
+              .map((requestItem) => {
+                const requester =
+                  [requestItem.requesterName, requestItem.requesterEmail]
+                    .filter(Boolean)
+                    .join(' / ') || '-';
+                return `
+                  <tr>
+                    <td class="mono">${escapeHtml(requestItem.serviceKey)}</td>
+                    <td>${escapeHtml(requestItem.kind)}</td>
+                    <td><span class="badge">${escapeHtml(requestItem.status)}</span></td>
+                    <td>${requestItem.revision}</td>
+                    <td>${escapeHtml(requester)}</td>
+                    <td>${formatDate(requestItem.createdAt)}</td>
+                    <td>${onboardingSpecHtml(requestItem)}</td>
+                    <td>
+                      ${
+                        requestItem.status === 'pending'
+                          ? `
+                            <div class="cell-stack">
+                              <input class="table-input" data-onboarding-reason="${requestItem.id}" placeholder="Reject reason (optional)" />
+                              <div class="inline-actions">
+                                <button data-approve-onboarding="${requestItem.id}">Approve</button>
+                                <button class="secondary" data-reject-onboarding="${requestItem.id}">Reject</button>
+                              </div>
+                            </div>
+                          `
+                          : `<span class="hint">${requestItem.decidedAt ? `Decided ${escapeHtml(formatDate(requestItem.decidedAt))}` : 'No pending actions'}</span>`
+                      }
+                    </td>
+                  </tr>
+                `;
+              })
+              .join('')
+          : '<tr><td class="empty-state" colspan="8">No onboarding requests.</td></tr>';
+        renderListPagination('onboarding', state.onboardingRequests.length);
+      }
+
       function renderApplications() {
         const rows = pageItems('applications', state.applications);
-        $('applicationsBody').innerHTML = rows
-          .map((application) => {
-            const permissions = state.permissionsByService[application.serviceId] || [];
-            const options = permissions
-              .filter(
-                (permission) =>
-                  permission.status === 'active' && permission.key !== 'visitor',
-              )
-              .map(
-                (permission) =>
-                  `<option value="${permission.id}">${permission.key} - ${permission.label}</option>`,
-              )
-              .join('');
-            return `
-              <tr>
-                <td>${application.account.loginId}</td>
-                <td>${application.service.serviceKey}</td>
-                <td>${application.message || ''}</td>
-                <td>
-                  <select id="application-permission-${application.id}">
-                    ${options}
-                  </select>
-                </td>
-                <td>
-                  <button data-approve-application="${application.id}">Approve</button>
-                  <button class="secondary" data-reject-application="${application.id}">Reject</button>
-                </td>
-              </tr>
-            `;
-          })
-          .join('');
+        $('applicationsBody').innerHTML = rows.length
+          ? rows
+              .map((application) => {
+                const options = (state.permissionsByService[application.serviceId] || [])
+                  .filter(
+                    (permission) =>
+                      permission.status === 'active' && permission.key !== 'visitor',
+                  )
+                  .map(
+                    (permission) =>
+                      `<option value="${permission.id}">${escapeHtml(permission.key)} - ${escapeHtml(permission.label)}</option>`,
+                  )
+                  .join('');
+                return `
+                  <tr>
+                    <td>${escapeHtml(application.account.loginId)}</td>
+                    <td>${escapeHtml(application.service.serviceKey)}</td>
+                    <td>${escapeHtml(application.message || '-')}</td>
+                    <td>
+                      <select id="application-permission-${application.id}" ${options ? '' : 'disabled'}>
+                        ${options || '<option value="">No upgrade targets</option>'}
+                      </select>
+                    </td>
+                    <td>
+                      <button data-approve-application="${application.id}" ${options ? '' : 'disabled'}>Approve</button>
+                      <button class="secondary" data-reject-application="${application.id}">Reject</button>
+                    </td>
+                  </tr>
+                `;
+              })
+              .join('')
+          : '<tr><td class="empty-state" colspan="5">No pending account access requests.</td></tr>';
         renderListPagination('applications', state.applications.length);
+      }
+
+      function rerenderList(key) {
+        if (key === 'accounts') renderAccounts();
+        if (key === 'services') renderServices();
+        if (key === 'permissions') renderPermissions(state.permissionsByService[$('permissionListService').value] || []);
+        if (key === 'clients') renderClients(state.clientsByService[$('clientListService').value] || []);
+        if (key === 'credentials') renderCredentials();
+        if (key === 'onboarding') renderOnboardingRequests();
+        if (key === 'applications') renderApplications();
+      }
+
+      async function loadPermissions(serviceId = $('permissionListService').value) {
+        if (!serviceId) {
+          renderPermissions([]);
+          return;
+        }
+        const permissions = await api(`/api/admin/services/${serviceId}/permissions`);
+        state.permissionsByService[serviceId] = permissions;
+        renderPermissions(permissions);
+      }
+
+      async function loadClients(serviceId = $('clientListService').value) {
+        if (!serviceId) {
+          renderClients([]);
+          return;
+        }
+        const clients = await api(`/api/admin/services/${serviceId}/clients`);
+        state.clientsByService[serviceId] = clients;
+        renderClients(clients);
+      }
+
+      async function loadCredentials(serviceId = $('credentialListService').value) {
+        if (!serviceId) {
+          renderCredentials('');
+          return;
+        }
+        const credentials = await api(`/api/admin/services/${serviceId}/credentials`);
+        state.credentialsByService[serviceId] = credentials;
+        renderCredentials(serviceId);
+      }
+
+      async function loadOnboardingRequests() {
+        const params = new URLSearchParams();
+        if (state.onboardingFilter !== 'all') {
+          params.set('status', state.onboardingFilter);
+        }
+        const path = params.size
+          ? `/api/admin/service-onboarding-requests?${params.toString()}`
+          : '/api/admin/service-onboarding-requests';
+        state.onboardingRequests = await api(path);
+        renderOnboardingRequests();
+      }
+
+      async function loadPermissionDashboard() {
+        const params = new URLSearchParams({
+          page: String(state.permissionDashboard.page),
+          pageSize: String(state.permissionDashboard.pageSize),
+        });
+        if (state.permissionDashboard.serviceKey) {
+          params.set('serviceKey', state.permissionDashboard.serviceKey);
+        }
+        const dashboard = await api(`/api/admin/permission-dashboard?${params.toString()}`);
+        state.permissionDashboard = {
+          ...state.permissionDashboard,
+          ...dashboard,
+        };
+        renderPermissionDashboard();
+      }
+
+      async function loadApplications() {
+        state.applications = await api('/api/admin/service-applications?status=pending');
+        await Promise.all(
+          Array.from(new Set(state.applications.map((application) => application.serviceId)))
+            .filter((serviceId) => !state.permissionsByService[serviceId])
+            .map((serviceId) => loadPermissions(serviceId)),
+        );
+        renderApplications();
       }
 
       async function refreshAll() {
@@ -1395,12 +1390,14 @@
           state.services = services;
           renderAccounts();
           renderServices();
-          if (services[0]) {
-            await loadPermissions(services[0].id);
-            await loadClients(services[0].id);
-            await loadCredentials(services[0].id);
-            await loadApplications();
-            await loadPermissionDashboard();
+          await Promise.all([loadOnboardingRequests(), loadApplications()]);
+          if (state.services.length) {
+            await Promise.all([
+              loadPermissions($('permissionListService').value),
+              loadClients($('clientListService').value),
+              loadCredentials($('credentialListService').value),
+              loadPermissionDashboard(),
+            ]);
           } else {
             renderPermissions([]);
             renderClients([]);
@@ -1413,7 +1410,6 @@
               totalPages: 0,
             };
             renderPermissionDashboard();
-            renderApplications();
           }
           setStatus('Loaded');
         } catch (error) {
@@ -1421,84 +1417,15 @@
         }
       }
 
-      async function loadPermissions(serviceId = $('permissionListService').value) {
-        if (!serviceId) {
-          renderPermissions([]);
-          return;
-        }
-        const permissions = await api(`/api/admin/services/${serviceId}/permissions`);
-        state.permissionsByService[serviceId] = permissions;
-        renderPermissions(permissions);
-        renderAssignmentPermissions(serviceId);
-      }
-
-      async function loadClients(serviceId = $('clientListService').value) {
-        if (!serviceId) {
-          renderClients([]);
-          return;
-        }
-        const clients = await api(`/api/admin/services/${serviceId}/clients`);
-        renderClients(clients);
-      }
-
-      async function loadCredentials(serviceId = $('credentialListService').value) {
-        if (!serviceId) {
-          renderCredentials('');
-          return;
-        }
-        const credentials = await api(`/api/admin/services/${serviceId}/credentials`);
-        state.credentialsByService[serviceId] = credentials;
-        renderCredentials(serviceId);
-      }
-
-      async function loadPermissionDashboard() {
-        const params = new URLSearchParams({
-          page: String(state.permissionDashboard.page),
-          pageSize: String(state.permissionDashboard.pageSize),
-        });
-        if (state.permissionDashboard.serviceKey) {
-          params.set('serviceKey', state.permissionDashboard.serviceKey);
-        }
-        const dashboard = await api(`/api/admin/permission-dashboard?${params.toString()}`);
-        state.permissionDashboard = {
-          ...state.permissionDashboard,
-          ...dashboard,
-        };
-        await Promise.all(
-          Array.from(new Set(dashboard.items.map((row) => row.serviceId)))
-            .filter((serviceId) => !state.permissionsByService[serviceId])
-            .map((serviceId) => loadPermissions(serviceId)),
-        );
-        renderPermissionDashboard();
-        const currentPermissionService = $('permissionListService').value;
-        if (currentPermissionService && state.permissionsByService[currentPermissionService]) {
-          renderPermissions(state.permissionsByService[currentPermissionService]);
-        }
-      }
-
-      async function loadApplications() {
-        const applications = await api('/api/admin/service-applications?status=pending');
-        state.applications = applications;
-        await Promise.all(
-          applications
-            .map((application) => application.serviceId)
-            .filter((serviceId) => !state.permissionsByService[serviceId])
-            .map((serviceId) => loadPermissions(serviceId)),
-        );
-        renderApplications();
-      }
-
-      function formJson(form) {
-        return Object.fromEntries(new FormData(form).entries());
-      }
-
       async function initializeAdminSession() {
         try {
           const session = await sessionRequest('/api/admin/session');
           state.adminSession = session.account;
+          state.requiresBootstrap = false;
           $('adminSessionSummary').textContent = `Logged in as ${session.account.loginId}`;
           showAccessPanel('session');
           showAdminMain(true);
+          updateWorkflowHelpVisibility();
           await refreshAll();
           return;
         } catch {
@@ -1506,10 +1433,16 @@
           showAdminMain(false);
         }
 
+        updateWorkflowHelpVisibility();
         try {
           const status = await sessionRequest('/api/admin/bootstrap/status');
+          state.requiresBootstrap = status.requiresBootstrap;
           showAccessPanel(status.requiresBootstrap ? 'bootstrap' : 'login');
-          setStatus(status.requiresBootstrap ? 'Create the first superadmin account' : 'Admin login required');
+          setStatus(
+            status.requiresBootstrap
+              ? 'Create the first superadmin account'
+              : 'Admin login required',
+          );
         } catch (error) {
           showAccessPanel('login');
           setStatus(error.message, true);
@@ -1531,9 +1464,10 @@
           $('bootstrapOtpCard').hidden = false;
           $('bootstrapOtpCard').innerHTML = `
             <div class="form">
+              ${result.otpQrDataUrl ? `<img alt="OTP QR" src="${result.otpQrDataUrl}" style="width: 192px; height: 192px;" />` : ''}
               <div><strong>OTP Secret</strong><code>${escapeHtml(result.otpSecret)}</code></div>
               <div><strong>Authenticator URI</strong><code>${escapeHtml(result.otpauthUri)}</code></div>
-              <div class="hint">Google Authenticator 등에 등록한 뒤 OTP Code를 입력하세요. 이 값은 이 화면에서만 표시됩니다.</div>
+              <div class="hint">Register the QR or URI in your authenticator, then enter the OTP code. These values are shown only here.</div>
             </div>
           `;
           setStatus('OTP setup generated');
@@ -1552,7 +1486,8 @@
             }),
           });
           setStatus('Bootstrap completed. Log in with the new superadmin.');
-          showAccessPanel('login');
+          state.bootstrapChallengeId = null;
+          await initializeAdminSession();
         } catch (error) {
           setStatus(error.message, true);
         }
@@ -1569,9 +1504,11 @@
             }),
           });
           state.adminSession = result.account;
+          state.requiresBootstrap = false;
           $('adminSessionSummary').textContent = `Logged in as ${result.account.loginId}`;
           showAccessPanel('session');
           showAdminMain(true);
+          updateWorkflowHelpVisibility();
           await refreshAll();
           setStatus('Logged in');
         } catch (error) {
@@ -1590,32 +1527,28 @@
         }
         state.adminSession = null;
         showAdminMain(false);
-        showAccessPanel('login');
+        updateWorkflowHelpVisibility();
+        await initializeAdminSession();
         setStatus('Logged out');
       });
 
       $('openAdminAccess').addEventListener('click', () => {
         $('adminAccessPanel').hidden = false;
       });
-
       $('closeAdminAccess').addEventListener('click', () => {
         $('adminAccessPanel').hidden = true;
       });
-
       $('openWorkflowHelp').addEventListener('click', () => {
         $('workflowHelpModal').hidden = false;
       });
-
       $('closeWorkflowHelp').addEventListener('click', () => {
         $('workflowHelpModal').hidden = true;
       });
-
       $('workflowHelpModal').addEventListener('click', (event) => {
         if (event.target === event.currentTarget) {
           $('workflowHelpModal').hidden = true;
         }
       });
-
       document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {
           $('workflowHelpModal').hidden = true;
@@ -1635,15 +1568,32 @@
         state.listPages.clients = 1;
         void loadClients();
       });
+      $('clientListService').addEventListener('change', (event) => {
+        state.listPages.clients = 1;
+        void loadClients(event.currentTarget.value);
+      });
       $('loadCredentials').addEventListener('click', () => {
         state.listPages.credentials = 1;
         void loadCredentials();
       });
-      $('loadPermissionDashboard').addEventListener('click', () => void loadPermissionDashboard());
+      $('credentialListService').addEventListener('change', (event) => {
+        state.listPages.credentials = 1;
+        void loadCredentials(event.currentTarget.value);
+      });
+      $('loadOnboarding').addEventListener('click', () => {
+        state.listPages.onboarding = 1;
+        void loadOnboardingRequests();
+      });
+      $('onboardingStatusFilter').addEventListener('change', (event) => {
+        state.onboardingFilter = event.currentTarget.value;
+        state.listPages.onboarding = 1;
+        void loadOnboardingRequests();
+      });
       $('loadApplications').addEventListener('click', () => {
         state.listPages.applications = 1;
         void loadApplications();
       });
+      $('loadPermissionDashboard').addEventListener('click', () => void loadPermissionDashboard());
       $('dashboardServiceFilter').addEventListener('change', async (event) => {
         state.permissionDashboard.serviceKey = event.currentTarget.value;
         state.permissionDashboard.page = 1;
@@ -1663,49 +1613,18 @@
         state.permissionDashboard.page += 1;
         await loadPermissionDashboard();
       });
+
       document.addEventListener('click', (event) => {
         const target = event.target;
         if (!(target instanceof HTMLButtonElement)) {
           return;
         }
         const key = target.dataset.listPage;
-        if (!key) {
+        if (key) {
+          state.listPages[key] =
+            (state.listPages[key] || 1) + Number(target.dataset.listDirection || 0);
+          rerenderList(key);
           return;
-        }
-        state.listPages[key] = (state.listPages[key] || 1) + Number(target.dataset.listDirection || 0);
-        rerenderList(key);
-      });
-      $('assignmentService').addEventListener('change', async (event) => {
-        const serviceId = event.currentTarget.value;
-        if (!state.permissionsByService[serviceId]) {
-          await loadPermissions(serviceId);
-          return;
-        }
-        renderAssignmentPermissions(serviceId);
-      });
-
-      $('clientListService').addEventListener('change', (event) => {
-        state.listPages.clients = 1;
-        void loadClients(event.currentTarget.value);
-      });
-
-      $('credentialListService').addEventListener('change', (event) => {
-        state.listPages.credentials = 1;
-        void loadCredentials(event.currentTarget.value);
-      });
-
-      $('accountForm').addEventListener('submit', async (event) => {
-        event.preventDefault();
-        try {
-          await api('/api/admin/accounts', {
-            method: 'POST',
-            body: JSON.stringify(formJson(event.currentTarget)),
-          });
-          event.currentTarget.reset();
-          await refreshAll();
-          setStatus('Account created');
-        } catch (error) {
-          setStatus(error.message, true);
         }
       });
 
@@ -1714,345 +1633,45 @@
         if (!(target instanceof HTMLButtonElement)) {
           return;
         }
-        const accountId = target.dataset.disableAccount;
-        if (!accountId) {
-          return;
-        }
-        const account = state.accounts.find((item) => item.id === accountId);
-        if (!account) {
-          return;
-        }
-        const prompt = account.isSuperAdmin
-          ? 'Disable this super admin account? Existing service permissions will be kept.'
-          : 'Disable this account? Existing service permissions will be kept.';
-        if (!confirm(prompt)) {
-          return;
-        }
+        const disableId = target.dataset.disableAccount;
+        const resetId = target.dataset.resetAccount;
         try {
-          await api(`/api/admin/accounts/${accountId}`, {
-            method: 'PATCH',
-            body: JSON.stringify({ status: 'disabled' }),
-          });
-          await refreshAll();
-          setStatus('Account disabled');
-        } catch (error) {
-          setStatus(error.message, true);
-        }
-      });
-
-      $('serviceForm').addEventListener('submit', async (event) => {
-        event.preventDefault();
-        try {
-          await api('/api/admin/services', {
-            method: 'POST',
-            body: JSON.stringify(formJson(event.currentTarget)),
-          });
-          event.currentTarget.reset();
-          await refreshAll();
-          setStatus('Service created');
-        } catch (error) {
-          setStatus(error.message, true);
-        }
-      });
-
-      $('credentialForm').addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const form = event.currentTarget;
-        const values = formJson(form);
-        const scopes = Array.from(
-          form.querySelectorAll('input[name="scopes"]:checked'),
-        ).map((input) => input.value);
-        const payload = {
-          name: values.name,
-          description: values.description,
-          scopes,
-        };
-        if (values.expiresAt) {
-          payload.expiresAt = new Date(values.expiresAt).toISOString();
-        }
-        try {
-          const credential = await api(`/api/admin/services/${values.serviceId}/credentials`, {
-            method: 'POST',
-            body: JSON.stringify(payload),
-          });
-          state.credentialSecret = credential;
-          renderCredentialSecret();
-          form.reset();
-          $('credentialListService').value = values.serviceId;
-          await loadCredentials(values.serviceId);
-          setStatus('Service credential created. Secret is shown once below.');
-        } catch (error) {
-          setStatus(error.message, true);
-        }
-      });
-
-      $('permissionForm').addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const values = formJson(event.currentTarget);
-        const { serviceId, ...payload } = values;
-        try {
-          await api(`/api/admin/services/${serviceId}/permissions`, {
-            method: 'POST',
-            body: JSON.stringify(payload),
-          });
-          event.currentTarget.reset();
-          await refreshAll();
-          setStatus('Permission added');
-        } catch (error) {
-          setStatus(error.message, true);
-        }
-      });
-
-      $('clientForm').addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const values = formJson(event.currentTarget);
-        const redirectUris = values.redirectUris
-          .split(/\r?\n/)
-          .map((uri) => uri.trim())
-          .filter(Boolean);
-        const payload = {
-          clientId: values.clientId,
-          clientType: values.clientType,
-          redirectUris,
-        };
-        if (values.clientSecret) {
-          payload.clientSecret = values.clientSecret;
-        }
-        try {
-          await api(`/api/admin/services/${values.serviceId}/clients`, {
-            method: 'POST',
-            body: JSON.stringify(payload),
-          });
-          event.currentTarget.reset();
-          await refreshAll();
-          setStatus('OIDC client created');
-        } catch (error) {
-          setStatus(error.message, true);
-        }
-      });
-
-      $('assignmentForm').addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const values = formJson(event.currentTarget);
-        try {
-          await api(
-            `/api/admin/accounts/${values.accountId}/services/${values.serviceId}/permission`,
-            {
-              method: 'PUT',
-              body: JSON.stringify({
-                permissionDefinitionId: values.permissionDefinitionId,
-              }),
-            },
-          );
-          await loadPermissionDashboard();
-          setStatus('Service permission assigned');
-        } catch (error) {
-          setStatus(error.message, true);
-        }
-      });
-
-      $('revokePermission').addEventListener('click', async () => {
-        const values = formJson($('assignmentForm'));
-        try {
-          await api(
-            `/api/admin/accounts/${values.accountId}/services/${values.serviceId}/permission`,
-            { method: 'DELETE' },
-          );
-          await loadPermissionDashboard();
-          setStatus('Service access revoked');
-        } catch (error) {
-          setStatus(error.message, true);
-        }
-      });
-
-      $('applicationsBody').addEventListener('click', async (event) => {
-        const target = event.target;
-        if (!(target instanceof HTMLButtonElement)) {
-          return;
-        }
-        const approveId = target.dataset.approveApplication;
-        const rejectId = target.dataset.rejectApplication;
-        try {
-          if (approveId) {
-            const select = $(`application-permission-${approveId}`);
-            await api(`/api/admin/service-applications/${approveId}/approve`, {
-              method: 'POST',
-              body: JSON.stringify({
-                targetPermissionDefinitionId: select.value,
-              }),
-            });
-            await loadApplications();
-            await loadPermissionDashboard();
-            setStatus('Service application approved');
-          }
-          if (rejectId) {
-            await api(`/api/admin/service-applications/${rejectId}/reject`, {
-              method: 'POST',
-              body: JSON.stringify({}),
-            });
-            await loadApplications();
-            setStatus('Service application rejected');
-          }
-        } catch (error) {
-          setStatus(error.message, true);
-        }
-      });
-
-      $('permissionDashboardBody').addEventListener('click', async (event) => {
-        const target = event.target;
-        if (!(target instanceof HTMLButtonElement)) {
-          return;
-        }
-        const updateId = target.dataset.dashboardUpdate;
-        const revokeId = target.dataset.dashboardRevoke;
-        const accountId = target.dataset.accountId;
-        const serviceId = target.dataset.serviceId;
-        if (!accountId || !serviceId) {
-          return;
-        }
-        try {
-          if (updateId) {
-            const select = document.querySelector(`[data-dashboard-permission="${updateId}"]`);
-            await api(`/api/admin/accounts/${accountId}/services/${serviceId}/permission`, {
-              method: 'PUT',
-              body: JSON.stringify({ permissionDefinitionId: select.value }),
-            });
-            await loadPermissionDashboard();
-            setStatus('Permission level updated');
-          }
-          if (revokeId) {
-            if (!confirm('Revoke this account-service permission assignment?')) {
-              return;
-            }
-            await api(`/api/admin/accounts/${accountId}/services/${serviceId}/permission`, {
-              method: 'DELETE',
-            });
-            await loadPermissionDashboard();
-            setStatus('Permission assignment revoked');
-          }
-        } catch (error) {
-          setStatus(error.message, true);
-        }
-      });
-
-      $('permissionsBody').addEventListener('click', async (event) => {
-        const target = event.target;
-        if (!(target instanceof HTMLButtonElement)) {
-          return;
-        }
-        const serviceId = target.dataset.serviceId;
-        const updateId = target.dataset.updatePermission;
-        const deprecateId = target.dataset.deprecatePermission;
-        const removeId = target.dataset.removePermission;
-        if (!serviceId) {
-          return;
-        }
-        try {
-          if (updateId) {
-            const label = document.querySelector(`[data-permission-label="${updateId}"]`).value;
-            const description = document.querySelector(`[data-permission-description="${updateId}"]`).value;
-            await api(`/api/admin/services/${serviceId}/permissions/${updateId}`, {
-              method: 'PATCH',
-              body: JSON.stringify({ label, description }),
-            });
-            await loadPermissions(serviceId);
-            await loadPermissionDashboard();
-            setStatus('Permission updated');
-          }
-          if (deprecateId) {
-            if (!confirm('Deprecate this permission definition?')) {
-              return;
-            }
-            await api(`/api/admin/services/${serviceId}/permissions/${deprecateId}/deprecate`, {
-              method: 'POST',
-              body: JSON.stringify({}),
-            });
-            await loadPermissions(serviceId);
-            await loadPermissionDashboard();
-            setStatus('Permission deprecated');
-          }
-          if (removeId) {
-            const activeAssignments =
-              state.permissionsByService[serviceId]?.find(
-                (permission) => permission.id === removeId,
-              )?.activeAssignmentCount ?? 0;
-            const targetSelect = document.querySelector(`[data-permission-target="${removeId}"]`);
-            if (
-              !confirm(
-                `Remove this permission definition? Active assignments affected: ${activeAssignments}.`,
-              )
-            ) {
-              return;
-            }
-            const body = targetSelect.value ? { targetPermissionId: targetSelect.value } : {};
-            await api(`/api/admin/services/${serviceId}/permissions/${removeId}/remove`, {
-              method: 'POST',
-              body: JSON.stringify(body),
-            });
-            await loadPermissions(serviceId);
-            await loadPermissionDashboard();
-            setStatus('Permission removed');
-          }
-        } catch (error) {
-          setStatus(error.message, true);
-        }
-      });
-
-      $('clientsBody').addEventListener('click', async (event) => {
-        const target = event.target;
-        if (!(target instanceof HTMLButtonElement)) {
-          return;
-        }
-        const serviceId = target.dataset.serviceId;
-        const updateId = target.dataset.updateClient;
-        const rotateId = target.dataset.rotateClient;
-        const disableId = target.dataset.disableClient;
-        if (!serviceId) {
-          return;
-        }
-        try {
-          if (updateId) {
-            await api(`/api/admin/services/${serviceId}/clients/${updateId}`, {
-              method: 'PATCH',
-              body: JSON.stringify({
-                clientType: document.querySelector(`[data-client-type="${updateId}"]`).value,
-                status: document.querySelector(`[data-client-status="${updateId}"]`).value,
-                redirectUris: splitLines(
-                  document.querySelector(`[data-client-redirects="${updateId}"]`).value,
-                ),
-                postLogoutRedirectUris: splitLines(
-                  document.querySelector(`[data-client-post-logout="${updateId}"]`).value,
-                ),
-                allowedGrantTypes: splitWords(
-                  document.querySelector(`[data-client-grants="${updateId}"]`).value,
-                ),
-                allowedScopes: splitWords(
-                  document.querySelector(`[data-client-scopes="${updateId}"]`).value,
-                ),
-                requirePkce: document.querySelector(`[data-client-pkce="${updateId}"]`).checked,
-              }),
-            });
-            await loadClients(serviceId);
-            setStatus('OIDC client updated');
-          }
-          if (rotateId) {
-            const clientSecret = prompt('Enter new client secret. It will not be shown again.');
-            if (!clientSecret) {
-              return;
-            }
-            await api(`/api/admin/services/${serviceId}/clients/${rotateId}/rotate-secret`, {
-              method: 'POST',
-              body: JSON.stringify({ clientSecret }),
-            });
-            setStatus('OIDC client secret rotated');
-          }
           if (disableId) {
-            await api(`/api/admin/services/${serviceId}/clients/${disableId}`, {
+            const account = state.accounts.find((item) => item.id === disableId);
+            if (!account) {
+              return;
+            }
+            const promptText = account.isSuperAdmin
+              ? 'Disable this super admin account? Existing service permissions will be kept.'
+              : 'Disable this account? Existing service permissions will be kept.';
+            if (!confirm(promptText)) {
+              return;
+            }
+            await api(`/api/admin/accounts/${disableId}`, {
               method: 'PATCH',
               body: JSON.stringify({ status: 'disabled' }),
             });
-            await loadClients(serviceId);
-            setStatus('OIDC client disabled');
+            await refreshAll();
+            setStatus('Account disabled');
+          }
+          if (resetId) {
+            const password = prompt(
+              'Enter a new password, or leave blank to apply the temporary reset password 123456789.',
+              '',
+            );
+            if (password === null) {
+              return;
+            }
+            const body = password.trim() ? { password: password.trim() } : {};
+            await api(`/api/admin/accounts/${resetId}/reset-password`, {
+              method: 'POST',
+              body: JSON.stringify(body),
+            });
+            setStatus(
+              password.trim()
+                ? 'Password reset completed'
+                : 'Temporary reset password applied',
+            );
           }
         } catch (error) {
           setStatus(error.message, true);
@@ -2066,44 +1685,19 @@
         }
         const rotateId = target.dataset.rotateCredential;
         const disableId = target.dataset.disableCredential;
-        const updateId = target.dataset.updateCredential;
         const serviceId = target.dataset.serviceId;
         if (!serviceId) {
           return;
         }
         try {
-          if (updateId) {
-            const expiresValue = document.querySelector(
-              `[data-credential-expires="${updateId}"]`,
-            ).value;
-            const scopes = Array.from(
-              document.querySelectorAll(`[data-credential-scope="${updateId}"]:checked`),
-            ).map((input) => input.value);
-            await api(`/api/admin/services/${serviceId}/credentials/${updateId}`, {
-              method: 'PATCH',
-              body: JSON.stringify({
-                name: document.querySelector(`[data-credential-name="${updateId}"]`).value,
-                description: document.querySelector(
-                  `[data-credential-description="${updateId}"]`,
-                ).value,
-                scopes,
-                status: document.querySelector(`[data-credential-status="${updateId}"]`)
-                  .value,
-                expiresAt: expiresValue ? new Date(expiresValue).toISOString() : null,
-              }),
-            });
-            await loadCredentials(serviceId);
-            setStatus('Service credential updated');
-          }
           if (rotateId) {
-            const credential = await api(
+            state.credentialSecret = await api(
               `/api/admin/services/${serviceId}/credentials/${rotateId}/rotate`,
               {
                 method: 'POST',
                 body: JSON.stringify({}),
               },
             );
-            state.credentialSecret = credential;
             renderCredentialSecret();
             await loadCredentials(serviceId);
             setStatus('Service credential rotated. Secret is shown once below.');
@@ -2121,13 +1715,93 @@
         }
       });
 
+      $('onboardingBody').addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) {
+          return;
+        }
+        const approveId = target.dataset.approveOnboarding;
+        const rejectId = target.dataset.rejectOnboarding;
+        try {
+          if (approveId) {
+            const result = await api(
+              `/api/admin/service-onboarding-requests/${approveId}/approve`,
+              {
+                method: 'POST',
+                body: JSON.stringify({}),
+              },
+            );
+            state.onboardingSecret = {
+              serviceKey: result.request.serviceKey,
+              kind: result.request.kind,
+              secrets: result.secrets || [],
+            };
+            renderOnboardingSecret();
+            await refreshAll();
+            setStatus('Service onboarding request approved');
+          }
+          if (rejectId) {
+            const input = document.querySelector(`[data-onboarding-reason="${rejectId}"]`);
+            await api(`/api/admin/service-onboarding-requests/${rejectId}/reject`, {
+              method: 'POST',
+              body: JSON.stringify({ reason: input?.value || '' }),
+            });
+            await loadOnboardingRequests();
+            setStatus('Service onboarding request rejected');
+          }
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      });
+
+      $('applicationsBody').addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) {
+          return;
+        }
+        const approveId = target.dataset.approveApplication;
+        const rejectId = target.dataset.rejectApplication;
+        try {
+          if (approveId) {
+            const select = $(`application-permission-${approveId}`);
+            if (!select.value) {
+              return;
+            }
+            await api(`/api/admin/service-applications/${approveId}/approve`, {
+              method: 'POST',
+              body: JSON.stringify({
+                targetPermissionDefinitionId: select.value,
+              }),
+            });
+            await Promise.all([loadApplications(), loadPermissionDashboard()]);
+            setStatus('Account access request approved');
+          }
+          if (rejectId) {
+            await api(`/api/admin/service-applications/${rejectId}/reject`, {
+              method: 'POST',
+              body: JSON.stringify({}),
+            });
+            await loadApplications();
+            setStatus('Account access request rejected');
+          }
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      });
+
       $('clearCredentialSecret').addEventListener('click', () => {
         state.credentialSecret = null;
         renderCredentialSecret();
-        setStatus('Transient secret cleared');
+        setStatus('Transient credential secret cleared');
+      });
+      $('clearOnboardingSecret').addEventListener('click', () => {
+        state.onboardingSecret = null;
+        renderOnboardingSecret();
+        setStatus('Transient onboarding secrets cleared');
       });
 
       renderCredentialSecret();
+      renderOnboardingSecret();
       void initializeAdminSession();
     </script>
   </body>

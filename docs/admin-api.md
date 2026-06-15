@@ -7,7 +7,7 @@ Internal service-to-service calls must use service credentials issued through th
 ## Admin Bootstrap and Login
 
 - `GET /api/admin/bootstrap/status`: returns whether the connected DB needs first-superadmin bootstrap.
-- `POST /api/admin/bootstrap/start`: starts first-superadmin setup when no active superadmin exists. Returns a one-time OTP secret and otpauth URI for authenticator registration.
+- `POST /api/admin/bootstrap/start`: starts first-superadmin setup when no active superadmin exists. Returns a one-time OTP secret, otpauth URI, and QR image data for authenticator registration.
 - `POST /api/admin/bootstrap/complete`: verifies the OTP code and completes first-superadmin creation.
 - `POST /api/admin/login`: logs in an active superadmin with login ID, password, and Google OTP. Issues an HttpOnly admin session cookie.
 - `GET /api/admin/session`: returns the current superadmin session account.
@@ -21,27 +21,22 @@ Admin session policy:
 
 ## Accounts
 
-- `POST /api/admin/accounts`: create an account.
 - `GET /api/admin/accounts`: list accounts.
 - `GET /api/admin/accounts/service-search?serviceKey={serviceKey}&q={query}`: admin-side account lookup for service member invite flows. Returns each account's current permission key for the target service.
 - `GET /api/admin/accounts/{accountId}`: fetch one account.
 - `PATCH /api/admin/accounts/{accountId}`: update name, email, or status.
 - `POST /api/admin/accounts/{accountId}/reset-password`: set a new password.
-- `PUT /api/admin/accounts/{accountId}/services/{serviceId}/permission`: assign the account's single permission for a service.
-- `DELETE /api/admin/accounts/{accountId}/services/{serviceId}/permission`: revoke service access.
+
+Accounts are created through `/signup`, not through admin.
 
 ## Services and Clients
 
-- `POST /api/admin/services`: create a service registry entry. Prefer the service onboarding request flow for new services.
 - `GET /api/admin/services`: list services.
-- `PATCH /api/admin/services/{serviceId}`: update service metadata or status.
-- `POST /api/admin/services/{serviceId}/credentials`: create a service credential. Body: `name`, optional `description`, `scopes`, optional `expiresAt`. Response includes a one-time `secret`.
 - `GET /api/admin/services/{serviceId}/credentials`: list service credentials. Response never includes `secret` or `secretHash`.
 - `POST /api/admin/services/{serviceId}/credentials/{credentialId}/rotate`: replace the stored secret hash for the same `keyId`. Response includes a new one-time `secret`.
 - `POST /api/admin/services/{serviceId}/credentials/{credentialId}/disable`: disable the credential for future internal API use.
-- `POST /api/admin/services/{serviceId}/clients`: create an OIDC client.
-- `PATCH /api/admin/services/{serviceId}/clients/{clientId}`: update client settings.
-- `POST /api/admin/services/{serviceId}/clients/{clientId}/rotate-secret`: replace confidential client secret.
+
+Service registry creation and core spec changes happen through service onboarding request approval, not direct admin write endpoints.
 
 ## Service Onboarding Requests
 
@@ -75,11 +70,9 @@ as operational controls.
 
 ## Permission Definitions
 
-- `POST /api/admin/services/{serviceId}/permissions`: add an active permission key.
-- `PATCH /api/admin/services/{serviceId}/permissions/{permissionId}`: edit label, description, or deprecate.
-- `POST /api/admin/services/{serviceId}/permissions/{permissionId}/deprecate`: block new assignments.
-- `POST /api/admin/services/{serviceId}/permissions/{permissionId}/migrate`: move assignments to another active permission.
-- `POST /api/admin/services/{serviceId}/permissions/{permissionId}/remove`: remove if unassigned, or migrate then remove.
+- `GET /api/admin/services/{serviceId}/permissions`: list permission definitions for the approved service spec.
+
+Permission definition writes happen through approved onboarding specs or service access request approval, not ad hoc admin edit routes.
 
 ## Audit Logs
 
@@ -111,7 +104,7 @@ Rules:
 - IP rate limit: 10 sends per hour
 - email is unique across accounts
 - normal passwords require 8+ characters and at least one special character
-- newly created accounts receive `visitor` for every active service
+- newly created accounts do not receive eager service rows
 
 Admin password reset may set the temporary password `123456789`; that temporary
 password forces the user to choose a policy-compliant password on next login.
@@ -124,87 +117,46 @@ Every service receives a default permission on creation:
 - label: `방문자`
 - description: `서비스 신청이 필요함`
 
-When a service is created, all existing active accounts receive that service's `visitor` permission. When an account is created, it receives the `visitor` permission for every active service.
+No bulk account-service rows are created at account creation or service approval time. During OIDC authorize/token flows, if the account, service, and client are active and the account has no row at all for that service, auth lazily creates an active `visitor` assignment. If a row already exists with a non-active status, auth does not auto-restore it.
 
 ## body-lab Onboarding
 
-Register body-lab through the existing admin API. This creates no local auth
+Register body-lab through the service onboarding request API. This creates no local auth
 tables in `body-lab-api-nest`; body-lab consumes auth tokens and claims.
 
-Create the service:
+Submit the request:
 
 ```http
-POST /api/admin/services
-Cookie: tas_admin_session={signed-session-cookie}
+POST /api/service-onboarding-requests
 Content-Type: application/json
 
 {
   "serviceKey": "body-lab",
   "name": "body-lab",
-  "description": "Diet body research service"
+  "description": "Diet body research service",
+  "permissions": [
+    { "key": "owner", "label": "Owner", "description": "Full body-lab access" }
+  ],
+  "oidcClients": [
+    {
+      "clientId": "body-lab-ios",
+      "clientType": "public",
+      "redirectUris": ["bodylab://auth/callback"],
+      "allowedScopes": ["openid", "profile", "email", "service.permission"],
+      "requirePkce": true
+    },
+    {
+      "clientId": "body-lab-mac",
+      "clientType": "public",
+      "redirectUris": ["bodylab-mac://auth/callback"],
+      "allowedScopes": ["openid", "profile", "email", "service.permission"],
+      "requirePkce": true
+    }
+  ]
 }
 ```
 
-Create the owner permission after the service exists:
-
-```http
-POST /api/admin/services/{bodyLabServiceId}/permissions
-Cookie: tas_admin_session={signed-session-cookie}
-Content-Type: application/json
-
-{
-  "key": "owner",
-  "label": "Owner",
-  "description": "Full body-lab access"
-}
-```
-
-Create public native OIDC clients. Do not send `clientSecret`.
-
-```http
-POST /api/admin/services/{bodyLabServiceId}/clients
-Cookie: tas_admin_session={signed-session-cookie}
-Content-Type: application/json
-
-{
-  "clientId": "body-lab-ios",
-  "clientType": "public",
-  "redirectUris": ["bodylab://auth/callback"],
-  "allowedGrantTypes": ["authorization_code", "refresh_token"],
-  "allowedScopes": ["openid", "profile", "email", "service.permission"],
-  "requirePkce": true
-}
-```
-
-```http
-POST /api/admin/services/{bodyLabServiceId}/clients
-Cookie: tas_admin_session={signed-session-cookie}
-Content-Type: application/json
-
-{
-  "clientId": "body-lab-mac",
-  "clientType": "public",
-  "redirectUris": ["bodylab-mac://auth/callback"],
-  "allowedGrantTypes": ["authorization_code", "refresh_token"],
-  "allowedScopes": ["openid", "profile", "email", "service.permission"],
-  "requirePkce": true
-}
-```
-
-Assign `owner` to the personal body-lab account:
-
-```http
-PUT /api/admin/accounts/{accountId}/services/{bodyLabServiceId}/permission
-Cookie: tas_admin_session={signed-session-cookie}
-Content-Type: application/json
-
-{
-  "permissionDefinitionId": "{ownerPermissionDefinitionId}"
-}
-```
-
-`visitor` remains the default assignment for accounts without explicit body-lab
-access. body-lab must treat `visitor` and missing permission as access denied.
+Approve the onboarding request in `/admin`, then use the existing account access request flow to move specific body-lab users beyond `visitor`. body-lab must treat `visitor` and missing permission as access denied.
 
 ## Internal Service Credentials
 

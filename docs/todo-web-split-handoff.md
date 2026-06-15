@@ -1,79 +1,65 @@
 # Todo Web Split Handoff
 
-This repo does not need a new auth behavior change for the todo split. The required auth primitives already exist; the remaining work in `auth-api-nest` is admin data setup plus one temporary integration constraint.
+This repo does not need a new auth behavior change for the todo split. The required auth primitives already exist; the remaining work in `auth-api-nest` is service onboarding setup plus one temporary integration constraint.
 
 ## Already Supported
 
-- Service registry: admins can create the `todo` service through `POST /api/admin/services`.
-- Permission registry: admins can add arbitrary permission keys per service through `POST /api/admin/services/{serviceId}/permissions`.
-- Default visitor assignment: creating a service auto-creates the `visitor` permission and assigns it to all active accounts. New accounts also receive `visitor` for every active service.
-- OIDC client registry: admins can create and update OIDC clients per service through `POST /api/admin/services/{serviceId}/clients` and `PATCH /api/admin/services/{serviceId}/clients/{clientId}`.
+- Service registry and core spec: admins approve the `todo` service through `POST /api/service-onboarding-requests` plus `/api/admin/service-onboarding-requests/{requestId}/approve`.
+- Default visitor assignment: approved services always include `visitor`, but auth creates account-service visitor rows lazily on first login instead of bulk-seeding all accounts.
 - Service application flow: visitor users can request access through `POST /api/service-applications`, and admins can approve or reject requests through the admin API.
 - Account lookup for member invite flows: `GET /api/admin/accounts/service-search?serviceKey=todo&q=...` already exists.
 
 ## Manual Admin Data To Create
 
-Create these records in auth admin before wiring `todo-api-fastapi` and `todo-web-next`.
+Submit these records through the service onboarding flow before wiring `todo-api-fastapi` and `todo-web-next`.
 
-### 1. Service
+### 1. Service Onboarding Request
 
-Create one service:
+Submit one request:
 
 ```json
 {
   "serviceKey": "todo",
   "name": "Todo",
-  "description": "Split todo service for todo-web-next and todo-api-fastapi"
+  "description": "Split todo service for todo-web-next and todo-api-fastapi",
+  "permissions": [
+    { "key": "owner", "label": "Owner", "description": "Todo service owner" },
+    { "key": "admin", "label": "Admin", "description": "Todo service administrator" },
+    { "key": "user", "label": "User", "description": "Approved todo member" }
+  ],
+  "oidcClients": [
+    {
+      "clientId": "todo-web",
+      "clientType": "confidential",
+      "redirectUris": ["http://localhost:8000/api/session/callback"],
+      "postLogoutRedirectUris": [
+        "http://localhost:3034",
+        "http://localhost:3034/login"
+      ],
+      "allowedScopes": ["openid", "profile", "email", "service.permission"],
+      "requirePkce": true
+    }
+  ]
 }
-```
-
-Result:
-
-- `visitor` is created automatically.
-- Existing active accounts receive `visitor` automatically.
-
-### 2. Permission Definitions
-
-Create the non-visitor permission keys manually after the service exists:
-
-```json
-{ "key": "owner", "label": "Owner", "description": "Todo service owner" }
-{ "key": "admin", "label": "Admin", "description": "Todo service administrator" }
-{ "key": "user", "label": "User", "description": "Approved todo member" }
 ```
 
 Notes:
 
-- `visitor` is already built in; do not recreate it.
+- `visitor` is built in automatically for the approved service spec; do not submit it explicitly.
 - Auth only stores and issues the permission key. The meaning of `owner`, `admin`, `user`, and `visitor` remains a todo-service concern.
 
-### 3. OIDC Client
+### 2. OIDC Client
 
-For the currently planned split architecture, register one backend-owned confidential client used by `todo-api-fastapi`.
+For the currently planned split architecture, request one backend-owned confidential client used by `todo-api-fastapi`.
 
 Recommended local-dev values:
-
-```json
-{
-  "clientId": "todo-web",
-  "clientType": "confidential",
-  "clientSecret": "generate-a-secret-with-at-least-16-chars",
-  "redirectUris": ["http://localhost:8000/api/session/callback"],
-  "postLogoutRedirectUris": [
-    "http://localhost:3034",
-    "http://localhost:3034/login"
-  ],
-  "allowedGrantTypes": ["authorization_code", "refresh_token"],
-  "allowedScopes": ["openid", "profile", "email", "service.permission"],
-  "requirePkce": true
-}
-```
 
 Important:
 
 - The redirect URI must exactly match `TODO_OIDC_REDIRECT_URI` configured in `todo-api-fastapi`.
 - `todo-api-fastapi` performs the code exchange server-side; the URI is still registered with auth for OIDC validation even if no browser callback route is exposed.
 - A separate public `todo-web-next` client is not required for the currently planned backend-owned session flow.
+- The confidential client secret is generated and shown once when the onboarding request is approved.
 
 ## Service Application Flow For Todo
 

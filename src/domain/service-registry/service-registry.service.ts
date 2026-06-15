@@ -1,8 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { AccountServicePermissionEntity } from '../../database/entities/account-service-permission.entity';
-import { AccountEntity } from '../../database/entities/account.entity';
 import { ServicePermissionDefinitionEntity } from '../../database/entities/service-permission-definition.entity';
 import { ServiceEntity } from '../../database/entities/service.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -48,7 +46,7 @@ export class ServiceRegistryService {
           permissionSchemaVersion: 1,
         }),
       );
-      const visitor = await manager.save(
+      await manager.save(
         manager.create(ServicePermissionDefinitionEntity, {
           service: saved,
           serviceId: saved.id,
@@ -59,28 +57,6 @@ export class ServiceRegistryService {
           sortOrder: -1000,
         }),
       );
-      const accounts = await manager.find(AccountEntity, {
-        where: { status: 'active' },
-      });
-      if (accounts.length > 0) {
-        await manager.insert(
-          AccountServicePermissionEntity,
-          accounts.map((account) =>
-            manager.create(AccountServicePermissionEntity, {
-              account,
-              accountId: account.id,
-              service: saved,
-              serviceId: saved.id,
-              permissionDefinition: visitor,
-              permissionDefinitionId: visitor.id,
-              status: 'active',
-              grantedByAccountId: null,
-              grantedAt: new Date(),
-              revokedAt: null,
-            }),
-          ),
-        );
-      }
       return saved;
     });
     await this.auditLogs.record({

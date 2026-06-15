@@ -66,7 +66,7 @@ Rules:
 2. The credential must include `account.search`.
 3. The raw secret is shown only once at create/rotate time and must be stored by the consuming service, not by this repo.
 
-`visitor` is the default permission for every account-service pair. Services should treat it as a no-access or application-required state unless their domain explicitly supports visitor behavior.
+`visitor` is the default permission state for services, but auth does not pre-create every account-service row. Services should treat both `visitor` and a denied login caused by an existing non-active assignment as no-access or application-required states unless their domain explicitly supports visitor behavior.
 
 When a logged-in user has `visitor`, the service can show an access request form and call:
 
@@ -82,6 +82,8 @@ Content-Type: application/json
 ```
 
 The auth server only accepts this request when the token's service claim key matches `serviceKey` and the permission is `visitor`.
+
+On the first successful login to an active service, if the user has no row at all for that service, auth lazily creates `visitor` and issues the token with that claim. If a row already exists in a non-active state, auth denies access instead of auto-restoring it.
 
 ## Example Token Validation Checklist
 

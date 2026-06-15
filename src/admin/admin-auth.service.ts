@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Request, Response } from 'express';
 import { randomBytes } from 'node:crypto';
+import QRCode from 'qrcode';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import { AesGcmService } from '../common/crypto/aes-gcm.service';
 import { PasswordService } from '../common/crypto/password.service';
@@ -83,12 +84,18 @@ export class AdminAuthService {
         consumedAt: null,
       }),
     );
+    const otpauthUri = this.totp.otpauthUri({
+      secret: otpSecret,
+      loginId: input.loginId,
+    });
     return {
       challengeId: challenge.id,
       otpSecret,
-      otpauthUri: this.totp.otpauthUri({
-        secret: otpSecret,
-        loginId: input.loginId,
+      otpauthUri,
+      otpQrDataUrl: await QRCode.toDataURL(otpauthUri, {
+        errorCorrectionLevel: 'M',
+        margin: 1,
+        width: 192,
       }),
       expiresAt: challenge.expiresAt,
     };
@@ -129,7 +136,6 @@ export class AdminAuthService {
           lastLoginAt: null,
         }),
       );
-      await this.accounts.grantVisitorForAllServices(account, manager);
       await manager.save(
         manager.create(AdminMfaEntity, {
           account,

@@ -87,7 +87,7 @@ export class OidcController {
         throw new OAuthError('invalid_request', 'Missing required authorize parameters');
       }
       const client = await this.clients.findByClientId(clientId);
-      if (client.status !== 'active') {
+      if (client.status !== 'active' || client.service.status !== 'active') {
         throw new OAuthError('unauthorized_client', 'Client is disabled');
       }
       if (!client.redirectUris.includes(redirectUri)) {
@@ -119,7 +119,7 @@ export class OidcController {
           errorDescription: 'Password reset is required',
         });
       }
-      const permission = await this.accountPermissions.findActive(
+      const permission = await this.accountPermissions.findActiveOrCreateVisitorForFirstLogin(
         account.id,
         client.serviceId,
       );
@@ -159,6 +159,9 @@ export class OidcController {
   async token(@Body() body: TokenRequestDto, @Headers('authorization') auth?: string) {
     const clientCredentials = this.extractClientCredentials(body, auth);
     const client = await this.clients.findByClientId(clientCredentials.clientId);
+    if (client.status !== 'active' || client.service.status !== 'active') {
+      throw new OAuthError('unauthorized_client', 'Client is disabled', 403);
+    }
     await this.clients.validateClientSecret(client, clientCredentials.clientSecret);
 
     if (body.grant_type === 'authorization_code') {
@@ -268,7 +271,10 @@ export class OidcController {
   }
 
   private async requirePermission(accountId: string, serviceId: string) {
-    const permission = await this.accountPermissions.findActive(accountId, serviceId);
+    const permission = await this.accountPermissions.findActiveOrCreateVisitorForFirstLogin(
+      accountId,
+      serviceId,
+    );
     if (!permission) {
       throw new OAuthError('access_denied', 'No active service permission', 403);
     }

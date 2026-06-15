@@ -1,10 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, Repository } from 'typeorm';
+import { DataSource, FindOptionsWhere, QueryFailedError, Repository } from 'typeorm';
 import { AccountServicePermissionEntity } from '../../database/entities/account-service-permission.entity';
 import { AccountsService } from '../accounts/accounts.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { PermissionsService } from '../permissions/permissions.service';
+import { VISITOR_PERMISSION } from '../permissions/visitor-permission';
 import { ServiceRegistryService } from '../service-registry/service-registry.service';
 import {
   PermissionDashboardPageDto,
@@ -17,6 +18,7 @@ export class AccountPermissionsService {
   constructor(
     @InjectRepository(AccountServicePermissionEntity)
     private readonly accountPermissions: Repository<AccountServicePermissionEntity>,
+    private readonly dataSource: DataSource,
     private readonly accounts: AccountsService,
     private readonly services: ServiceRegistryService,
     private readonly permissions: PermissionsService,
@@ -89,6 +91,63 @@ export class AccountPermissionsService {
     });
   }
 
+  async findActiveOrCreateVisitorForFirstLogin(
+    accountId: string,
+    serviceId: string,
+  ): Promise<AccountServicePermissionEntity | null> {
+    const existing = await this.accountPermissions.findOne({
+      where: { accountId, serviceId },
+    });
+    if (existing) {
+      return existing.status === 'active' ? existing : null;
+    }
+
+    const visitor = await this.permissions.findActiveByServiceAndKey(
+      serviceId,
+      VISITOR_PERMISSION.key,
+    );
+    if (!visitor) {
+      throw new NotFoundException('Visitor permission definition not found');
+    }
+
+    try {
+      const result = await this.dataSource.transaction(async (manager) => {
+        await manager.insert(AccountServicePermissionEntity, {
+          accountId,
+          serviceId,
+          permissionDefinitionId: visitor.id,
+          status: 'active',
+          grantedByAccountId: null,
+          grantedAt: new Date(),
+          revokedAt: null,
+        });
+        return manager.findOneByOrFail(AccountServicePermissionEntity, {
+          accountId,
+          serviceId,
+        });
+      });
+      await this.auditLogs.record({
+        action: 'account_permission.lazy_visitor_grant',
+        targetType: 'account_service_permission',
+        targetId: result.id,
+        afterJson: {
+          accountId,
+          serviceId,
+          permissionDefinitionId: visitor.id,
+        },
+      });
+      return result;
+    } catch (error) {
+      if (!this.isUniqueAssignmentConflict(error)) {
+        throw error;
+      }
+      const raced = await this.accountPermissions.findOne({
+        where: { accountId, serviceId },
+      });
+      return raced?.status === 'active' ? raced : null;
+    }
+  }
+
   async listDashboardRows(
     query: PermissionDashboardQueryDto,
   ): Promise<PermissionDashboardPageDto> {
@@ -142,5 +201,13 @@ export class AccountPermissionsService {
       grantedAt: row.grantedAt,
       grantedByAccountId: row.grantedByAccountId,
     };
+  }
+
+  private isUniqueAssignmentConflict(error: unknown): boolean {
+    return (
+      error instanceof QueryFailedError &&
+      (error.driverError?.code === '23505' ||
+        String(error.message).includes('account_service_permissions'))
+    );
   }
 }
