@@ -38,9 +38,6 @@ describe('App bootstrap (e2e)', () => {
       process.env.TEST_DATABASE_URL ??
       'postgres://postgres:postgres@localhost:35432/teddy_auth';
     process.env.COOKIE_SECRET = 'test-cookie-secret';
-    process.env.SEED_ADMIN_LOGIN_ID = 'superadmin-test';
-    process.env.SEED_ADMIN_PASSWORD = 'superadmin-password';
-    process.env.SEED_ADMIN_EMAIL = 'superadmin-test@lafamila.xyz';
 
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],

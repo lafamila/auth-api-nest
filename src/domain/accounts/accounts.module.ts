@@ -5,7 +5,6 @@ import { AppConfigModule } from '../../config/app-config.module';
 import { AccountEntity } from '../../database/entities/account.entity';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 import { AccountsService } from './accounts.service';
-import { SeedService } from './seed.service';
 
 @Module({
   imports: [
@@ -13,7 +12,7 @@ import { SeedService } from './seed.service';
     TypeOrmModule.forFeature([AccountEntity]),
     AuditLogsModule,
   ],
-  providers: [AccountsService, PasswordService, SeedService],
+  providers: [AccountsService, PasswordService],
   exports: [AccountsService, PasswordService],
 })
 export class AccountsModule {}

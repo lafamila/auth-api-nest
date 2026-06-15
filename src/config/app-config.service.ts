@@ -67,17 +67,4 @@ export class AppConfigService {
     }
     return raw.split(',').map((origin) => origin.trim());
   }
-
-  get seedAdmin() {
-    return {
-      loginId: this.config.get<string>('SEED_ADMIN_LOGIN_ID', 'superadmin'),
-      password: this.config.get<string>(
-        'SEED_ADMIN_PASSWORD',
-        'Superadmin-password!',
-      ),
-      email: this.config.get<string>('SEED_ADMIN_EMAIL', 'admin@lafamila.xyz'),
-      name: this.config.get<string>('SEED_ADMIN_NAME', 'Teddy Super Admin'),
-      enabled: this.config.get<string>('SEED_ADMIN_ENABLED', 'false') === 'true',
-    };
-  }
 }

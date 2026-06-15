@@ -29,12 +29,16 @@ services:
       ISSUER_URL: http://localhost:3032
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/teddy_auth
       RUN_MIGRATIONS: "true"
-      ADMIN_API_KEY: dev-admin-key
+      CORS_ORIGINS: http://localhost:3032,http://localhost:3030,http://localhost:3031
       COOKIE_SECRET: dev-cookie-secret
-      SEED_ADMIN_LOGIN_ID: superadmin
-      SEED_ADMIN_PASSWORD: superadmin-password
-      SEED_ADMIN_EMAIL: admin@lafamila.xyz
-      SEED_ADMIN_NAME: Teddy Super Admin
+      ADMIN_SESSION_COOKIE_NAME: tas_admin_session
+      ADMIN_OTP_ENCRYPTION_KEY: dev-admin-otp-encryption-key-change-me
+      SIGNUP_EMAIL_CODE_PEPPER: dev-signup-email-code-pepper
+      SMTP_HOST: ""
+      SMTP_PORT: 587
+      SMTP_USER: ""
+      SMTP_PASSWORD: ""
+      SMTP_FROM: auth@lafamila.xyz
     depends_on:
       postgres:
         condition: service_healthy
