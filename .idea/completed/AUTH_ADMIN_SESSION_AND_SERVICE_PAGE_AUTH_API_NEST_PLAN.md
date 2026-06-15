@@ -1,6 +1,8 @@
 ---
-status: PREPARED
+status: COMPLETED
 summary: "Admin Session UX 를 정리하고 서비스 요청 작성 화면을 /service 로 분리한다."
+completed_at: 2026-06-15
+completion_reason: "admin session/service page split 구현과 lint/build/unit/e2e 및 local smoke 검증이 완료됨."
 ---
 
 # AUTH_ADMIN_SESSION_AND_SERVICE_PAGE — auth-api-nest execution plan
