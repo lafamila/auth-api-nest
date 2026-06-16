@@ -1291,7 +1291,15 @@
           envLines.push(`${envKey('OIDC_CLIENT', secret.clientId)}_SECRET=${secret.clientSecret}`);
         });
         if (!entries.length) {
-          setStatus('Service onboarding request approved. No operational secrets were issued.');
+          openSecretModal(
+            'Service Approved Without Secrets',
+            'This service was approved successfully. No one-time operational secrets were issued because the approved spec did not create confidential clients or service credentials.',
+            [],
+            [
+              `# ${serviceKey} approval issued no operational secrets`,
+              '# No .env secret values are required from this approval result.',
+            ],
+          );
           return;
         }
         openSecretModal(

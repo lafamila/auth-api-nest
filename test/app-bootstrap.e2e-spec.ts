@@ -293,6 +293,8 @@ describe('App bootstrap (e2e)', () => {
     expect(adminHtml).toContain('confirmSecretModal');
     expect(adminHtml).toContain('I copied these secrets');
     expect(adminHtml).toContain('Concrete .env examples');
+    expect(adminHtml).toContain('Service Approved Without Secrets');
+    expect(adminHtml).toContain('No .env secret values are required from this approval result.');
     expect(adminHtml).toContain('[hidden]');
     expect(adminHtml).toContain('display: none !important;');
     expect(adminHtml).toContain("mode === 'bootstrap' && state.requiresBootstrap");
