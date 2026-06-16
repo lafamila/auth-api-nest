@@ -141,33 +141,61 @@ On the first successful login to an active service, if the user has no row at al
 
 ## body-lab Integration
 
-body-lab is registered in auth, not in local body-lab tables.
+body-lab is registered in auth, but the primary OIDC relying party is
+`body-lab-api-nest`, not the native apps directly. Native macOS/iOS clients
+authenticate through `body-lab-api-nest`, then store only the body-lab opaque
+session token they receive back.
 
 Required service registry values:
 
 - serviceKey: `body-lab`
 - service name/label: `body-lab`
 - permission definition: `owner`
+- optional permission definition: `tester`
 - default `visitor`: no access in body-lab; the body-lab API must reject it.
 
-Required OIDC clients:
+Primary OIDC client:
+
+- `body-lab-api`
+  - client type: `confidential`
+  - client secret: generated once at onboarding approval time
+  - require PKCE: `true`
+  - redirect URI: `http://localhost:3020/session/oidc/callback`
+  - redirect URI: `https://lab.lafamila.xyz/session/oidc/callback`
+
+For physical-device local development, auth admins may add
+`http://{LAN_IP}:3020/session/oidc/callback` in a local auth DB only when
+`body-lab-api-nest` is actually listening on that LAN address. Do not place a
+placeholder LAN URI in the canonical approved spec.
+
+Legacy native public clients:
 
 - `body-lab-ios`
-  - client type: `public`
-  - client secret: none
-  - redirect URI: `bodylab://auth/callback`
 - `body-lab-mac`
-  - client type: `public`
-  - client secret: none
-  - redirect URI: `bodylab-mac://auth/callback`
 
-Both clients use Authorization Code + PKCE with these scopes:
+Those public clients are deprecated implementation leftovers, not a supported
+runtime fallback for current body-lab work. They may still exist in auth during
+migration cleanup, but new body-lab integration and testing should treat the
+confidential `body-lab-api` flow as the only supported login path.
+
+The primary client uses Authorization Code + PKCE with these scopes:
 
 ```text
 openid profile email service.permission
 ```
 
-body-lab APIs validate access tokens with:
+`body-lab-api-nest` exchanges the authorization code with the confidential
+client secret, validates the auth token response, and creates its own opaque
+body-lab session. Native apps must not store:
+
+- the auth OIDC client secret
+- any auth internal API service credential
+- any auth refresh token
+
+Direct native/public-client OIDC login and any body-lab ID/password proxy login
+are removed/deprecated for implementation in this architecture.
+
+The body-lab API validates auth access tokens with:
 
 - issuer: `https://auth.lafamila.xyz`
 - audience: `service:body-lab`
@@ -192,10 +220,42 @@ Example body-lab access token claim shape:
 increase when body-lab permission definitions change. Consumers must not
 hardcode the example value.
 
-Consuming repos should map these values into their own config names:
+Onboarding request strategy:
 
-- API: auth discovery URL, issuer URL, JWKS URI or discovery-derived JWKS URI, audience `service:body-lab`, service key `body-lab`, required permission `owner`.
-- iPhone app: issuer/discovery URL, client ID `body-lab-ios`, redirect URI `bodylab://auth/callback`, scopes above.
-- Mac app: issuer/discovery URL, client ID `body-lab-mac`, redirect URI `bodylab-mac://auth/callback`, scopes above.
+- If auth does not already have the `body-lab` service, submit a create request.
+- If auth already has the `body-lab` service, submit an update request instead
+  of asking auth admins to edit the approved spec directly.
+- `/service` JSON import files must not contain `visitor`; the importer strips
+  it because auth manages that permission automatically.
+- `/service` JSON import files should not include `requestSecret`; update
+  requests send that separately with `x-request-secret` or the body field.
+- Imported `requesterName` and `requesterEmail` values are ignored by
+  `/service`, which rewrites them from the current admin session.
 
-No body-lab app should embed a client secret.
+Import-ready example payload:
+
+- [docs/examples/body-lab-service-onboarding-create.json](/Users/lafamila/work/teddy/auth-api-nest/docs/examples/body-lab-service-onboarding-create.json)
+
+Approved-secret handling:
+
+- The approval modal returns `BODY_LAB_OIDC_CLIENT_SECRET` once. Copy it only
+  into `body-lab-api-nest` backend runtime configuration.
+- This integration does not require an auth internal service credential in the
+  current scope, so do not create or document
+  `BODY_LAB_AUTH_SERVICE_KEY_ID` / `BODY_LAB_AUTH_SERVICE_SECRET` for body-lab
+  yet.
+- If body-lab later adds account search, submit a new onboarding update request
+  that adds a service credential with the `account.search` scope.
+
+Consuming repos should map the approved values into their own config names:
+
+- API/backend: auth discovery URL, issuer URL, JWKS URI or discovery-derived
+  JWKS URI, audience `service:body-lab`, service key `body-lab`, required
+  permission `owner`, `BODY_LAB_OIDC_CLIENT_ID=body-lab-api`,
+  `BODY_LAB_OIDC_CLIENT_SECRET`, and the callback base URL used to construct
+  `/session/oidc/callback`.
+- Native apps: only the body-lab API base URL and the opaque body-lab session
+  contract (`X-Body-Lab-Session`). Do not ship auth client secrets or auth
+  service credentials in the app bundle.
+
+No body-lab app should embed an auth client secret or auth service credential.

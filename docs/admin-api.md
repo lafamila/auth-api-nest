@@ -154,10 +154,16 @@ No bulk account-service rows are created at account creation or service approval
 
 ## body-lab Onboarding
 
-Register body-lab through the service onboarding request API. This creates no local auth
-tables in `body-lab-api-nest`; body-lab consumes auth tokens and claims.
+Register body-lab through the service onboarding request API. This creates no
+local auth tables in `body-lab-api-nest`; body-lab consumes auth tokens and
+claims, while `body-lab-api-nest` acts as the confidential OIDC client.
 
-Submit the request:
+If `body-lab` is not already registered in auth, submit a create request with
+an import-compatible JSON payload such as:
+
+- [docs/examples/body-lab-service-onboarding-create.json](/Users/lafamila/work/teddy/auth-api-nest/docs/examples/body-lab-service-onboarding-create.json)
+
+Equivalent request body:
 
 ```http
 POST /api/service-onboarding-requests
@@ -166,30 +172,54 @@ Content-Type: application/json
 {
   "serviceKey": "body-lab",
   "name": "body-lab",
-  "description": "Diet body research service",
+  "description": "Body Lab API session bridge for native clients",
   "permissions": [
-    { "key": "owner", "label": "Owner", "description": "Full body-lab access" }
+    { "key": "owner", "label": "Owner", "description": "Full body-lab access" },
+    { "key": "tester", "label": "Tester", "description": "Limited test and staging access" }
   ],
   "oidcClients": [
     {
-      "clientId": "body-lab-ios",
-      "clientType": "public",
-      "redirectUris": ["bodylab://auth/callback"],
-      "allowedScopes": ["openid", "profile", "email", "service.permission"],
-      "requirePkce": true
-    },
-    {
-      "clientId": "body-lab-mac",
-      "clientType": "public",
-      "redirectUris": ["bodylab-mac://auth/callback"],
+      "clientId": "body-lab-api",
+      "clientType": "confidential",
+      "redirectUris": [
+        "http://localhost:3020/session/oidc/callback",
+        "https://lab.lafamila.xyz/session/oidc/callback"
+      ],
       "allowedScopes": ["openid", "profile", "email", "service.permission"],
       "requirePkce": true
     }
-  ]
+  ],
+  "serviceCredentials": []
 }
 ```
 
-Approve the onboarding request in `/admin`, then use the existing account access request flow to move specific body-lab users beyond `visitor`. body-lab must treat `visitor` and missing permission as access denied.
+If auth already has a `body-lab` service row, submit the revised spec through:
+
+```http
+POST /api/service-onboarding-requests/{requestId}/update
+x-request-secret: {requestSecret}
+Content-Type: application/json
+
+{same body-lab spec payload with your revised fields}
+```
+
+The `requestSecret` comes from the original create request lifecycle. It is not
+an OIDC client secret, not a service credential secret, and not something that
+belongs in `body-lab-api-nest` runtime `.env`.
+
+Approve the onboarding request in `/admin`, then use the existing account
+access request flow to move specific body-lab users beyond `visitor`. body-lab
+must treat `visitor` and missing permission as access denied.
+
+Approval-time secret handling for body-lab:
+
+- `BODY_LAB_OIDC_CLIENT_SECRET` is shown once and belongs only in
+  `body-lab-api-nest` backend configuration.
+- No auth internal service credential is required for the current body-lab
+  scope, so there is no `BODY_LAB_AUTH_SERVICE_KEY_ID` /
+  `BODY_LAB_AUTH_SERVICE_SECRET` pair to configure yet.
+- If a future body-lab feature needs auth account search, submit another update
+  request that adds a service credential with the `account.search` scope.
 
 ## Internal Service Credentials
 

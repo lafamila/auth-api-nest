@@ -10,17 +10,22 @@
 
 ## Native Public Clients
 
-Native apps use public OIDC clients. They do not send or store a client secret.
-PKCE is required, and `redirect_uri` must exactly match one registered value.
+Some services may still use public OIDC clients. They do not send or store a
+client secret. PKCE is required, and `redirect_uri` must exactly match one
+registered value.
 
 Supported redirect URI values include normal web URLs and native app callback
-schemes. The body-lab clients use:
+schemes. Historical body-lab public clients used:
 
 - `body-lab-ios`: `bodylab://auth/callback`
 - `body-lab-mac`: `bodylab-mac://auth/callback`
 
 The token request for these clients must include `client_id`, `code`,
 `redirect_uri`, and `code_verifier`, but must omit `client_secret`.
+
+For current body-lab implementation, do not treat those public clients as a
+supported fallback. Body-lab now uses the confidential `body-lab-api` client
+through `body-lab-api-nest` server callbacks instead of direct native login.
 
 ## Refresh Token Rotation
 

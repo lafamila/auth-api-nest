@@ -1,0 +1,37 @@
+{
+  "serviceKey": "body-lab",
+  "name": "body-lab",
+  "description": "Body Lab API session bridge for native clients",
+  "requesterName": "Imported value is ignored by /service",
+  "requesterEmail": "imported-value-is-ignored@example.com",
+  "permissions": [
+    {
+      "key": "owner",
+      "label": "Owner",
+      "description": "Full body-lab access"
+    },
+    {
+      "key": "tester",
+      "label": "Tester",
+      "description": "Limited test and staging access"
+    }
+  ],
+  "oidcClients": [
+    {
+      "clientId": "body-lab-api",
+      "clientType": "confidential",
+      "redirectUris": [
+        "http://localhost:3020/session/oidc/callback",
+        "https://lab.lafamila.xyz/session/oidc/callback"
+      ],
+      "allowedScopes": [
+        "openid",
+        "profile",
+        "email",
+        "service.permission"
+      ],
+      "requirePkce": true
+    }
+  ],
+  "serviceCredentials": []
+}

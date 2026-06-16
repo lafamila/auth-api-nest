@@ -1,5 +1,5 @@
 ---
-status: PREPARED
+status: IN_PROGRESS
 summary: "body-lab onboarding/docs 를 body-lab-api confidential client 중심으로 갱신한다."
 ---
 
