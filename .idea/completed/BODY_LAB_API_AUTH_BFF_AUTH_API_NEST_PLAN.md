@@ -1,6 +1,8 @@
 ---
-status: IN_PROGRESS
+status: COMPLETED
 summary: "body-lab onboarding/docs 를 body-lab-api confidential client 중심으로 갱신한다."
+completed_at: 2026-06-16
+completion_reason: "body-lab-api confidential client 중심 문서와 /service import 예시가 추가되고 auth build/lint/unit/e2e 검증이 통과함."
 ---
 
 # BODY_LAB_API_AUTH_BFF — auth-api-nest execution plan
