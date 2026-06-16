@@ -291,7 +291,10 @@ describe('App bootstrap (e2e)', () => {
     expect(adminHtml).toContain('One-Time Operational Secrets');
     expect(adminHtml).toContain('Copy Value');
     expect(adminHtml).toContain('confirmSecretModal');
-    expect(adminHtml).toContain('I copied these secrets');
+    expect(adminHtml).toContain('copySecretEnvExamples');
+    expect(adminHtml).toContain('Confirm');
+    expect(adminHtml).toContain('secretStorageConfirmed');
+    expect(adminHtml).toContain('secret 을 별도로 보관했습니다');
     expect(adminHtml).toContain('Concrete .env examples');
     expect(adminHtml).toContain('Service Approved Without Secrets');
     expect(adminHtml).toContain('No .env secret values are required from this approval result.');
