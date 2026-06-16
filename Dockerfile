@@ -1,3 +1,4 @@
+# Self-contained image for independent auth-api-nest deployment.
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 COPY package*.json ./

@@ -12,7 +12,7 @@ Planning-stage NestJS authentication service for the workspace-wide OIDC/OAuth2 
 2. **기능 단위 커밋** — 한 기능이 계획-구현-검토를 통과하면 즉시 1개의 커밋. 여러 기능을 묶지 않는다.
 3. **Agent co-author 제외** — Codex, Claude, OmX 등 agent/tool 저자를 `Co-authored-by` trailer 로 추가하지 않는다. 사용자가 명시적으로 요청한 경우만 예외.
 4. **계획 → 구현 → 검토** — 계획 단계에서 검토 통과 기준(어떤 테스트/명령이 통과해야 "done"인지)을 명시한다. auth 관련 변경은 *반드시* 머지 전 테스트.
-5. **Docker 빌드 가능** — DEPLOY 예정. Phase 1 구현 시점에 Dockerfile + 루트 `docker-compose.yml` 등록 필요. issuer 도메인은 `https://auth.lafamila.xyz`.
+5. **Docker 빌드 가능** — 독립 운영 배포 서비스다. Dockerfile 과 `.env.example` 를 이 레포의 배포 기준으로 유지하며, 루트 `docker-compose.yml` 앱 등록을 전제하지 않는다. issuer 도메인은 `https://auth.lafamila.xyz`.
 6. **서비스 통합 계약 유지** — 이 레포는 다른 서비스들이 참고하는 중앙 auth 계약의 소유자다. OIDC/OAuth2 endpoints, callback/redirect URI 검증, token claim, service permission claim, admin service/client/permission/credential API, service credential scope 정책을 바꿀 때는 consuming service 영향까지 검토한다.
 7. **신규 서비스 onboarding 지원** — admin console 과 문서는 새 서비스가 준비해야 할 항목을 계속 설명할 수 있어야 한다: `serviceKey`, permission definitions, OIDC client, redirect/callback URI, login/session/token 처리, access denied 정책, backend-to-auth service credential, env var, secret 비노출 원칙.
 8. **Service onboarding request 우선** — 새 서비스 등록과 기존 서비스 spec 변경은 service onboarding request 를 통해 진행한다. 서비스가 제출한 approved core spec(`serviceKey`, permission keys, redirect URIs, scopes, client type, PKCE, service credential scopes)은 auth admin 이 임의 수정하지 않는다. 수정이 필요하면 서비스가 update request 를 제출하고 superadmin 이 승인/거절한다. 운영상 disable/archive, credential revoke/rotate, client disable 은 admin 조치로 허용한다.
@@ -44,14 +44,18 @@ Expected scaffold (현 시점 planning-stage):
 
 ## Build, Test, and Development Commands
 
-No package scripts exist yet (planning-stage). After scaffolding, keep these commands:
+Use local app execution commands separately from independent deployment checks:
 
 - `npm install`: install dependencies.
 - `npm run start:dev`: run the local server in watch mode.
-- `npm run build`: compile TypeScript into `dist/`.
+- `npm run build`: compile TypeScript into `dist/` for local and containerized runs.
 - `npm run lint`: run ESLint.
 - `npm run test`: run unit tests.
 - `npm run test:e2e`: run integration/OIDC flow tests.
+- `docker build -t auth-api-nest .`: build the independent deployment image from this repo.
+- `docker compose -f docker-compose.dev.yml up --build`: run a repo-local Docker smoke environment when needed. This is separate from the workspace root infra compose and may use a repo-local PostgreSQL container for convenience only.
+
+Prefer a shared PostgreSQL infra endpoint with an auth-specific database/schema/role instead of assuming a dedicated auth PostgreSQL container. For local development, `DATABASE_URL` can point at the shared workspace/root infra PostgreSQL; the repo-local compose PostgreSQL is only a smoke-test fallback. For deployed environments, supply the service's own runtime `.env` values and managed shared-PostgreSQL connection details.
 
 Document database setup commands, such as `npm run migration:run`, when added.
 
