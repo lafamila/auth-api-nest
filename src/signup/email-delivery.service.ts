@@ -11,7 +11,7 @@ export class EmailDeliveryService {
 
   async sendSignupCode(email: string, code: string): Promise<void> {
     const smtp = this.config.smtp;
-    if (!smtp.host || this.config.nodeEnv !== 'production') {
+    if (!smtp.host) {
       this.logger.log(`Signup email verification code for ${email}: ${code}`);
       return;
     }
