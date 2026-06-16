@@ -6,6 +6,7 @@ import { OidcClientsModule } from '../domain/oidc-clients/oidc-clients.module';
 import { OidcController } from './oidc.controller';
 import { LoginController } from './login.controller';
 import { AuthorizationCodeService } from './authorization-code.service';
+import { AuthorizeFlowService } from './authorize-flow.service';
 import { OidcProviderAdapterService } from './oidc-provider-adapter.service';
 import { SigningKeyService } from './signing-key.service';
 import { TokenService } from './token.service';
@@ -15,6 +16,7 @@ import { TokenService } from './token.service';
   controllers: [OidcController, LoginController],
   providers: [
     AuthorizationCodeService,
+    AuthorizeFlowService,
     OidcProviderAdapterService,
     SigningKeyService,
     TokenService,

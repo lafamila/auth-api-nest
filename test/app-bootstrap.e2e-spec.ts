@@ -185,38 +185,63 @@ describe('App bootstrap (e2e)', () => {
     };
   }
 
-  async function loginAgent(loginId: string, password: string) {
-    const agent = request.agent(app.getHttpServer());
-    await agent
-      .post('/login')
-      .send({
-        loginId,
-        password,
-      })
-      .expect(201);
-    return agent;
-  }
-
-  async function authorizeAndExchange(agent: request.Agent, input: {
+  function buildAuthorizeQuery(input: {
     clientId: string;
     redirectUri: string;
-    expectedServiceKey: string;
-    expectedPermission: string;
+    codeChallenge: string;
+    state?: string;
   }) {
+    return {
+      response_type: 'code',
+      client_id: input.clientId,
+      redirect_uri: input.redirectUri,
+      scope: 'openid profile email service.permission',
+      state: input.state ?? 'state',
+      code_challenge: input.codeChallenge,
+      code_challenge_method: 'S256',
+    };
+  }
+
+  async function authorizeAndExchange(
+    agent: request.Agent,
+    input: {
+      clientId: string;
+      redirectUri: string;
+      expectedServiceKey: string;
+      expectedPermission: string;
+      loginId?: string;
+      password?: string;
+    },
+  ) {
     const codeVerifier = `verifier-${nextSuffix('pkce')}`;
     const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
-    const authorizeResponse = await agent
+    const authorizeQuery = buildAuthorizeQuery({
+      clientId: input.clientId,
+      redirectUri: input.redirectUri,
+      codeChallenge,
+    });
+    const initialAuthorizeResponse = await agent
       .get('/oauth/authorize')
-      .query({
-        response_type: 'code',
-        client_id: input.clientId,
-        redirect_uri: input.redirectUri,
-        scope: 'openid profile email service.permission',
-        state: 'state',
-        code_challenge: codeChallenge,
-        code_challenge_method: 'S256',
-      })
-      .expect(302);
+      .query(authorizeQuery)
+      .expect((response) => {
+        expect([200, 302]).toContain(response.status);
+      });
+    if (initialAuthorizeResponse.status === 200) {
+      expect(input.loginId).toBeTruthy();
+      expect(input.password).toBeTruthy();
+    }
+    const authorizeResponse =
+      initialAuthorizeResponse.status === 200
+        ? await agent
+            .post('/oauth/login')
+            .type('form')
+            .send({
+              ...authorizeQuery,
+              loginId: input.loginId,
+              password: input.password,
+            })
+            .expect(302)
+        : initialAuthorizeResponse;
     const redirect = new URL(authorizeResponse.headers.location);
     expect(redirect.searchParams.get('error')).toBeNull();
     const code = redirect.searchParams.get('code');
@@ -249,6 +274,161 @@ describe('App bootstrap (e2e)', () => {
       .get('/health')
       .expect(200)
       .expect({ status: 'ok' });
+  });
+
+  it('renders the hosted login page for authorize requests without tas_session', async () => {
+    const clientId = nextSuffix('hosted-login-page-client');
+    await createApprovedService({
+      oidcClients: [
+        {
+          clientId,
+          clientType: 'public',
+          redirectUris: ['https://todo.example.com/auth/callback'],
+        },
+      ],
+    });
+    const codeChallenge = createHash('sha256')
+      .update(`verifier-${nextSuffix('hosted-login-page')}`)
+      .digest('base64url');
+
+    await request(app.getHttpServer())
+      .get('/oauth/authorize')
+      .query(
+        buildAuthorizeQuery({
+          clientId,
+          redirectUri: 'https://todo.example.com/auth/callback',
+          codeChallenge,
+          state: 'hosted-login-state',
+        }),
+      )
+      .expect(200)
+      .expect((response) => {
+        expect(response.text).toContain('action="/oauth/login"');
+        expect(response.text).toContain('name="loginId"');
+        expect(response.text).toContain('name="password"');
+        expect(response.text).toContain('<button type="submit">로그인</button>');
+        expect(response.text).toContain('<a href="/signup">signup</a>');
+        expect(response.text).toContain('id="failure-message"');
+        expect(response.text).toContain(`name="client_id" value="${clientId}"`);
+        expect(response.text).toContain('name="state" value="hosted-login-state"');
+        expect(response.text).not.toContain('password/complete-reset');
+        expect(response.text).not.toContain('Teddy Auth');
+        expect(response.text).not.toContain('Continue in your browser');
+      });
+  });
+
+  it('resumes authorize after hosted login and issues tas_session', async () => {
+    const clientId = nextSuffix('hosted-login-success-client');
+    const approved = await createApprovedService({
+      oidcClients: [
+        {
+          clientId,
+          clientType: 'public',
+          redirectUris: ['https://todo.example.com/auth/callback'],
+        },
+      ],
+    });
+    const { account, password } = await createAccount();
+    const agent = request.agent(app.getHttpServer());
+    const codeVerifier = `verifier-${nextSuffix('hosted-login-success')}`;
+    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
+    const authorizeQuery = buildAuthorizeQuery({
+      clientId,
+      redirectUri: 'https://todo.example.com/auth/callback',
+      codeChallenge,
+      state: 'resume-state',
+    });
+
+    await agent.get('/oauth/authorize').query(authorizeQuery).expect(200);
+
+    const loginResponse = await agent
+      .post('/oauth/login')
+      .type('form')
+      .send({
+        ...authorizeQuery,
+        loginId: account.loginId,
+        password,
+      })
+      .expect(302);
+
+    const setCookie = loginResponse.headers['set-cookie'];
+    const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
+    expect(cookies.join(';')).toContain('tas_session=');
+    const redirect = new URL(loginResponse.headers.location);
+    expect(redirect.searchParams.get('state')).toBe('resume-state');
+    expect(redirect.searchParams.get('error')).toBeNull();
+    const code = redirect.searchParams.get('code');
+    expect(code).toBeTruthy();
+
+    const tokenResponse = await request(app.getHttpServer())
+      .post('/oauth/token')
+      .send({
+        grant_type: 'authorization_code',
+        client_id: clientId,
+        redirect_uri: 'https://todo.example.com/auth/callback',
+        code,
+        code_verifier: codeVerifier,
+      })
+      .expect(200);
+
+    const payload = app.get(TokenService).verifyAccessToken(tokenResponse.body.access_token);
+    expect(payload.aud).toBe(`service:${approved.service.serviceKey}`);
+    expect(payload['https://lafamila.xyz/claims/service']).toEqual(
+      expect.objectContaining({
+        key: approved.service.serviceKey,
+        permission: 'visitor',
+      }),
+    );
+  });
+
+  it('shows a failure message on hosted login credential errors', async () => {
+    const clientId = nextSuffix('hosted-login-failure-client');
+    await createApprovedService({
+      oidcClients: [
+        {
+          clientId,
+          clientType: 'public',
+          redirectUris: ['https://todo.example.com/auth/failure'],
+        },
+      ],
+    });
+    const { account } = await createAccount();
+    const agent = request.agent(app.getHttpServer());
+    const codeChallenge = createHash('sha256')
+      .update(`verifier-${nextSuffix('hosted-login-failure')}`)
+      .digest('base64url');
+    const authorizeQuery = buildAuthorizeQuery({
+      clientId,
+      redirectUri: 'https://todo.example.com/auth/failure',
+      codeChallenge,
+    });
+
+    await agent.get('/oauth/authorize').query(authorizeQuery).expect(200);
+
+    await agent
+      .post('/oauth/login')
+      .type('form')
+      .send({
+        ...authorizeQuery,
+        loginId: account.loginId,
+        password: 'wrong-password',
+      })
+      .expect(200)
+      .expect((response) => {
+        expect(response.text).toContain('Invalid credentials');
+        expect(response.text).toContain('id="failure-message"');
+        expect(response.headers.location).toBeUndefined();
+      });
+  });
+
+  it('does not expose public JSON POST /login anymore', async () => {
+    await request(app.getHttpServer())
+      .post('/login')
+      .send({
+        loginId: 'anyone',
+        password: 'irrelevant',
+      })
+      .expect(404);
   });
 
   it('completes bootstrap with the same admin session cookie and response shape as login', async () => {
@@ -695,12 +875,14 @@ describe('App bootstrap (e2e)', () => {
       }),
     ).toBeNull();
 
-    const agent = await loginAgent(account.loginId, password);
+    const agent = request.agent(app.getHttpServer());
     const visitorTokens = await authorizeAndExchange(agent, {
       clientId,
       redirectUri: 'bodylab://auth/callback',
       expectedServiceKey: approved.service.serviceKey,
       expectedPermission: 'visitor',
+      loginId: account.loginId,
+      password,
     });
 
     const visitorAssignment = await dataSource
@@ -755,12 +937,14 @@ describe('App bootstrap (e2e)', () => {
       }),
     ).toBeNull();
 
-    const agent = await loginAgent(account.loginId, password);
+    const agent = request.agent(app.getHttpServer());
     await authorizeAndExchange(agent, {
       clientId,
       redirectUri: 'bodylab-mac://auth/callback',
       expectedServiceKey: approved.service.serviceKey,
       expectedPermission: 'visitor',
+      loginId: account.loginId,
+      password,
     });
 
     const assignment = await dataSource
@@ -784,13 +968,15 @@ describe('App bootstrap (e2e)', () => {
       ],
     });
     const { account, password } = await createAccount();
-    const agent = await loginAgent(account.loginId, password);
+    const agent = request.agent(app.getHttpServer());
 
     await authorizeAndExchange(agent, {
       clientId,
       redirectUri: 'revoked://auth/callback',
       expectedServiceKey: approved.service.serviceKey,
       expectedPermission: 'visitor',
+      loginId: account.loginId,
+      password,
     });
 
     const assignmentRepository = dataSource.getRepository(AccountServicePermissionEntity);

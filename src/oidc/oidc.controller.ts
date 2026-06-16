@@ -11,11 +11,12 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { AccountsService } from '../domain/accounts/accounts.service';
 import { AccountPermissionsService } from '../domain/account-permissions/account-permissions.service';
+import { AccountsService } from '../domain/accounts/accounts.service';
 import { OidcClientsService } from '../domain/oidc-clients/oidc-clients.service';
 import { AppConfigService } from '../config/app-config.service';
 import { AuthorizationCodeService } from './authorization-code.service';
+import { AuthorizeFlowService } from './authorize-flow.service';
 import { TokenRequestDto } from './dto/token.dto';
 import { OAuthError } from './oauth-error';
 import { verifyPkceS256 } from './pkce';
@@ -30,10 +31,11 @@ type SignedCookieRequest = Request & {
 export class OidcController {
   constructor(
     private readonly config: AppConfigService,
+    private readonly accountPermissions: AccountPermissionsService,
     private readonly accounts: AccountsService,
     private readonly clients: OidcClientsService,
-    private readonly accountPermissions: AccountPermissionsService,
     private readonly codes: AuthorizationCodeService,
+    private readonly authorizeFlow: AuthorizeFlowService,
     private readonly signingKeys: SigningKeyService,
     private readonly tokens: TokenService,
   ) {}
@@ -80,69 +82,30 @@ export class OidcController {
     @Res() response: Response,
   ) {
     try {
-      if (responseType !== 'code') {
-        throw new OAuthError('unsupported_response_type', 'Only code is supported');
-      }
-      if (!clientId || !redirectUri || !scope?.includes('openid')) {
-        throw new OAuthError('invalid_request', 'Missing required authorize parameters');
-      }
-      const client = await this.clients.findByClientId(clientId);
-      if (client.status !== 'active' || client.service.status !== 'active') {
-        throw new OAuthError('unauthorized_client', 'Client is disabled');
-      }
-      if (!client.redirectUris.includes(redirectUri)) {
-        throw new OAuthError('invalid_request', 'redirect_uri must exactly match');
-      }
-      if (client.requirePkce && codeChallengeMethod !== 'S256') {
-        return this.redirectOAuthError(response, redirectUri, state, {
-          error: 'invalid_request',
-          errorDescription: 'S256 PKCE is required',
-        });
+      const validated = await this.authorizeFlow.validateRequest({
+        clientId,
+        redirectUri,
+        responseType,
+        scope,
+        state,
+        codeChallenge,
+        codeChallengeMethod,
+      });
+      if (validated.kind === 'redirect') {
+        return response.redirect(validated.redirectUrl);
       }
       const accountId = request.signedCookies?.tas_session;
       if (!accountId) {
-        return this.redirectOAuthError(response, redirectUri, state, {
-          error: 'login_required',
-          errorDescription: 'Active auth session is required',
-        });
+        return response
+          .status(200)
+          .type('html')
+          .send(this.authorizeFlow.renderHostedLoginPage(validated.request));
       }
-      const account = await this.accounts.findById(accountId);
-      if (account.status !== 'active') {
-        return this.redirectOAuthError(response, redirectUri, state, {
-          error: 'access_denied',
-          errorDescription: 'Account is not active',
-        });
-      }
-      if (account.passwordResetRequired) {
-        return this.redirectOAuthError(response, redirectUri, state, {
-          error: 'access_denied',
-          errorDescription: 'Password reset is required',
-        });
-      }
-      const permission = await this.accountPermissions.findActiveOrCreateVisitorForFirstLogin(
-        account.id,
-        client.serviceId,
+      const authorizeResult = await this.authorizeFlow.authorizeWithAccount(
+        validated,
+        accountId,
       );
-      if (!permission) {
-        return this.redirectOAuthError(response, redirectUri, state, {
-          error: 'access_denied',
-          errorDescription: 'No service permission',
-        });
-      }
-      const code = this.codes.create({
-        accountId: account.id,
-        clientId: client.clientId,
-        redirectUri,
-        codeChallenge,
-        codeChallengeMethod: 'S256',
-        scope,
-      });
-      const redirect = new URL(redirectUri);
-      redirect.searchParams.set('code', code);
-      if (state) {
-        redirect.searchParams.set('state', state);
-      }
-      return response.redirect(redirect.toString());
+      return response.redirect(authorizeResult.redirectUrl);
     } catch (error) {
       if (error instanceof OAuthError) {
         return response.status(error.statusCode).json({
@@ -236,21 +199,6 @@ export class OidcController {
       name: payload.name,
       preferred_username: payload.preferred_username,
     };
-  }
-
-  private redirectOAuthError(
-    response: Response,
-    redirectUri: string,
-    state: string | undefined,
-    error: { error: string; errorDescription: string },
-  ) {
-    const redirect = new URL(redirectUri);
-    redirect.searchParams.set('error', error.error);
-    redirect.searchParams.set('error_description', error.errorDescription);
-    if (state) {
-      redirect.searchParams.set('state', state);
-    }
-    return response.redirect(redirect.toString());
   }
 
   private extractClientCredentials(body: TokenRequestDto, auth?: string) {
