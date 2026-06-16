@@ -1,11 +1,14 @@
 import {
   Body,
   Controller,
+  Get,
   Post,
+  Query,
   Res,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Response } from 'express';
+import { AppConfigService } from '../config/app-config.service';
 import { AccountsService } from '../domain/accounts/accounts.service';
 import { CompletePasswordResetDto } from '../domain/accounts/dto/account.dto';
 import { AuthorizeFlowService } from './authorize-flow.service';
@@ -17,6 +20,7 @@ export class LoginController {
   constructor(
     private readonly accounts: AccountsService,
     private readonly authorizeFlow: AuthorizeFlowService,
+    private readonly config: AppConfigService,
   ) {}
 
   @Post('oauth/login')
@@ -66,8 +70,54 @@ export class LoginController {
 
   @Post('logout')
   logout(@Res({ passthrough: true }) response: Response) {
-    response.clearCookie('tas_session');
+    this.clearSessionCookie(response);
     return { ok: true };
+  }
+
+  @Get('logout')
+  logoutPage(
+    @Query('return_to') returnTo: string | undefined,
+    @Res() response: Response,
+  ) {
+    this.clearSessionCookie(response);
+    const safeReturnTo = this.safeReturnTo(returnTo);
+    if (safeReturnTo) {
+      return response.redirect(safeReturnTo);
+    }
+    return response
+      .status(200)
+      .type('html')
+      .send(`<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>로그아웃</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font-family: system-ui, sans-serif;
+        background: #f4f4f4;
+      }
+      main {
+        width: min(320px, calc(100vw - 32px));
+        display: grid;
+        gap: 12px;
+      }
+      p {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p>로그아웃되었습니다.</p>
+    </main>
+  </body>
+</html>`);
   }
 
   @Post('password/complete-reset')
@@ -94,5 +144,33 @@ export class LoginController {
       signed: true,
       maxAge: 12 * 60 * 60 * 1000,
     });
+  }
+
+  private clearSessionCookie(response: Response) {
+    response.clearCookie('tas_session', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+    });
+  }
+
+  private safeReturnTo(returnTo: string | undefined): string | undefined {
+    if (!returnTo) {
+      return undefined;
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(returnTo);
+    } catch {
+      return undefined;
+    }
+    const allowedOrigins = new Set([
+      new URL(this.config.issuerUrl).origin,
+      ...this.config.corsOrigins.map((origin) => new URL(origin).origin),
+    ]);
+    if (!allowedOrigins.has(parsed.origin)) {
+      return undefined;
+    }
+    return parsed.toString();
   }
 }

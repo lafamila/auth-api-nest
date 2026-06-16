@@ -61,6 +61,7 @@ export class OidcController {
       ],
       code_challenge_methods_supported: ['S256'],
       scopes_supported: ['openid', 'profile', 'email', 'service.permission'],
+      prompt_values_supported: ['login'],
     };
   }
 
@@ -78,6 +79,7 @@ export class OidcController {
     @Query('state') state: string | undefined,
     @Query('code_challenge') codeChallenge: string,
     @Query('code_challenge_method') codeChallengeMethod: string,
+    @Query('prompt') prompt: string | undefined,
     @Req() request: SignedCookieRequest,
     @Res() response: Response,
   ) {
@@ -90,12 +92,13 @@ export class OidcController {
         state,
         codeChallenge,
         codeChallengeMethod,
+        prompt,
       });
       if (validated.kind === 'redirect') {
         return response.redirect(validated.redirectUrl);
       }
       const accountId = request.signedCookies?.tas_session;
-      if (!accountId) {
+      if (!accountId || prompt?.split(/\s+/).includes('login')) {
         return response
           .status(200)
           .type('html')

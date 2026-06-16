@@ -190,6 +190,7 @@ describe('App bootstrap (e2e)', () => {
     redirectUri: string;
     codeChallenge: string;
     state?: string;
+    prompt?: string;
   }) {
     return {
       response_type: 'code',
@@ -199,6 +200,7 @@ describe('App bootstrap (e2e)', () => {
       state: input.state ?? 'state',
       code_challenge: input.codeChallenge,
       code_challenge_method: 'S256',
+      ...(input.prompt ? { prompt: input.prompt } : {}),
     };
   }
 
@@ -379,6 +381,117 @@ describe('App bootstrap (e2e)', () => {
         permission: 'visitor',
       }),
     );
+  });
+
+  it('supports browser logout before starting a fresh hosted login flow', async () => {
+    const clientId = nextSuffix('hosted-login-logout-client');
+    await createApprovedService({
+      oidcClients: [
+        {
+          clientId,
+          clientType: 'public',
+          redirectUris: ['https://todo.example.com/auth/logout-test'],
+        },
+      ],
+    });
+    const { account, password } = await createAccount();
+    const agent = request.agent(app.getHttpServer());
+    const codeChallenge = createHash('sha256')
+      .update(`verifier-${nextSuffix('hosted-login-logout')}`)
+      .digest('base64url');
+    const authorizeQuery = buildAuthorizeQuery({
+      clientId,
+      redirectUri: 'https://todo.example.com/auth/logout-test',
+      codeChallenge,
+    });
+
+    await agent.get('/oauth/authorize').query(authorizeQuery).expect(200);
+    await agent
+      .post('/oauth/login')
+      .type('form')
+      .send({
+        ...authorizeQuery,
+        loginId: account.loginId,
+        password,
+      })
+      .expect(302);
+
+    await agent.get('/logout').expect(200).expect((response) => {
+      expect(response.text).toContain('로그아웃되었습니다.');
+      const setCookie = response.headers['set-cookie'];
+      const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
+      expect(cookies.join(';')).toContain('tas_session=;');
+    });
+
+    await agent
+      .get('/oauth/authorize')
+      .query(authorizeQuery)
+      .expect(200)
+      .expect((response) => {
+        expect(response.text).toContain('action="/oauth/login"');
+        expect(response.text).toContain('name="loginId"');
+      });
+  });
+
+  it('clears hosted login session and redirects to an allowed return_to URL', async () => {
+    const agent = request.agent(app.getHttpServer());
+
+    await agent
+      .get('/logout')
+      .query({ return_to: 'http://localhost:3030/session/oidc/retry?loginTransactionId=retry-1' })
+      .expect(302)
+      .expect((response) => {
+        expect(response.headers.location).toBe(
+          'http://localhost:3030/session/oidc/retry?loginTransactionId=retry-1',
+        );
+        const setCookie = response.headers['set-cookie'];
+        const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
+        expect(cookies.join(';')).toContain('tas_session=;');
+      });
+  });
+
+  it('honors prompt=login by showing the hosted login page even with tas_session', async () => {
+    const clientId = nextSuffix('hosted-login-prompt-client');
+    await createApprovedService({
+      oidcClients: [
+        {
+          clientId,
+          clientType: 'public',
+          redirectUris: ['https://todo.example.com/auth/prompt-test'],
+        },
+      ],
+    });
+    const { account, password } = await createAccount();
+    const agent = request.agent(app.getHttpServer());
+    const codeChallenge = createHash('sha256')
+      .update(`verifier-${nextSuffix('hosted-login-prompt')}`)
+      .digest('base64url');
+    const authorizeQuery = buildAuthorizeQuery({
+      clientId,
+      redirectUri: 'https://todo.example.com/auth/prompt-test',
+      codeChallenge,
+    });
+
+    await agent.get('/oauth/authorize').query(authorizeQuery).expect(200);
+    await agent
+      .post('/oauth/login')
+      .type('form')
+      .send({
+        ...authorizeQuery,
+        loginId: account.loginId,
+        password,
+      })
+      .expect(302);
+
+    await agent
+      .get('/oauth/authorize')
+      .query({ ...authorizeQuery, prompt: 'login' })
+      .expect(200)
+      .expect((response) => {
+        expect(response.text).toContain('action="/oauth/login"');
+        expect(response.text).toContain('name="prompt" value="login"');
+        expect(response.text).toContain('name="loginId"');
+      });
   });
 
   it('shows a failure message on hosted login credential errors', async () => {
@@ -954,6 +1067,52 @@ describe('App bootstrap (e2e)', () => {
         relations: { permissionDefinition: true },
       });
     expect(assignment.permissionDefinition.key).toBe('visitor');
+  });
+
+  it('lazily grants superadmin permission to a super admin on first service login', async () => {
+    const suffix = nextSuffix('lazy-superadmin');
+    const password = 'Superadmin-service-password-1234!';
+    const account = await app.get(AccountsService).create({
+      loginId: suffix,
+      name: 'Lazy Service Super Admin',
+      email: `${suffix}@lafamila.xyz`,
+      password,
+      isSuperAdmin: true,
+    });
+    const clientId = nextSuffix('lazy-superadmin-client');
+    const approved = await createApprovedService({
+      oidcClients: [
+        {
+          clientId,
+          clientType: 'public',
+          redirectUris: ['bodylab-mac://auth/callback'],
+        },
+      ],
+    });
+    expect(
+      await dataSource.getRepository(AccountServicePermissionEntity).findOneBy({
+        accountId: account.id,
+        serviceId: approved.service.id,
+      }),
+    ).toBeNull();
+
+    const agent = request.agent(app.getHttpServer());
+    await authorizeAndExchange(agent, {
+      clientId,
+      redirectUri: 'bodylab-mac://auth/callback',
+      expectedServiceKey: approved.service.serviceKey,
+      expectedPermission: 'superadmin',
+      loginId: account.loginId,
+      password,
+    });
+
+    const assignment = await dataSource
+      .getRepository(AccountServicePermissionEntity)
+      .findOneOrFail({
+        where: { accountId: account.id, serviceId: approved.service.id },
+        relations: { permissionDefinition: true },
+      });
+    expect(assignment.permissionDefinition.key).toBe('superadmin');
   });
 
   it('does not auto-restore a revoked assignment during lazy visitor lookup', async () => {

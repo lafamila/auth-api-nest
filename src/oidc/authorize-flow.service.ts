@@ -13,6 +13,7 @@ export interface AuthorizeRequestInput {
   state?: string;
   codeChallenge: string;
   codeChallengeMethod: string;
+  prompt?: string;
 }
 
 export interface AuthorizeRedirectResult {
@@ -138,6 +139,7 @@ export class AuthorizeFlowService {
       this.hiddenInput('state', request.state),
       this.hiddenInput('code_challenge', request.codeChallenge),
       this.hiddenInput('code_challenge_method', request.codeChallengeMethod),
+      this.hiddenInput('prompt', request.prompt),
     ].join('');
     const failureText = this.escapeHtml(failureMessage);
     const failureVisibility = failureText ? 'visible' : 'hidden';

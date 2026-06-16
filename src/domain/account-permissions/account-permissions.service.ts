@@ -5,7 +5,10 @@ import { AccountServicePermissionEntity } from '../../database/entities/account-
 import { AccountsService } from '../accounts/accounts.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { PermissionsService } from '../permissions/permissions.service';
-import { VISITOR_PERMISSION } from '../permissions/visitor-permission';
+import {
+  SUPERADMIN_PERMISSION,
+  VISITOR_PERMISSION,
+} from '../permissions/managed-permissions';
 import { ServiceRegistryService } from '../service-registry/service-registry.service';
 import {
   PermissionDashboardPageDto,
@@ -102,11 +105,14 @@ export class AccountPermissionsService {
       return existing.status === 'active' ? existing : null;
     }
 
-    const visitor = await this.permissions.findActiveByServiceAndKey(
-      serviceId,
-      VISITOR_PERMISSION.key,
-    );
-    if (!visitor) {
+    const account = await this.accounts.findById(accountId);
+    const targetPermission = account.isSuperAdmin
+      ? await this.permissions.ensureSuperadminPermission(serviceId)
+      : await this.permissions.findActiveByServiceAndKey(
+          serviceId,
+          VISITOR_PERMISSION.key,
+        );
+    if (!targetPermission) {
       throw new NotFoundException('Visitor permission definition not found');
     }
 
@@ -115,7 +121,7 @@ export class AccountPermissionsService {
         await manager.insert(AccountServicePermissionEntity, {
           accountId,
           serviceId,
-          permissionDefinitionId: visitor.id,
+          permissionDefinitionId: targetPermission.id,
           status: 'active',
           grantedByAccountId: null,
           grantedAt: new Date(),
@@ -127,13 +133,18 @@ export class AccountPermissionsService {
         });
       });
       await this.auditLogs.record({
-        action: 'account_permission.lazy_visitor_grant',
+        action: account.isSuperAdmin
+          ? 'account_permission.lazy_superadmin_grant'
+          : 'account_permission.lazy_visitor_grant',
         targetType: 'account_service_permission',
         targetId: result.id,
         afterJson: {
           accountId,
           serviceId,
-          permissionDefinitionId: visitor.id,
+          permissionDefinitionId: targetPermission.id,
+          permissionKey: account.isSuperAdmin
+            ? SUPERADMIN_PERMISSION.key
+            : VISITOR_PERMISSION.key,
         },
       });
       return result;

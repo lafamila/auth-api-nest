@@ -4,7 +4,10 @@ import { DataSource, Repository } from 'typeorm';
 import { ServicePermissionDefinitionEntity } from '../../database/entities/service-permission-definition.entity';
 import { ServiceEntity } from '../../database/entities/service.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
-import { VISITOR_PERMISSION } from '../permissions/visitor-permission';
+import {
+  SUPERADMIN_PERMISSION,
+  VISITOR_PERMISSION,
+} from '../permissions/managed-permissions';
 import { CreateServiceDto, UpdateServiceDto } from './dto/service.dto';
 
 @Injectable()
@@ -46,7 +49,16 @@ export class ServiceRegistryService {
           permissionSchemaVersion: 1,
         }),
       );
-      await manager.save(
+      await manager.save([
+        manager.create(ServicePermissionDefinitionEntity, {
+          service: saved,
+          serviceId: saved.id,
+          key: SUPERADMIN_PERMISSION.key,
+          label: SUPERADMIN_PERMISSION.label,
+          description: SUPERADMIN_PERMISSION.description,
+          status: 'active',
+          sortOrder: SUPERADMIN_PERMISSION.sortOrder,
+        }),
         manager.create(ServicePermissionDefinitionEntity, {
           service: saved,
           serviceId: saved.id,
@@ -56,7 +68,7 @@ export class ServiceRegistryService {
           status: 'active',
           sortOrder: -1000,
         }),
-      );
+      ]);
       return saved;
     });
     await this.auditLogs.record({

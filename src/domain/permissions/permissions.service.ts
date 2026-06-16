@@ -17,7 +17,7 @@ import {
   MigratePermissionDto,
   UpdatePermissionDto,
 } from './dto/permission.dto';
-import { VISITOR_PERMISSION } from './visitor-permission';
+import { SUPERADMIN_PERMISSION, VISITOR_PERMISSION } from './managed-permissions';
 
 @Injectable()
 export class PermissionsService {
@@ -73,6 +73,48 @@ export class PermissionsService {
     key: string,
   ): Promise<ServicePermissionDefinitionEntity | null> {
     return this.permissions.findOneBy({ serviceId, key, status: 'active' });
+  }
+
+  async ensureSuperadminPermission(
+    serviceId: string,
+  ): Promise<ServicePermissionDefinitionEntity> {
+    const existing = await this.permissions.findOneBy({
+      serviceId,
+      key: SUPERADMIN_PERMISSION.key,
+    });
+    if (existing) {
+      if (
+        existing.status === 'active' &&
+        existing.label === SUPERADMIN_PERMISSION.label &&
+        existing.description === SUPERADMIN_PERMISSION.description &&
+        existing.sortOrder === SUPERADMIN_PERMISSION.sortOrder
+      ) {
+        return existing;
+      }
+      const before = { ...existing };
+      existing.label = SUPERADMIN_PERMISSION.label;
+      existing.description = SUPERADMIN_PERMISSION.description;
+      existing.status = 'active';
+      existing.sortOrder = SUPERADMIN_PERMISSION.sortOrder;
+      existing.deprecatedAt = null;
+      existing.removedAt = null;
+      const saved = await this.permissions.save(existing);
+      await this.services.incrementPermissionSchemaVersion(serviceId);
+      await this.auditLogs.record({
+        action: 'permission.ensure_superadmin',
+        targetType: 'service_permission',
+        targetId: saved.id,
+        beforeJson: before,
+        afterJson: saved as unknown as Record<string, unknown>,
+      });
+      return saved;
+    }
+    return this.create(serviceId, {
+      key: SUPERADMIN_PERMISSION.key,
+      label: SUPERADMIN_PERMISSION.label,
+      description: SUPERADMIN_PERMISSION.description,
+      sortOrder: SUPERADMIN_PERMISSION.sortOrder,
+    });
   }
 
   async create(
