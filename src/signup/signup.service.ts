@@ -12,10 +12,16 @@ import { AppConfigService } from '../config/app-config.service';
 import { EmailVerificationEntity } from '../database/entities/email-verification.entity';
 import { AccountsService } from '../domain/accounts/accounts.service';
 import { EmailDeliveryService } from './email-delivery.service';
-import { SignupCompleteDto, SignupStartDto } from './dto/signup.dto';
+import {
+  SignupCompleteDto,
+  SignupLoginIdCheckDto,
+  SignupStartDto,
+  SignupVerifyCodeDto,
+} from './dto/signup.dto';
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const CODE_TTL_MS = 5 * 60 * 1000;
+const CODE_TTL_MINUTES = 5;
+const CODE_TTL_MS = CODE_TTL_MINUTES * 60 * 1000;
 const EMAIL_WINDOW_MS = 30 * 60 * 1000;
 const IP_WINDOW_MS = 60 * 60 * 1000;
 
@@ -28,6 +34,17 @@ export class SignupService {
     private readonly config: AppConfigService,
     private readonly emailDelivery: EmailDeliveryService,
   ) {}
+
+  async checkLoginId(input: SignupLoginIdCheckDto) {
+    const loginId = this.normalizeLoginId(input.loginId);
+    if (!loginId) {
+      throw new BadRequestException('Login ID is required');
+    }
+    return {
+      loginId,
+      available: (await this.accounts.findByLoginId(loginId)) === null,
+    };
+  }
 
   async start(input: SignupStartDto, requestIp: string | null) {
     const email = this.normalizeEmail(input.email);
@@ -46,7 +63,11 @@ export class SignupService {
         consumedAt: null,
       }),
     );
-    await this.emailDelivery.sendSignupCode(email, code);
+    await this.emailDelivery.sendSignupCode(
+      email,
+      code,
+      `${CODE_TTL_MINUTES} minutes`,
+    );
     return {
       verificationId: verification.id,
       email,
@@ -54,34 +75,34 @@ export class SignupService {
     };
   }
 
-  async complete(input: SignupCompleteDto) {
+  async verifyCode(input: SignupVerifyCodeDto) {
     const email = this.normalizeEmail(input.email);
+    await this.findValidVerification(email, input.code, { consume: false });
+    return { email, verified: true };
+  }
+
+  async complete(input: SignupCompleteDto) {
+    const loginId = this.normalizeLoginId(input.loginId);
+    if (!loginId) {
+      throw new BadRequestException('Login ID is required');
+    }
+    const email = this.normalizeEmail(input.email);
+    const name = input.name.trim();
+    if (!name) {
+      throw new BadRequestException('Name is required');
+    }
     validateNormalPassword(input.password);
+    if (await this.accounts.findByLoginId(loginId)) {
+      throw new ConflictException('Login ID already exists');
+    }
     if (await this.emailExists(email)) {
       throw new ConflictException('Email already has an account');
     }
-    const verification = await this.verifications.findOne({
-      where: { email, consumedAt: IsNull() },
-      order: { createdAt: 'DESC' },
-    });
-    if (!verification || verification.expiresAt.getTime() <= Date.now()) {
-      throw new UnauthorizedException('Email verification code is expired or invalid');
-    }
-    verification.attemptCount += 1;
-    if (verification.attemptCount > 5) {
-      await this.verifications.save(verification);
-      throw new BadRequestException('Too many verification attempts');
-    }
-    if (verification.codeHash !== this.hashCode(email, input.code)) {
-      await this.verifications.save(verification);
-      throw new UnauthorizedException('Email verification code is expired or invalid');
-    }
-    verification.consumedAt = new Date();
-    await this.verifications.save(verification);
+    await this.findValidVerification(email, input.code, { consume: true });
     const account = await this.accounts.create(
       {
-        loginId: input.loginId,
-        name: input.name,
+        loginId,
+        name,
         email,
         password: input.password,
         isSuperAdmin: false,
@@ -96,13 +117,18 @@ export class SignupService {
     return (await this.accounts.findByEmail(email)) !== null;
   }
 
-  private async assertRateLimits(email: string, requestIp: string | null): Promise<void> {
+  private async assertRateLimits(
+    email: string,
+    requestIp: string | null,
+  ): Promise<void> {
     const emailRecent = await this.verifications.countBy({
       email,
       createdAt: MoreThan(new Date(Date.now() - EMAIL_WINDOW_MS)),
     });
     if (emailRecent >= 5) {
-      throw new BadRequestException('Too many verification emails for this email');
+      throw new BadRequestException(
+        'Too many verification emails for this email',
+      );
     }
     if (requestIp) {
       const ipRecent = await this.verifications.countBy({
@@ -110,13 +136,19 @@ export class SignupService {
         createdAt: MoreThan(new Date(Date.now() - IP_WINDOW_MS)),
       });
       if (ipRecent >= 10) {
-        throw new BadRequestException('Too many verification emails from this IP');
+        throw new BadRequestException(
+          'Too many verification emails from this IP',
+        );
       }
     }
   }
 
   private normalizeEmail(email: string): string {
     return email.trim().toLowerCase();
+  }
+
+  private normalizeLoginId(loginId: string): string {
+    return loginId.trim();
   }
 
   private generateCode(): string {
@@ -129,7 +161,40 @@ export class SignupService {
 
   private hashCode(email: string, code: string): string {
     return createHash('sha256')
-      .update(`${email}:${code.toUpperCase()}:${this.config.signupEmailCodePepper}`)
+      .update(
+        `${email}:${code.toUpperCase()}:${this.config.signupEmailCodePepper}`,
+      )
       .digest('hex');
+  }
+
+  private async findValidVerification(
+    email: string,
+    code: string,
+    options: { consume: boolean },
+  ): Promise<EmailVerificationEntity> {
+    const verification = await this.verifications.findOne({
+      where: { email, consumedAt: IsNull() },
+      order: { createdAt: 'DESC' },
+    });
+    if (!verification || verification.expiresAt.getTime() <= Date.now()) {
+      throw new UnauthorizedException(
+        'Email verification code is expired or invalid',
+      );
+    }
+    if (verification.attemptCount >= 5) {
+      throw new BadRequestException('Too many verification attempts');
+    }
+    if (verification.codeHash !== this.hashCode(email, code)) {
+      verification.attemptCount += 1;
+      await this.verifications.save(verification);
+      throw new UnauthorizedException(
+        'Email verification code is expired or invalid',
+      );
+    }
+    if (options.consume) {
+      verification.consumedAt = new Date();
+      await this.verifications.save(verification);
+    }
+    return verification;
   }
 }

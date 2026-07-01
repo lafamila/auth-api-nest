@@ -18,7 +18,7 @@ describe('EmailDeliveryService', () => {
     const service = serviceWithSmtp('');
     const sendSmtp = jest.spyOn(service as never, 'sendSmtp');
 
-    await service.sendSignupCode('user@example.test', 'ABC123');
+    await service.sendSignupCode('user@example.test', 'ABC123', '5 minutes');
 
     expect(sendSmtp).not.toHaveBeenCalled();
   });
@@ -29,13 +29,15 @@ describe('EmailDeliveryService', () => {
       .spyOn(service as never, 'sendSmtp')
       .mockResolvedValue(undefined as never);
 
-    await service.sendSignupCode('user@example.test', 'ABC123');
+    await service.sendSignupCode('user@example.test', 'ABC123', '5 minutes');
 
     expect(sendSmtp).toHaveBeenCalledWith(
       expect.objectContaining({
         host: 'smtp.example.test',
         to: 'user@example.test',
         text: expect.stringContaining('ABC123'),
+        subject: '[Teddy] OAuth Email Verification',
+        html: expect.stringContaining('<strong>ABC123</strong>'),
       }),
     );
   });

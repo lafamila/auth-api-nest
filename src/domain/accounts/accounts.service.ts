@@ -55,7 +55,9 @@ export class AccountsService {
     }
 
     const normalizedQuery = query.trim().toLowerCase();
-    const accounts = (await this.accounts.find({ order: { createdAt: 'DESC' } }))
+    const accounts = (
+      await this.accounts.find({ order: { createdAt: 'DESC' } })
+    )
       .filter((account) => {
         if (!normalizedQuery) return true;
         return [account.loginId, account.name, account.email]
@@ -94,7 +96,8 @@ export class AccountsService {
       email: account.email,
       status: account.status,
       isSuperAdmin: account.isSuperAdmin,
-      permissionKey: permissionByAccountId.get(account.id) ?? VISITOR_PERMISSION.key,
+      permissionKey:
+        permissionByAccountId.get(account.id) ?? VISITOR_PERMISSION.key,
     }));
   }
 
@@ -121,7 +124,10 @@ export class AccountsService {
   async create(
     input: CreateAccountDto,
     actorAccountId?: string | null,
-    options?: { emailVerifiedAt?: Date | null; passwordResetRequired?: boolean },
+    options?: {
+      emailVerifiedAt?: Date | null;
+      passwordResetRequired?: boolean;
+    },
   ): Promise<AccountEntity> {
     const exists = await this.accounts.exists({
       where: [{ loginId: input.loginId }, { email: input.email }],
@@ -131,8 +137,8 @@ export class AccountsService {
     }
     validateNormalPassword(input.password);
     const passwordHash = await this.passwordService.hash(input.password);
-    const account = await this.dataSource.transaction(async (manager) =>
-      manager.save(
+    return this.dataSource.transaction(async (manager) => {
+      const account = await manager.save(
         manager.create(AccountEntity, {
           loginId: input.loginId,
           name: input.name,
@@ -143,16 +149,19 @@ export class AccountsService {
           passwordResetRequired: options?.passwordResetRequired ?? false,
           emailVerifiedAt: options?.emailVerifiedAt ?? null,
         }),
-      ),
-    );
-    await this.auditLogs.record({
-      actorAccountId,
-      action: 'account.create',
-      targetType: 'account',
-      targetId: account.id,
-      afterJson: this.safeAccount(account),
+      );
+      await this.auditLogs.record(
+        {
+          actorAccountId,
+          action: 'account.create',
+          targetType: 'account',
+          targetId: account.id,
+          afterJson: this.safeAccount(account),
+        },
+        manager,
+      );
+      return account;
     });
-    return account;
   }
 
   async update(id: string, input: UpdateAccountDto): Promise<AccountEntity> {
@@ -172,7 +181,9 @@ export class AccountsService {
           status: 'active',
         });
         if (activeSuperAdminCount <= 1) {
-          throw new ConflictException('Cannot disable the last active super admin');
+          throw new ConflictException(
+            'Cannot disable the last active super admin',
+          );
         }
       }
       const before = this.safeAccount(account);
@@ -204,12 +215,18 @@ export class AccountsService {
     });
   }
 
-  async authenticate(loginId: string, password: string): Promise<AccountEntity> {
+  async authenticate(
+    loginId: string,
+    password: string,
+  ): Promise<AccountEntity> {
     const account = await this.findByLoginId(loginId);
     if (!account || account.status !== 'active') {
       throw new UnauthorizedException('Invalid credentials');
     }
-    const valid = await this.passwordService.verify(account.passwordHash, password);
+    const valid = await this.passwordService.verify(
+      account.passwordHash,
+      password,
+    );
     if (!valid) {
       throw new UnauthorizedException('Invalid credentials');
     }
@@ -228,7 +245,10 @@ export class AccountsService {
     if (!account || account.status !== 'active') {
       throw new UnauthorizedException('Invalid credentials');
     }
-    const valid = await this.passwordService.verify(account.passwordHash, password);
+    const valid = await this.passwordService.verify(
+      account.passwordHash,
+      password,
+    );
     if (!valid) {
       throw new UnauthorizedException('Invalid credentials');
     }

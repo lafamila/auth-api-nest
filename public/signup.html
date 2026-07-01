@@ -7,13 +7,17 @@
     <style>
       :root {
         color-scheme: light;
-        --bg: #f5f6f8;
+        --bg: #eef1f5;
         --panel: #ffffff;
-        --line: #d9dee8;
-        --text: #162033;
-        --muted: #657084;
-        --accent: #1769aa;
+        --line: #d9dee7;
+        --line-strong: #b9c2d0;
+        --text: #151b28;
+        --muted: #687386;
+        --accent: #1d4ed8;
+        --accent-soft: #e9efff;
         --danger: #b42318;
+        --success: #14804a;
+        --disabled: #f3f5f8;
       }
 
       * {
@@ -28,102 +32,407 @@
         background: var(--bg);
         color: var(--text);
         font-family:
-          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-          "Segoe UI", sans-serif;
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
       }
 
       main {
-        width: min(480px, calc(100vw - 32px));
+        width: min(440px, calc(100vw - 32px));
         border: 1px solid var(--line);
         border-radius: 8px;
         background: var(--panel);
-        padding: 24px;
+        box-shadow: 0 18px 50px rgb(25 33 48 / 10%);
+        padding: 22px;
       }
 
       h1 {
+        margin: 0 0 4px;
+        font-size: 21px;
+        line-height: 1.2;
+      }
+
+      .subtitle {
         margin: 0 0 18px;
-        font-size: 22px;
+        color: var(--muted);
+        font-size: 13px;
       }
 
-      form,
-      .stack {
+      form {
         display: grid;
-        gap: 12px;
+        gap: 14px;
       }
 
-      label {
+      .field {
         display: grid;
         gap: 6px;
+      }
+
+      label,
+      .label {
         color: var(--muted);
         font-size: 12px;
         font-weight: 700;
+      }
+
+      .control-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .input-wrap {
+        position: relative;
       }
 
       input {
         width: 100%;
         border: 1px solid var(--line);
         border-radius: 6px;
-        padding: 10px;
+        background: #fff;
         color: var(--text);
         font: inherit;
+        font-size: 16px;
+        outline: none;
+        padding: 10px 34px 10px 10px;
+      }
+
+      input:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
+
+      input:disabled {
+        background: var(--disabled);
+        color: var(--muted);
       }
 
       button {
+        min-height: 38px;
         border: 1px solid var(--accent);
         border-radius: 6px;
         background: var(--accent);
         color: #fff;
         cursor: pointer;
         font: inherit;
+        font-size: 13px;
         font-weight: 700;
-        padding: 10px 12px;
+        padding: 8px 12px;
       }
 
-      .secondary {
+      button.secondary {
         background: #fff;
         color: var(--accent);
       }
 
-      .hint,
-      .message {
+      button:disabled {
+        border-color: var(--line-strong);
+        background: var(--disabled);
         color: var(--muted);
-        font-size: 13px;
-        line-height: 1.5;
+        cursor: not-allowed;
       }
 
+      .create-button {
+        margin-top: 4px;
+        width: 100%;
+      }
+
+      .check {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        display: none;
+        color: var(--success);
+        font-size: 16px;
+        font-weight: 800;
+        line-height: 1;
+        transform: translateY(-50%);
+      }
+
+      .check.visible {
+        display: block;
+      }
+
+      .hint,
+      .feedback,
+      .message {
+        min-height: 18px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .feedback.error,
       .message.error {
         color: var(--danger);
+      }
+
+      .feedback.success,
+      .message.success {
+        color: var(--success);
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: none;
+        place-items: center;
+        background: rgb(21 27 40 / 36%);
+        padding: 18px;
+      }
+
+      .modal-backdrop.visible {
+        display: grid;
+      }
+
+      .modal {
+        width: min(320px, 100%);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 18px 50px rgb(25 33 48 / 18%);
+        padding: 18px;
+        text-align: center;
+      }
+
+      .modal-title {
+        margin: 0 0 6px;
+        color: var(--success);
+        font-size: 17px;
+        font-weight: 800;
+      }
+
+      .modal-text {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      @media (max-width: 420px) {
+        body {
+          min-height: 100dvh;
+          place-items: start center;
+          padding: 12px;
+        }
+
+        main {
+          width: 100%;
+          padding: 18px;
+        }
+
+        .control-row {
+          grid-template-columns: 1fr;
+        }
+
+        button {
+          width: 100%;
+        }
       }
     </style>
   </head>
   <body>
     <main>
       <h1>Teddy Auth Signup</h1>
-      <div class="stack">
-        <form id="startForm">
-          <label>Email <input id="email" type="email" autocomplete="email" required /></label>
-          <button type="submit">Send Verification Code</button>
-        </form>
+      <p class="subtitle">Create an account for Teddy OAuth services.</p>
 
-        <form id="completeForm">
-          <label>Login ID <input id="loginId" autocomplete="username" required /></label>
-          <label>Name <input id="name" autocomplete="name" required /></label>
-          <label>Verification Code <input id="code" required /></label>
-          <label>Password <input id="password" type="password" autocomplete="new-password" required /></label>
-          <button type="submit">Create Account</button>
-        </form>
+      <form id="signupForm">
+        <div class="field">
+          <div class="label">ID</div>
+          <div class="control-row">
+            <div class="input-wrap">
+              <input id="loginId" autocomplete="username" required />
+              <span id="loginIdCheck" class="check" aria-hidden="true">✓</span>
+            </div>
+            <button id="checkLoginIdButton" class="secondary" type="button">
+              Check
+            </button>
+          </div>
+          <div id="loginIdFeedback" class="feedback"></div>
+        </div>
 
-        <div class="hint">비밀번호는 8자리 이상이며 특수문자를 1개 이상 포함해야 합니다. 인증번호는 5분간 유효합니다.</div>
-        <div class="message" id="message"></div>
-      </div>
+        <div class="field">
+          <label for="password">PW</label>
+          <div class="input-wrap">
+            <input
+              id="password"
+              type="password"
+              autocomplete="new-password"
+              required
+            />
+            <span id="passwordCheck" class="check" aria-hidden="true">✓</span>
+          </div>
+          <div class="hint">
+            Password must be at least 8 characters and include 1 special
+            character.
+          </div>
+          <div id="passwordFeedback" class="feedback"></div>
+        </div>
+
+        <div class="field">
+          <label for="passwordConfirm">PW Confirm</label>
+          <div class="input-wrap">
+            <input
+              id="passwordConfirm"
+              type="password"
+              autocomplete="new-password"
+              required
+            />
+            <span id="passwordConfirmCheck" class="check" aria-hidden="true"
+              >✓</span
+            >
+          </div>
+          <div id="passwordConfirmFeedback" class="feedback"></div>
+        </div>
+
+        <div class="field">
+          <label for="name">Name</label>
+          <div class="input-wrap">
+            <input id="name" autocomplete="name" required />
+            <span id="nameCheck" class="check" aria-hidden="true">✓</span>
+          </div>
+          <div id="nameFeedback" class="feedback"></div>
+        </div>
+
+        <div class="field">
+          <div class="label">Email</div>
+          <div class="control-row">
+            <div class="input-wrap">
+              <input id="email" type="email" autocomplete="email" required />
+              <span id="emailCheck" class="check" aria-hidden="true">✓</span>
+            </div>
+            <button id="sendEmailButton" class="secondary" type="button">
+              Send
+            </button>
+          </div>
+          <div class="hint">
+            Verification emails are limited to 5 per email in 30 minutes and 10
+            per IP in 1 hour.
+          </div>
+          <div id="emailFeedback" class="feedback"></div>
+        </div>
+
+        <div id="codeField" class="field hidden">
+          <div class="label">Verification Code</div>
+          <div class="control-row">
+            <div class="input-wrap">
+              <input id="code" autocomplete="one-time-code" inputmode="text" />
+              <span id="codeCheck" class="check" aria-hidden="true">✓</span>
+            </div>
+            <button id="verifyCodeButton" class="secondary" type="button">
+              Verify
+            </button>
+          </div>
+          <div id="codeFeedback" class="feedback"></div>
+        </div>
+
+        <button
+          id="createAccountButton"
+          class="create-button"
+          type="submit"
+          disabled
+        >
+          Create Account
+        </button>
+        <div id="message" class="message" role="status"></div>
+      </form>
     </main>
+
+    <div
+      id="successModal"
+      class="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-hidden="true"
+    >
+      <div class="modal">
+        <p class="modal-title">Account created</p>
+        <p class="modal-text">Redirecting to login...</p>
+      </div>
+    </div>
 
     <script>
       const $ = (id) => document.getElementById(id);
+      const loginRedirectUrl = resolveLoginRedirectUrl();
 
-      function setMessage(text, isError = false) {
+      const state = {
+        loginId: { checking: false, checkedValue: '', available: false },
+        password: { touched: false, valid: false },
+        confirm: { touched: false, valid: false },
+        name: { valid: false },
+        email: { sending: false, sentValue: '', sent: false },
+        code: { checking: false, verifiedValue: '', verified: false },
+        creating: false,
+      };
+
+      const timers = {
+        password: undefined,
+        confirm: undefined,
+      };
+
+      function setFeedback(id, text, tone = '') {
+        const element = $(id);
+        element.textContent = text;
+        element.classList.toggle('error', tone === 'error');
+        element.classList.toggle('success', tone === 'success');
+      }
+
+      function setMessage(text, tone = '') {
         $('message').textContent = text;
-        $('message').classList.toggle('error', isError);
+        $('message').classList.toggle('error', tone === 'error');
+        $('message').classList.toggle('success', tone === 'success');
+      }
+
+      function setCheck(id, visible) {
+        $(id).classList.toggle('visible', visible);
+      }
+
+      function resolveLoginRedirectUrl() {
+        const fallback = '/';
+        const raw = new URLSearchParams(window.location.search).get(
+          'return_to',
+        );
+        if (!raw) {
+          return fallback;
+        }
+        try {
+          const url = new URL(raw, window.location.origin);
+          if (
+            url.origin !== window.location.origin ||
+            url.pathname !== '/oauth/authorize'
+          ) {
+            return fallback;
+          }
+          return `${url.pathname}${url.search}${url.hash}`;
+        } catch (_error) {
+          return fallback;
+        }
+      }
+
+      function showSuccessModalAndRedirect() {
+        const modal = $('successModal');
+        modal.classList.add('visible');
+        modal.setAttribute('aria-hidden', 'false');
+        setTimeout(() => {
+          window.location.assign(loginRedirectUrl);
+        }, 1300);
+      }
+
+      function formatError(error) {
+        if (Array.isArray(error.message)) {
+          return error.message.join(', ');
+        }
+        return error.message || 'Request failed';
       }
 
       async function post(path, body) {
@@ -132,39 +441,289 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        if (!response.ok) {
-          const error = await response.json().catch(() => ({}));
-          throw new Error(error.message || error.error || response.statusText);
+        const raw = await response.text();
+        let payload = {};
+        try {
+          payload = raw ? JSON.parse(raw) : {};
+        } catch (_error) {
+          payload = { message: raw || response.statusText };
         }
-        return response.json();
+        if (!response.ok) {
+          throw new Error(formatError(payload) || response.statusText);
+        }
+        return payload;
       }
 
-      $('startForm').addEventListener('submit', async (event) => {
-        event.preventDefault();
+      function passwordIssues(value) {
+        const issues = [];
+        if (value.length < 8) {
+          issues.push('at least 8 characters');
+        }
+        if (!/[^A-Za-z0-9]/.test(value)) {
+          issues.push('1 special character');
+        }
+        return issues;
+      }
+
+      function resetLoginIdCheck() {
+        state.loginId.available = false;
+        state.loginId.checkedValue = '';
+        setCheck('loginIdCheck', false);
+        setFeedback('loginIdFeedback', '');
+        $('checkLoginIdButton').disabled = false;
+      }
+
+      function resetEmailSend() {
+        state.email.sent = false;
+        state.email.sentValue = '';
+        state.code.verified = false;
+        state.code.verifiedValue = '';
+        $('sendEmailButton').textContent = 'Send';
+        $('codeField').classList.add('hidden');
+        $('code').value = '';
+        setCheck('emailCheck', false);
+        setCheck('codeCheck', false);
+        setFeedback('emailFeedback', '');
+        setFeedback('codeFeedback', '');
+      }
+
+      function resetCodeVerification() {
+        state.code.verified = false;
+        state.code.verifiedValue = '';
+        $('verifyCodeButton').disabled = false;
+        $('verifyCodeButton').textContent = 'Verify';
+        setCheck('codeCheck', false);
+        setFeedback('codeFeedback', '');
+      }
+
+      function validatePasswordNow() {
+        const value = $('password').value;
+        if (!state.password.touched && !value) {
+          return;
+        }
+        state.password.touched = true;
+        const issues = passwordIssues(value);
+        state.password.valid = issues.length === 0;
+        setCheck('passwordCheck', state.password.valid);
+        setFeedback(
+          'passwordFeedback',
+          state.password.valid ? '' : `Password needs ${issues.join(' and ')}.`,
+          state.password.valid ? '' : 'error',
+        );
+        validateConfirmNow();
+        updateCreateButton();
+      }
+
+      function validateConfirmNow() {
+        const value = $('passwordConfirm').value;
+        if (!state.confirm.touched && !value) {
+          return;
+        }
+        state.confirm.touched = true;
+        state.confirm.valid = Boolean(value) && value === $('password').value;
+        setCheck('passwordConfirmCheck', state.confirm.valid);
+        setFeedback(
+          'passwordConfirmFeedback',
+          state.confirm.valid ? '' : 'Password confirmation does not match.',
+          state.confirm.valid ? '' : 'error',
+        );
+        updateCreateButton();
+      }
+
+      function updateNameState() {
+        state.name.valid = $('name').value.trim().length > 0;
+        setCheck('nameCheck', state.name.valid);
+        setFeedback('nameFeedback', state.name.valid ? '' : '');
+        updateCreateButton();
+      }
+
+      function updateCreateButton() {
+        $('createAccountButton').disabled =
+          state.creating ||
+          !state.loginId.available ||
+          !state.password.valid ||
+          !state.confirm.valid ||
+          !state.name.valid ||
+          !state.email.sent ||
+          !state.code.verified;
+      }
+
+      $('loginId').addEventListener('input', () => {
+        resetLoginIdCheck();
+        updateCreateButton();
+      });
+
+      $('checkLoginIdButton').addEventListener('click', async () => {
+        const loginId = $('loginId').value.trim();
+        if (!loginId) {
+          setFeedback('loginIdFeedback', 'Login ID is required.', 'error');
+          return;
+        }
+        state.loginId.checking = true;
+        $('checkLoginIdButton').disabled = true;
+        $('checkLoginIdButton').textContent = 'Checking...';
+        setMessage('');
         try {
-          const result = await post('/api/signup/start', {
-            email: $('email').value,
-          });
-          setMessage(`Verification code sent to ${result.email}`);
+          const result = await post('/api/signup/check-login-id', { loginId });
+          state.loginId.available = result.available === true;
+          state.loginId.checkedValue = loginId;
+          setCheck('loginIdCheck', state.loginId.available);
+          setFeedback(
+            'loginIdFeedback',
+            state.loginId.available ? '' : 'Login ID already exists.',
+            state.loginId.available ? '' : 'error',
+          );
+          $('checkLoginIdButton').disabled = state.loginId.available;
         } catch (error) {
-          setMessage(error.message, true);
+          state.loginId.available = false;
+          setFeedback('loginIdFeedback', error.message, 'error');
+          $('checkLoginIdButton').disabled = false;
+        } finally {
+          state.loginId.checking = false;
+          $('checkLoginIdButton').textContent = 'Check';
+          updateCreateButton();
         }
       });
 
-      $('completeForm').addEventListener('submit', async (event) => {
+      $('password').addEventListener('input', () => {
+        state.password.touched = true;
+        state.password.valid = false;
+        state.confirm.valid = false;
+        setCheck('passwordCheck', false);
+        setCheck('passwordConfirmCheck', false);
+        clearTimeout(timers.password);
+        timers.password = setTimeout(validatePasswordNow, 1000);
+        updateCreateButton();
+      });
+
+      $('passwordConfirm').addEventListener('input', () => {
+        state.confirm.touched = true;
+        state.confirm.valid = false;
+        setCheck('passwordConfirmCheck', false);
+        clearTimeout(timers.confirm);
+        timers.confirm = setTimeout(validateConfirmNow, 1000);
+        updateCreateButton();
+      });
+
+      $('name').addEventListener('input', updateNameState);
+
+      $('email').addEventListener('input', () => {
+        resetEmailSend();
+        updateCreateButton();
+      });
+
+      $('sendEmailButton').addEventListener('click', async () => {
+        const email = $('email').value.trim();
+        if (!email) {
+          setFeedback('emailFeedback', 'Email is required.', 'error');
+          return;
+        }
+        state.email.sending = true;
+        $('sendEmailButton').disabled = true;
+        $('sendEmailButton').textContent = 'Sending...';
+        setMessage('');
+        resetCodeVerification();
+        updateCreateButton();
+        try {
+          const result = await post('/api/signup/start', { email });
+          state.email.sent = true;
+          state.email.sentValue = result.email;
+          $('sendEmailButton').textContent = 'Resend';
+          $('codeField').classList.remove('hidden');
+          setCheck('emailCheck', true);
+          setFeedback(
+            'emailFeedback',
+            `Verification code sent to ${result.email}.`,
+            'success',
+          );
+        } catch (error) {
+          state.email.sent = false;
+          setCheck('emailCheck', false);
+          setFeedback('emailFeedback', error.message, 'error');
+        } finally {
+          state.email.sending = false;
+          $('sendEmailButton').disabled = false;
+          if (!state.email.sent) {
+            $('sendEmailButton').textContent = 'Send';
+          }
+          updateCreateButton();
+        }
+      });
+
+      $('code').addEventListener('input', () => {
+        resetCodeVerification();
+        updateCreateButton();
+      });
+
+      $('verifyCodeButton').addEventListener('click', async () => {
+        const code = $('code').value.trim();
+        if (!state.email.sent) {
+          setFeedback('codeFeedback', 'Send the email first.', 'error');
+          return;
+        }
+        if (!code) {
+          setFeedback(
+            'codeFeedback',
+            'Verification code is required.',
+            'error',
+          );
+          return;
+        }
+        state.code.checking = true;
+        $('verifyCodeButton').disabled = true;
+        $('verifyCodeButton').textContent = 'Checking...';
+        setMessage('');
+        try {
+          await post('/api/signup/verify-code', {
+            email: state.email.sentValue,
+            code,
+          });
+          state.code.verified = true;
+          state.code.verifiedValue = code;
+          setCheck('codeCheck', true);
+          setFeedback('codeFeedback', '', 'success');
+        } catch (error) {
+          state.code.verified = false;
+          setCheck('codeCheck', false);
+          setFeedback('codeFeedback', error.message, 'error');
+        } finally {
+          state.code.checking = false;
+          $('verifyCodeButton').textContent = 'Verify';
+          $('verifyCodeButton').disabled = state.code.verified;
+          updateCreateButton();
+        }
+      });
+
+      $('signupForm').addEventListener('submit', async (event) => {
         event.preventDefault();
+        if ($('createAccountButton').disabled) {
+          return;
+        }
+        let created = false;
+        state.creating = true;
+        $('createAccountButton').textContent = 'Creating...';
+        updateCreateButton();
+        setMessage('');
         try {
           await post('/api/signup/complete', {
-            loginId: $('loginId').value,
-            name: $('name').value,
-            email: $('email').value,
-            code: $('code').value,
+            loginId: $('loginId').value.trim(),
+            name: $('name').value.trim(),
+            email: state.email.sentValue,
+            code: state.code.verifiedValue,
             password: $('password').value,
           });
-          setMessage('Account created. You can return to the service and log in.');
-          event.currentTarget.reset();
+          created = true;
+          setMessage('Account created. Redirecting to login...', 'success');
+          showSuccessModalAndRedirect();
         } catch (error) {
-          setMessage(error.message, true);
+          setMessage(error.message, 'error');
+        } finally {
+          if (created) {
+            return;
+          }
+          state.creating = false;
+          $('createAccountButton').textContent = 'Create Account';
+          updateCreateButton();
         }
       });
     </script>

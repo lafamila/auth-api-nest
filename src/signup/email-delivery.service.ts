@@ -9,12 +9,17 @@ export class EmailDeliveryService {
 
   constructor(private readonly config: AppConfigService) {}
 
-  async sendSignupCode(email: string, code: string): Promise<void> {
+  async sendSignupCode(
+    email: string,
+    code: string,
+    expiresInText: string,
+  ): Promise<void> {
     const smtp = this.config.smtp;
     if (!smtp.host) {
       this.logger.log(`Signup email verification code for ${email}: ${code}`);
       return;
     }
+    const text = `Your code is ${code}. This code expires in ${expiresInText}.`;
     await this.sendSmtp({
       host: smtp.host,
       port: smtp.port,
@@ -22,8 +27,9 @@ export class EmailDeliveryService {
       password: smtp.password,
       from: smtp.from,
       to: email,
-      subject: 'Teddy Auth email verification',
-      text: `Your Teddy Auth verification code is ${code}. This code expires in 5 minutes.`,
+      subject: '[Teddy] OAuth Email Verification',
+      text,
+      html: `<p>Your code is <strong>${this.escapeHtml(code)}</strong>. This code expires in ${this.escapeHtml(expiresInText)}.</p>`,
     });
   }
 
@@ -36,6 +42,7 @@ export class EmailDeliveryService {
     to: string;
     subject: string;
     text: string;
+    html?: string;
   }): Promise<void> {
     const client = await SmtpClient.connect(message.host, message.port);
     try {
@@ -48,8 +55,14 @@ export class EmailDeliveryService {
       }
       if (message.user || message.password) {
         await client.command('AUTH LOGIN', [334]);
-        await client.command(Buffer.from(message.user).toString('base64'), [334]);
-        await client.command(Buffer.from(message.password).toString('base64'), [235]);
+        await client.command(
+          Buffer.from(message.user).toString('base64'),
+          [334],
+        );
+        await client.command(
+          Buffer.from(message.password).toString('base64'),
+          [235],
+        );
       }
       await client.command(`MAIL FROM:<${message.from}>`, [250]);
       await client.command(`RCPT TO:<${message.to}>`, [250, 251]);
@@ -67,19 +80,52 @@ export class EmailDeliveryService {
     to: string;
     subject: string;
     text: string;
+    html?: string;
   }): string {
-    const escapeLine = (line: string) => (line.startsWith('.') ? `.${line}` : line);
-    const body = message.text.split(/\r?\n/).map(escapeLine).join('\r\n');
+    const escapeLine = (line: string) =>
+      line.startsWith('.') ? `.${line}` : line;
+    const textBody = message.text.split(/\r?\n/).map(escapeLine).join('\r\n');
+    if (message.html) {
+      const boundary = `teddy-auth-${Date.now().toString(36)}`;
+      const htmlBody = message.html.split(/\r?\n/).map(escapeLine).join('\r\n');
+      return [
+        `From: ${message.from}`,
+        `To: ${message.to}`,
+        `Subject: ${message.subject}`,
+        'MIME-Version: 1.0',
+        `Content-Type: multipart/alternative; boundary="${boundary}"`,
+        '',
+        `--${boundary}`,
+        'Content-Type: text/plain; charset=utf-8',
+        '',
+        textBody,
+        `--${boundary}`,
+        'Content-Type: text/html; charset=utf-8',
+        '',
+        htmlBody,
+        `--${boundary}--`,
+        '.',
+        '',
+      ].join('\r\n');
+    }
     return [
       `From: ${message.from}`,
       `To: ${message.to}`,
       `Subject: ${message.subject}`,
       'Content-Type: text/plain; charset=utf-8',
       '',
-      body,
+      textBody,
       '.',
       '',
     ].join('\r\n');
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;');
   }
 }
 

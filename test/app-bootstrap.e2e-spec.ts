@@ -114,7 +114,14 @@ describe('App bootstrap (e2e)', () => {
     return Array.isArray(setCookie) ? setCookie : [setCookie];
   }
 
-  async function createAccount(input?: Partial<{ loginId: string; email: string; name: string; password: string }>) {
+  async function createAccount(
+    input?: Partial<{
+      loginId: string;
+      email: string;
+      name: string;
+      password: string;
+    }>,
+  ) {
     const suffix = nextSuffix('user');
     const password = input?.password ?? 'Test-password-1234!';
     const accounts = app.get(AccountsService);
@@ -163,25 +170,34 @@ describe('App bootstrap (e2e)', () => {
       serviceCredentials: options?.serviceCredentials ?? [],
     };
     const onboarding = app.get(ServiceOnboardingService);
-    const createResponse = (await onboarding.create(requestBody, null)) as unknown as {
+    const createResponse = (await onboarding.create(
+      requestBody,
+      null,
+    )) as unknown as {
       request: { id: string };
     };
     const approvalResponse = await request(app.getHttpServer())
-      .post(`/api/admin/service-onboarding-requests/${createResponse.request.id}/approve`)
+      .post(
+        `/api/admin/service-onboarding-requests/${createResponse.request.id}/approve`,
+      )
       .set('Cookie', adminCookie)
       .send({})
       .expect(201);
     const service = await dataSource
       .getRepository(ServiceEntity)
       .findOneByOrFail({ serviceKey });
-    const permissions = await dataSource.getRepository(ServicePermissionDefinitionEntity).find({
-      where: { serviceId: service.id },
-      order: { sortOrder: 'ASC', createdAt: 'ASC' },
-    });
+    const permissions = await dataSource
+      .getRepository(ServicePermissionDefinitionEntity)
+      .find({
+        where: { serviceId: service.id },
+        order: { sortOrder: 'ASC', createdAt: 'ASC' },
+      });
     return {
       approval: approvalResponse.body,
       service,
-      permissionsByKey: new Map(permissions.map((permission) => [permission.key, permission])),
+      permissionsByKey: new Map(
+        permissions.map((permission) => [permission.key, permission]),
+      ),
     };
   }
 
@@ -216,7 +232,9 @@ describe('App bootstrap (e2e)', () => {
     },
   ) {
     const codeVerifier = `verifier-${nextSuffix('pkce')}`;
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
+    const codeChallenge = createHash('sha256')
+      .update(codeVerifier)
+      .digest('base64url');
     const authorizeQuery = buildAuthorizeQuery({
       clientId: input.clientId,
       redirectUri: input.redirectUri,
@@ -260,7 +278,9 @@ describe('App bootstrap (e2e)', () => {
       })
       .expect(200);
 
-    const payload = app.get(TokenService).verifyAccessToken(tokenResponse.body.access_token);
+    const payload = app
+      .get(TokenService)
+      .verifyAccessToken(tokenResponse.body.access_token);
     expect(payload.aud).toBe(`service:${input.expectedServiceKey}`);
     expect(payload['https://lafamila.xyz/claims/service']).toEqual(
       expect.objectContaining({
@@ -268,7 +288,10 @@ describe('App bootstrap (e2e)', () => {
         permission: input.expectedPermission,
       }),
     );
-    return tokenResponse.body as { access_token: string; refresh_token: string };
+    return tokenResponse.body as {
+      access_token: string;
+      refresh_token: string;
+    };
   }
 
   it('boots the full app and serves health', async () => {
@@ -292,29 +315,46 @@ describe('App bootstrap (e2e)', () => {
     const codeChallenge = createHash('sha256')
       .update(`verifier-${nextSuffix('hosted-login-page')}`)
       .digest('base64url');
+    const authorizeQuery = buildAuthorizeQuery({
+      clientId,
+      redirectUri: 'https://todo.example.com/auth/callback',
+      codeChallenge,
+      state: 'hosted-login-state',
+    });
+    const expectedReturnTo = `/oauth/authorize?${new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: 'https://todo.example.com/auth/callback',
+      response_type: 'code',
+      scope: 'openid profile email service.permission',
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+      state: 'hosted-login-state',
+    }).toString()}`;
+    const expectedSignupHref = `/signup?${new URLSearchParams({
+      return_to: expectedReturnTo,
+    }).toString()}`;
 
     await request(app.getHttpServer())
       .get('/oauth/authorize')
-      .query(
-        buildAuthorizeQuery({
-          clientId,
-          redirectUri: 'https://todo.example.com/auth/callback',
-          codeChallenge,
-          state: 'hosted-login-state',
-        }),
-      )
+      .query(authorizeQuery)
       .expect(200)
       .expect((response) => {
         expect(response.text).toContain('action="/oauth/login"');
         expect(response.text).toContain('name="loginId"');
         expect(response.text).toContain('name="password"');
-        expect(response.text).toContain('<button type="submit">로그인</button>');
-        expect(response.text).toContain('<a href="/signup">signup</a>');
+        expect(response.text).toContain(
+          '<button type="submit">로그인</button>',
+        );
+        expect(response.text).toContain(
+          `<a href="${expectedSignupHref}">sign up</a>`,
+        );
         expect(response.text).toContain('id="failure-message"');
         expect(response.text).toContain(`name="client_id" value="${clientId}"`);
-        expect(response.text).toContain('name="state" value="hosted-login-state"');
+        expect(response.text).toContain(
+          'name="state" value="hosted-login-state"',
+        );
         expect(response.text).not.toContain('password/complete-reset');
-        expect(response.text).not.toContain('Teddy Auth');
+        expect(response.text).toContain('Teddy Auth');
         expect(response.text).not.toContain('Continue in your browser');
       });
   });
@@ -333,7 +373,9 @@ describe('App bootstrap (e2e)', () => {
     const { account, password } = await createAccount();
     const agent = request.agent(app.getHttpServer());
     const codeVerifier = `verifier-${nextSuffix('hosted-login-success')}`;
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
+    const codeChallenge = createHash('sha256')
+      .update(codeVerifier)
+      .digest('base64url');
     const authorizeQuery = buildAuthorizeQuery({
       clientId,
       redirectUri: 'https://todo.example.com/auth/callback',
@@ -373,7 +415,9 @@ describe('App bootstrap (e2e)', () => {
       })
       .expect(200);
 
-    const payload = app.get(TokenService).verifyAccessToken(tokenResponse.body.access_token);
+    const payload = app
+      .get(TokenService)
+      .verifyAccessToken(tokenResponse.body.access_token);
     expect(payload.aud).toBe(`service:${approved.service.serviceKey}`);
     expect(payload['https://lafamila.xyz/claims/service']).toEqual(
       expect.objectContaining({
@@ -416,12 +460,15 @@ describe('App bootstrap (e2e)', () => {
       })
       .expect(302);
 
-    await agent.get('/logout').expect(200).expect((response) => {
-      expect(response.text).toContain('로그아웃되었습니다.');
-      const setCookie = response.headers['set-cookie'];
-      const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
-      expect(cookies.join(';')).toContain('tas_session=;');
-    });
+    await agent
+      .get('/logout')
+      .expect(200)
+      .expect((response) => {
+        expect(response.text).toContain('로그아웃되었습니다.');
+        const setCookie = response.headers['set-cookie'];
+        const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
+        expect(cookies.join(';')).toContain('tas_session=;');
+      });
 
     await agent
       .get('/oauth/authorize')
@@ -438,7 +485,10 @@ describe('App bootstrap (e2e)', () => {
 
     await agent
       .get('/logout')
-      .query({ return_to: 'http://localhost:3030/session/oidc/retry?loginTransactionId=retry-1' })
+      .query({
+        return_to:
+          'http://localhost:3030/session/oidc/retry?loginTransactionId=retry-1',
+      })
       .expect(302)
       .expect((response) => {
         expect(response.headers.location).toBe(
@@ -590,17 +640,25 @@ describe('App bootstrap (e2e)', () => {
     expect(adminHtml).toContain('secret 을 별도로 보관했습니다');
     expect(adminHtml).toContain('Concrete .env examples');
     expect(adminHtml).toContain('Service Approved Without Secrets');
-    expect(adminHtml).toContain('No .env secret values are required from this approval result.');
+    expect(adminHtml).toContain(
+      'No .env secret values are required from this approval result.',
+    );
     expect(adminHtml).toContain('[hidden]');
     expect(adminHtml).toContain('display: none !important;');
-    expect(adminHtml).toContain("mode === 'bootstrap' && state.requiresBootstrap");
+    expect(adminHtml).toContain(
+      "mode === 'bootstrap' && state.requiresBootstrap",
+    );
     expect(adminHtml).toContain(
       'Bootstrap is unavailable because an active superadmin already exists.',
     );
-    expect(adminHtml).toContain("state.adminSession ? 'Logout' : 'Admin Session'");
+    expect(adminHtml).toContain(
+      "state.adminSession ? 'Logout' : 'Admin Session'",
+    );
     expect(adminHtml).not.toContain('adminSessionForm');
     expect(adminHtml).not.toContain('adminLogout');
-    expect(adminHtml).not.toContain("$('secretModal').addEventListener('click'");
+    expect(adminHtml).not.toContain(
+      "$('secretModal').addEventListener('click'",
+    );
     expect(adminHtml.indexOf('Service Onboarding Requests')).toBeLessThan(
       adminHtml.indexOf('Account Access Requests'),
     );
@@ -620,7 +678,9 @@ describe('App bootstrap (e2e)', () => {
       .expect(200)
       .expect((response) => {
         expect(response.text).toContain('Service Onboarding Requests');
-        expect(response.text).not.toContain('Create Service Onboarding Request');
+        expect(response.text).not.toContain(
+          'Create Service Onboarding Request',
+        );
       });
   });
 
@@ -638,15 +698,21 @@ describe('App bootstrap (e2e)', () => {
     expect(serviceHtml).toContain('JSON Preview');
     expect(serviceHtml).toContain('Request-update-only secret');
     expect(serviceHtml).toContain('Admin Session required');
-    expect(serviceHtml).toContain('Unknown JSON fields are ignored and reported as warnings.');
+    expect(serviceHtml).toContain(
+      'Unknown JSON fields are ignored and reported as warnings.',
+    );
     expect(serviceHtml).toContain('visitor permission is');
     expect(serviceHtml).toContain('readonly');
     expect(serviceHtml).toContain('Requester identity always comes from');
-    expect(serviceHtml).toContain("mode === 'bootstrap' && state.requiresBootstrap");
+    expect(serviceHtml).toContain(
+      "mode === 'bootstrap' && state.requiresBootstrap",
+    );
     expect(serviceHtml).toContain(
       'Bootstrap is unavailable because an active superadmin already exists.',
     );
-    expect(serviceHtml).toContain("state.adminSession ? 'Logout' : 'Admin Session'");
+    expect(serviceHtml).toContain(
+      "state.adminSession ? 'Logout' : 'Admin Session'",
+    );
     expect(serviceHtml).not.toContain('adminSessionForm');
     expect(serviceHtml).not.toContain('adminLogout');
 
@@ -709,7 +775,9 @@ describe('App bootstrap (e2e)', () => {
     expect(createResponse.body.requestSecret).toBeTruthy();
 
     const updateResponse = await request(app.getHttpServer())
-      .post(`/api/service-onboarding-requests/${createResponse.body.request.id}/update`)
+      .post(
+        `/api/service-onboarding-requests/${createResponse.body.request.id}/update`,
+      )
       .set('x-request-secret', createResponse.body.requestSecret)
       .send({
         serviceKey,
@@ -750,10 +818,12 @@ describe('App bootstrap (e2e)', () => {
       expect.arrayContaining([expect.objectContaining({ key: 'admin' })]),
     );
 
-    const requests = await dataSource.getRepository(ServiceOnboardingRequestEntity).find({
-      where: { serviceKey },
-      order: { revision: 'ASC' },
-    });
+    const requests = await dataSource
+      .getRepository(ServiceOnboardingRequestEntity)
+      .find({
+        where: { serviceKey },
+        order: { revision: 'ASC' },
+      });
     expect(requests).toHaveLength(2);
     expect(requests[0].status).toBe('superseded');
     expect(requests[1].status).toBe('pending');
@@ -799,12 +869,16 @@ describe('App bootstrap (e2e)', () => {
     const { account } = await createAccount();
     const serviceId = approved.service.id;
     const visitorId = approved.permissionsByKey.get('visitor')?.id;
-    const clientId = await dataSource.getRepository(OidcClientEntity).findOneByOrFail({
-      serviceId,
-    });
-    const credential = await dataSource.getRepository(ServiceCredentialEntity).findOneByOrFail({
-      serviceId,
-    });
+    const clientId = await dataSource
+      .getRepository(OidcClientEntity)
+      .findOneByOrFail({
+        serviceId,
+      });
+    const credential = await dataSource
+      .getRepository(ServiceCredentialEntity)
+      .findOneByOrFail({
+        serviceId,
+      });
 
     await request(app.getHttpServer())
       .get('/api/admin/accounts')
@@ -853,7 +927,9 @@ describe('App bootstrap (e2e)', () => {
       .send({})
       .expect(404);
     await request(app.getHttpServer())
-      .post(`/api/admin/services/${serviceId}/permissions/${visitorId}/deprecate`)
+      .post(
+        `/api/admin/services/${serviceId}/permissions/${visitorId}/deprecate`,
+      )
       .set('Cookie', adminCookie)
       .send({})
       .expect(404);
@@ -878,7 +954,9 @@ describe('App bootstrap (e2e)', () => {
       .send({})
       .expect(404);
     await request(app.getHttpServer())
-      .post(`/api/admin/services/${serviceId}/clients/${clientId.id}/rotate-secret`)
+      .post(
+        `/api/admin/services/${serviceId}/clients/${clientId.id}/rotate-secret`,
+      )
       .set('Cookie', adminCookie)
       .send({})
       .expect(404);
@@ -898,7 +976,9 @@ describe('App bootstrap (e2e)', () => {
       .send({})
       .expect(404);
     await request(app.getHttpServer())
-      .delete(`/api/admin/accounts/${account.id}/services/${serviceId}/permission`)
+      .delete(
+        `/api/admin/accounts/${account.id}/services/${serviceId}/permission`,
+      )
       .set('Cookie', adminCookie)
       .expect(404);
   });
@@ -943,14 +1023,18 @@ describe('App bootstrap (e2e)', () => {
       });
 
     const rotateResponse = await request(app.getHttpServer())
-      .post(`/api/admin/services/${approved.service.id}/credentials/${credential.id}/rotate`)
+      .post(
+        `/api/admin/services/${approved.service.id}/credentials/${credential.id}/rotate`,
+      )
       .set('Cookie', adminCookie)
       .send({})
       .expect(201);
     expect(rotateResponse.body.secret).toBeTruthy();
 
     await request(app.getHttpServer())
-      .post(`/api/admin/services/${approved.service.id}/credentials/${credential.id}/disable`)
+      .post(
+        `/api/admin/services/${approved.service.id}/credentials/${credential.id}/disable`,
+      )
       .set('Cookie', adminCookie)
       .send({})
       .expect(201)
@@ -959,19 +1043,25 @@ describe('App bootstrap (e2e)', () => {
       });
 
     await request(app.getHttpServer())
-      .post(`/api/admin/services/${approved.service.id}/credentials/${credential.id}/rotate`)
+      .post(
+        `/api/admin/services/${approved.service.id}/credentials/${credential.id}/rotate`,
+      )
       .set('Cookie', adminCookie)
       .send({})
       .expect(400)
       .expect((response) => {
-        expect(response.body.message).toBe('Disabled credentials cannot be rotated');
+        expect(response.body.message).toBe(
+          'Disabled credentials cannot be rotated',
+        );
       });
   });
 
   it('lazily grants visitor to a newly created account on first service login and supports access request approval', async () => {
     const clientId = nextSuffix('lazy-existing-service-client');
     const approved = await createApprovedService({
-      permissions: [{ key: 'admin', label: 'Admin', description: 'Elevated access' }],
+      permissions: [
+        { key: 'admin', label: 'Admin', description: 'Elevated access' },
+      ],
       oidcClients: [
         {
           clientId,
@@ -1016,10 +1106,13 @@ describe('App bootstrap (e2e)', () => {
       .expect(201);
 
     await request(app.getHttpServer())
-      .post(`/api/admin/service-applications/${applicationResponse.body.id}/approve`)
+      .post(
+        `/api/admin/service-applications/${applicationResponse.body.id}/approve`,
+      )
       .set('Cookie', adminCookie)
       .send({
-        targetPermissionDefinitionId: approved.permissionsByKey.get('admin')?.id,
+        targetPermissionDefinitionId:
+          approved.permissionsByKey.get('admin')?.id,
       })
       .expect(201);
 
@@ -1138,7 +1231,9 @@ describe('App bootstrap (e2e)', () => {
       password,
     });
 
-    const assignmentRepository = dataSource.getRepository(AccountServicePermissionEntity);
+    const assignmentRepository = dataSource.getRepository(
+      AccountServicePermissionEntity,
+    );
     const assignment = await assignmentRepository.findOneByOrFail({
       accountId: account.id,
       serviceId: approved.service.id,
@@ -1148,7 +1243,9 @@ describe('App bootstrap (e2e)', () => {
     await assignmentRepository.save(assignment);
 
     const codeVerifier = `verifier-${nextSuffix('revoked')}`;
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
+    const codeChallenge = createHash('sha256')
+      .update(codeVerifier)
+      .digest('base64url');
     const authorizeResponse = await agent
       .get('/oauth/authorize')
       .query({
@@ -1163,9 +1260,13 @@ describe('App bootstrap (e2e)', () => {
       .expect(302);
     const redirect = new URL(authorizeResponse.headers.location);
     expect(redirect.searchParams.get('error')).toBe('access_denied');
-    expect(redirect.searchParams.get('error_description')).toBe('No service permission');
+    expect(redirect.searchParams.get('error_description')).toBe(
+      'No service permission',
+    );
 
-    const persisted = await assignmentRepository.findOneByOrFail({ id: assignment.id });
+    const persisted = await assignmentRepository.findOneByOrFail({
+      id: assignment.id,
+    });
     expect(persisted.status).toBe('revoked');
   });
 
@@ -1186,46 +1287,64 @@ describe('App bootstrap (e2e)', () => {
     const { account } = await createAccount();
 
     const searchSecret = todoApproved.approval.secrets.find(
-      (secret) => secret.kind === 'service_credential' && secret.name === 'search credential',
+      (secret) =>
+        secret.kind === 'service_credential' &&
+        secret.name === 'search credential',
     );
     const wrongScopeSecret = todoApproved.approval.secrets.find(
       (secret) =>
-        secret.kind === 'service_credential' && secret.name === 'wrong scope credential',
+        secret.kind === 'service_credential' &&
+        secret.name === 'wrong scope credential',
     );
     expect(searchSecret).toBeTruthy();
     expect(wrongScopeSecret).toBeTruthy();
 
     await request(app.getHttpServer())
       .get('/api/internal/service-accounts/search')
-      .query({ serviceKey: todoApproved.service.serviceKey, q: account.loginId.slice(0, 4) })
+      .query({
+        serviceKey: todoApproved.service.serviceKey,
+        q: account.loginId.slice(0, 4),
+      })
       .expect(401);
 
     await request(app.getHttpServer())
       .get('/api/internal/service-accounts/search')
       .set('x-auth-service-key-id', searchSecret?.keyId as string)
       .set('x-auth-service-secret', 'wrong-secret')
-      .query({ serviceKey: todoApproved.service.serviceKey, q: account.loginId.slice(0, 4) })
+      .query({
+        serviceKey: todoApproved.service.serviceKey,
+        q: account.loginId.slice(0, 4),
+      })
       .expect(401);
 
     await request(app.getHttpServer())
       .get('/api/internal/service-accounts/search')
       .set('x-auth-service-key-id', wrongScopeSecret?.keyId as string)
       .set('x-auth-service-secret', wrongScopeSecret?.secret as string)
-      .query({ serviceKey: todoApproved.service.serviceKey, q: account.loginId.slice(0, 4) })
+      .query({
+        serviceKey: todoApproved.service.serviceKey,
+        q: account.loginId.slice(0, 4),
+      })
       .expect(403);
 
     await request(app.getHttpServer())
       .get('/api/internal/service-accounts/search')
       .set('x-auth-service-key-id', searchSecret?.keyId as string)
       .set('x-auth-service-secret', searchSecret?.secret as string)
-      .query({ serviceKey: otherApproved.service.serviceKey, q: account.loginId.slice(0, 4) })
+      .query({
+        serviceKey: otherApproved.service.serviceKey,
+        q: account.loginId.slice(0, 4),
+      })
       .expect(403);
 
     await request(app.getHttpServer())
       .get('/api/internal/service-accounts/search')
       .set('x-auth-service-key-id', searchSecret?.keyId as string)
       .set('x-auth-service-secret', searchSecret?.secret as string)
-      .query({ serviceKey: todoApproved.service.serviceKey, q: account.loginId.slice(0, 4) })
+      .query({
+        serviceKey: todoApproved.service.serviceKey,
+        q: account.loginId.slice(0, 4),
+      })
       .expect(200)
       .expect((response) => {
         expect(response.body).toEqual(
@@ -1247,7 +1366,9 @@ describe('App bootstrap (e2e)', () => {
     expect(searchCredential.lastUsedFrom).toBeTruthy();
 
     await request(app.getHttpServer())
-      .post(`/api/admin/services/${todoApproved.service.id}/credentials/${searchCredential.id}/disable`)
+      .post(
+        `/api/admin/services/${todoApproved.service.id}/credentials/${searchCredential.id}/disable`,
+      )
       .set('Cookie', adminCookie)
       .send({})
       .expect(201);
@@ -1256,7 +1377,10 @@ describe('App bootstrap (e2e)', () => {
       .get('/api/internal/service-accounts/search')
       .set('x-auth-service-key-id', searchSecret?.keyId as string)
       .set('x-auth-service-secret', searchSecret?.secret as string)
-      .query({ serviceKey: todoApproved.service.serviceKey, q: account.loginId.slice(0, 4) })
+      .query({
+        serviceKey: todoApproved.service.serviceKey,
+        q: account.loginId.slice(0, 4),
+      })
       .expect(401);
   });
 });
