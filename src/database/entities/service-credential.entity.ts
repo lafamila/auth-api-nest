@@ -26,10 +26,8 @@ export const SERVICE_CREDENTIAL_SCOPE_DEFINITIONS = [
 
 export type ServiceCredentialScope =
   (typeof SERVICE_CREDENTIAL_SCOPE_DEFINITIONS)[number]['key'];
-export const SERVICE_CREDENTIAL_SCOPE_KEYS =
-  SERVICE_CREDENTIAL_SCOPE_DEFINITIONS.map(
-    (scope) => scope.key,
-  ) as ServiceCredentialScope[];
+export const SERVICE_CREDENTIAL_SCOPE_KEYS: ServiceCredentialScope[] =
+  SERVICE_CREDENTIAL_SCOPE_DEFINITIONS.map((scope) => scope.key);
 export type ServiceCredentialStatus = 'active' | 'disabled';
 
 @Entity('service_credentials')

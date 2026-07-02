@@ -1667,28 +1667,44 @@
         $('applicationsBody').innerHTML = rows.length
           ? rows
               .map((application) => {
-                const options = (state.permissionsByService[application.serviceId] || [])
+                const activeTargets = (state.permissionsByService[application.serviceId] || [])
                   .filter(
                     (permission) =>
                       permission.status === 'active' && permission.key !== 'visitor',
-                  )
+                  );
+                const requestedPermission = application.targetPermissionDefinition || null;
+                const isFixedRequest = Boolean(requestedPermission?.id);
+                const fixedRequestIsActive =
+                  isFixedRequest &&
+                  requestedPermission.status === 'active' &&
+                  requestedPermission.key !== 'visitor';
+                const approvalTargets = isFixedRequest
+                  ? [requestedPermission]
+                  : activeTargets;
+                const options = approvalTargets
                   .map(
                     (permission) =>
-                      `<option value="${permission.id}">${escapeHtml(permission.key)} - ${escapeHtml(permission.label)}</option>`,
+                      `<option value="${permission.id}">${escapeHtml(permission.key)} - ${escapeHtml(permission.label)}${isFixedRequest ? ' (requested)' : ''}</option>`,
                   )
                   .join('');
+                const canApprove = isFixedRequest ? fixedRequestIsActive : Boolean(options);
+                const requestHint =
+                  isFixedRequest && !fixedRequestIsActive
+                    ? '<div class="hint">Requested permission is no longer active.</div>'
+                    : '';
                 return `
                   <tr>
                     <td>${escapeHtml(application.account.loginId)}</td>
                     <td>${escapeHtml(application.service.serviceKey)}</td>
                     <td>${escapeHtml(application.message || '-')}</td>
                     <td>
-                      <select id="application-permission-${application.id}" ${options ? '' : 'disabled'}>
+                      <select id="application-permission-${application.id}" ${canApprove && !isFixedRequest ? '' : 'disabled'}>
                         ${options || '<option value="">No upgrade targets</option>'}
                       </select>
+                      ${requestHint}
                     </td>
                     <td>
-                      <button data-approve-application="${application.id}" ${options ? '' : 'disabled'}>Approve</button>
+                      <button data-approve-application="${application.id}" ${canApprove ? '' : 'disabled'}>Approve</button>
                       <button class="secondary" data-reject-application="${application.id}">Reject</button>
                     </td>
                   </tr>

@@ -38,6 +38,11 @@ export interface ServiceApplicationStatusView {
     id: string;
     status: ServiceApplicationStatus;
     message: string;
+    requestedPermission: {
+      id: string;
+      key: string;
+      label: string;
+    } | null;
     createdAt: Date;
     reviewedAt: Date | null;
   } | null;
@@ -100,6 +105,13 @@ export class ServiceApplicationsService {
             id: latestApplication.id,
             status: latestApplication.status,
             message: latestApplication.message,
+            requestedPermission: latestApplication.targetPermissionDefinition
+              ? {
+                  id: latestApplication.targetPermissionDefinition.id,
+                  key: latestApplication.targetPermissionDefinition.key,
+                  label: latestApplication.targetPermissionDefinition.label,
+                }
+              : null,
             createdAt: latestApplication.createdAt,
             reviewedAt: latestApplication.reviewedAt,
           }
@@ -131,6 +143,10 @@ export class ServiceApplicationsService {
       throw new NotFoundException('Account or service not found');
     }
 
+    const requestedPermission = input.requestedPermissionKey
+      ? await this.findRequestedPermission(service.id, input.requestedPermissionKey)
+      : null;
+
     const currentPermission = await this.accountPermissions.findOne({
       where: { accountId: account.id, serviceId: service.id, status: 'active' },
       relations: { permissionDefinition: true },
@@ -146,6 +162,10 @@ export class ServiceApplicationsService {
     });
     if (existing) {
       existing.message = input.message ?? existing.message;
+      if (requestedPermission) {
+        existing.targetPermissionDefinition = requestedPermission;
+        existing.targetPermissionDefinitionId = requestedPermission.id;
+      }
       return this.applications.save(existing);
     }
 
@@ -157,6 +177,8 @@ export class ServiceApplicationsService {
         serviceId: service.id,
         message: input.message ?? '',
         status: 'pending',
+        targetPermissionDefinition: requestedPermission,
+        targetPermissionDefinitionId: requestedPermission?.id ?? null,
       }),
     );
     await this.auditLogs.record({
@@ -167,6 +189,8 @@ export class ServiceApplicationsService {
       afterJson: {
         serviceId: service.id,
         message: application.message,
+        requestedPermissionKey: requestedPermission?.key ?? null,
+        targetPermissionDefinitionId: requestedPermission?.id ?? null,
       },
     });
     return application;
@@ -187,6 +211,12 @@ export class ServiceApplicationsService {
       }
       if (application.status !== 'pending') {
         throw new BadRequestException('Only pending applications can be approved');
+      }
+      if (
+        application.targetPermissionDefinitionId &&
+        application.targetPermissionDefinitionId !== targetPermissionDefinitionId
+      ) {
+        throw new BadRequestException('Approval target must match requested permission');
       }
       const targetPermission = await manager.findOne(
         ServicePermissionDefinitionEntity,
@@ -273,5 +303,26 @@ export class ServiceApplicationsService {
       targetId: saved.id,
     });
     return saved;
+  }
+
+  private async findRequestedPermission(
+    serviceId: string,
+    requestedPermissionKey: string,
+  ): Promise<ServicePermissionDefinitionEntity> {
+    const key = requestedPermissionKey.trim();
+    if (!key) {
+      throw new BadRequestException('requestedPermissionKey must not be empty');
+    }
+    const permission = await this.permissions.findOneBy({
+      serviceId,
+      key,
+      status: 'active',
+    });
+    if (!permission || permission.key === VISITOR_PERMISSION.key) {
+      throw new BadRequestException(
+        'requestedPermissionKey must be an active non-visitor permission for the service',
+      );
+    }
+    return permission;
   }
 }

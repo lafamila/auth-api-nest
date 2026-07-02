@@ -1108,6 +1108,7 @@ describe('App bootstrap (e2e)', () => {
     const approved = await createApprovedService({
       permissions: [
         { key: 'admin', label: 'Admin', description: 'Elevated access' },
+        { key: 'premium', label: 'Premium', description: 'Paid access' },
       ],
       oidcClients: [
         {
@@ -1143,14 +1144,39 @@ describe('App bootstrap (e2e)', () => {
       });
     expect(visitorAssignment.permissionDefinition.key).toBe('visitor');
 
+    await request(app.getHttpServer())
+      .post('/api/service-applications')
+      .set('authorization', `Bearer ${visitorTokens.access_token}`)
+      .send({
+        serviceKey: approved.service.serviceKey,
+        requestedPermissionKey: 'missing',
+        message: 'I need access for testing.',
+      })
+      .expect(400);
+
     const applicationResponse = await request(app.getHttpServer())
       .post('/api/service-applications')
       .set('authorization', `Bearer ${visitorTokens.access_token}`)
       .send({
         serviceKey: approved.service.serviceKey,
+        requestedPermissionKey: 'admin',
         message: 'I need access for testing.',
       })
       .expect(201);
+    expect(applicationResponse.body.targetPermissionDefinitionId).toBe(
+      approved.permissionsByKey.get('admin')?.id,
+    );
+
+    await request(app.getHttpServer())
+      .post(
+        `/api/admin/service-applications/${applicationResponse.body.id}/approve`,
+      )
+      .set('Cookie', adminCookie)
+      .send({
+        targetPermissionDefinitionId:
+          approved.permissionsByKey.get('premium')?.id,
+      })
+      .expect(400);
 
     await request(app.getHttpServer())
       .post(

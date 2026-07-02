@@ -7,6 +7,11 @@ export class CreateServiceApplicationDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(120)
+  requestedPermissionKey?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(1000)
   message?: string;
 }
