@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { AccountsModule } from '../domain/accounts/accounts.module';
 import { AccountPermissionsModule } from '../domain/account-permissions/account-permissions.module';
 import { AppConfigModule } from '../config/app-config.module';
 import { OidcClientsModule } from '../domain/oidc-clients/oidc-clients.module';
+import { TokenRecordEntity } from '../database/entities/token-record.entity';
 import { OidcController } from './oidc.controller';
 import { LoginController } from './login.controller';
 import { AuthorizationCodeService } from './authorization-code.service';
@@ -12,7 +14,13 @@ import { SigningKeyService } from './signing-key.service';
 import { TokenService } from './token.service';
 
 @Module({
-  imports: [AppConfigModule, AccountsModule, OidcClientsModule, AccountPermissionsModule],
+  imports: [
+    AppConfigModule,
+    AccountsModule,
+    OidcClientsModule,
+    AccountPermissionsModule,
+    TypeOrmModule.forFeature([TokenRecordEntity]),
+  ],
   controllers: [OidcController, LoginController],
   providers: [
     AuthorizationCodeService,

@@ -10,7 +10,26 @@ import {
 } from 'typeorm';
 import { ServiceEntity } from './service.entity';
 
-export type ServiceCredentialScope = 'account.search' | 'permission.read';
+export const SERVICE_CREDENTIAL_SCOPE_DEFINITIONS = [
+  {
+    key: 'account.search',
+    label: 'Account Search',
+    description: 'Allows a service backend to search auth accounts.',
+  },
+  {
+    key: 'permission.read',
+    label: 'Permission Read',
+    description:
+      'Allows a service backend to read permission upgrade request status and current permissions.',
+  },
+] as const;
+
+export type ServiceCredentialScope =
+  (typeof SERVICE_CREDENTIAL_SCOPE_DEFINITIONS)[number]['key'];
+export const SERVICE_CREDENTIAL_SCOPE_KEYS =
+  SERVICE_CREDENTIAL_SCOPE_DEFINITIONS.map(
+    (scope) => scope.key,
+  ) as ServiceCredentialScope[];
 export type ServiceCredentialStatus = 'active' | 'disabled';
 
 @Entity('service_credentials')

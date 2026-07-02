@@ -10,7 +10,10 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { OidcClientType } from '../../../database/entities/oidc-client.entity';
-import { ServiceCredentialScope } from '../../../database/entities/service-credential.entity';
+import {
+  SERVICE_CREDENTIAL_SCOPE_KEYS,
+  ServiceCredentialScope,
+} from '../../../database/entities/service-credential.entity';
 import { ServiceOnboardingRequestStatus } from '../../../database/entities/service-onboarding-request.entity';
 
 export class OnboardingPermissionDto {
@@ -61,7 +64,7 @@ export class OnboardingCredentialDto {
   description?: string;
 
   @IsArray()
-  @IsIn(['account.search', 'permission.read'], { each: true })
+  @IsIn(SERVICE_CREDENTIAL_SCOPE_KEYS, { each: true })
   scopes!: ServiceCredentialScope[];
 }
 

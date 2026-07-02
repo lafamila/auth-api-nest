@@ -20,7 +20,11 @@ type ImportedDraft = {
     postLogoutRedirectUris: string;
     allowedScopes: string;
   }>;
-  serviceCredentials: Array<{ name: string; description: string; scopes: string }>;
+  serviceCredentials: Array<{
+    name: string;
+    description: string;
+    scopes: string;
+  }>;
 };
 
 type ImportResult = {
@@ -29,18 +33,34 @@ type ImportResult = {
 };
 
 type ServiceRequestImportModule = {
-  normalizeImportedServiceRequest: (value: unknown, sessionAccount: SessionAccount) => ImportResult;
-  parseImportedServiceRequestText: (text: string, sessionAccount: SessionAccount) => ImportResult;
+  normalizeImportedServiceRequest: (
+    value: unknown,
+    sessionAccount: SessionAccount,
+    options?: { supportedCredentialScopes: Array<{ key: string }> },
+  ) => ImportResult;
+  parseImportedServiceRequestText: (
+    text: string,
+    sessionAccount: SessionAccount,
+    options?: { supportedCredentialScopes: Array<{ key: string }> },
+  ) => ImportResult;
 };
 
 const requireFromSpec = createRequire(__filename);
 const { normalizeImportedServiceRequest, parseImportedServiceRequestText } =
-  requireFromSpec('../public/service-request-import.js') as ServiceRequestImportModule;
+  requireFromSpec(
+    '../public/service-request-import.js',
+  ) as ServiceRequestImportModule;
 
 describe('service request import helper', () => {
   const sessionAccount = {
     name: 'Admin Session User',
     email: 'admin-session@lafamila.xyz',
+  };
+  const importOptions = {
+    supportedCredentialScopes: [
+      { key: 'account.search' },
+      { key: 'permission.read' },
+    ],
   };
 
   it('overrides requester identity from the current session and warns on unknown fields', () => {
@@ -51,12 +71,15 @@ describe('service request import helper', () => {
         description: 'Task tracker',
         requesterName: 'Untrusted Import User',
         requesterEmail: 'untrusted@example.com',
-        permissions: [{ key: 'member', label: 'Member', description: 'Standard access' }],
+        permissions: [
+          { key: 'member', label: 'Member', description: 'Standard access' },
+        ],
         oidcClients: [],
         serviceCredentials: [],
         extraField: 'ignored',
       },
       sessionAccount,
+      importOptions,
     );
 
     expect(result.draft).toEqual(
@@ -68,7 +91,9 @@ describe('service request import helper', () => {
         requesterEmail: sessionAccount.email,
       }),
     );
-    expect(result.warnings).toEqual(['Ignored unknown top-level fields: extraField.']);
+    expect(result.warnings).toEqual([
+      'Ignored unknown top-level fields: extraField.',
+    ]);
   });
 
   it('removes visitor permission rows and normalizes array fields into textarea strings', () => {
@@ -98,6 +123,7 @@ describe('service request import helper', () => {
         ],
       },
       sessionAccount,
+      importOptions,
     );
 
     expect(result.draft.permissions).toEqual([
@@ -127,7 +153,7 @@ describe('service request import helper', () => {
 
   it('rejects invalid JSON input', () => {
     expect(() =>
-      parseImportedServiceRequestText('{', sessionAccount),
+      parseImportedServiceRequestText('{', sessionAccount, importOptions),
     ).toThrow('Invalid JSON file. Check the file contents and try again.');
   });
 
@@ -141,6 +167,7 @@ describe('service request import helper', () => {
           permissions: [{ key: 'member', label: 'Member' }],
         },
         sessionAccount,
+        importOptions,
       ),
     ).toThrow('requesterName must be a string.');
 
@@ -153,7 +180,30 @@ describe('service request import helper', () => {
           oidcClients: 'invalid',
         },
         sessionAccount,
+        importOptions,
       ),
     ).toThrow('oidcClients must be an array.');
+  });
+
+  it('rejects unsupported credential scopes from the supplied metadata', () => {
+    expect(() =>
+      normalizeImportedServiceRequest(
+        {
+          serviceKey: 'todo',
+          name: 'Todo',
+          permissions: [{ key: 'member', label: 'Member' }],
+          serviceCredentials: [
+            {
+              name: 'todo backend',
+              scopes: ['unknown.scope'],
+            },
+          ],
+        },
+        sessionAccount,
+        importOptions,
+      ),
+    ).toThrow(
+      'serviceCredentials[0].scopes contains unsupported scope unknown.scope.',
+    );
   });
 });

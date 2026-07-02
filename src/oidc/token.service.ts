@@ -1,12 +1,15 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes, randomUUID } from 'node:crypto';
 import * as jwt from 'jsonwebtoken';
 import { hashToken } from '../common/crypto/token-hash';
 import { AccountEntity } from '../database/entities/account.entity';
 import { OidcClientEntity } from '../database/entities/oidc-client.entity';
 import { AccountServicePermissionEntity } from '../database/entities/account-service-permission.entity';
+import { TokenRecordEntity } from '../database/entities/token-record.entity';
 import { AppConfigService } from '../config/app-config.service';
 import { SigningKeyService } from './signing-key.service';
+import { Repository } from 'typeorm';
 
 interface RefreshRecord {
   accountId: string;
@@ -18,14 +21,14 @@ interface RefreshRecord {
 
 @Injectable()
 export class TokenService {
-  private readonly refreshTokens = new Map<string, RefreshRecord>();
-
   constructor(
     private readonly config: AppConfigService,
     private readonly signingKeys: SigningKeyService,
+    @InjectRepository(TokenRecordEntity)
+    private readonly tokenRecords: Repository<TokenRecordEntity>,
   ) {}
 
-  issueTokens(
+  async issueTokens(
     account: AccountEntity,
     client: OidcClientEntity,
     permission: AccountServicePermissionEntity,
@@ -75,12 +78,17 @@ export class TokenService {
       },
     );
     const refreshToken = randomBytes(48).toString('base64url');
-    this.refreshTokens.set(hashToken(refreshToken), {
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    await this.tokenRecords.insert({
+      tokenHash: hashToken(refreshToken),
+      type: 'refresh_token',
+      status: 'active',
       accountId: account.id,
       clientId: client.clientId,
       familyId,
-      status: 'active',
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      serviceId: client.service?.id ?? client.serviceId ?? null,
+      metadataJson: null,
+      expiresAt,
     });
     return {
       token_type: 'Bearer',
@@ -91,32 +99,53 @@ export class TokenService {
     };
   }
 
-  consumeRefreshToken(refreshToken: string): RefreshRecord {
-    const record = this.refreshTokens.get(hashToken(refreshToken));
+  async consumeRefreshToken(refreshToken: string): Promise<RefreshRecord> {
+    const tokenHash = hashToken(refreshToken);
+    const consumeResult = await this.tokenRecords.query<RefreshTokenRow[]>(
+      `
+        UPDATE token_records
+        SET status = 'used'
+        WHERE token_hash = $1
+          AND type = 'refresh_token'
+          AND status = 'active'
+          AND expires_at > now()
+        RETURNING account_id, client_id, family_id, status, expires_at
+      `,
+      [tokenHash],
+    );
+    const consumed = consumeResult[0];
+    if (consumed) {
+      return refreshRowToRecord(consumed);
+    }
+
+    const record = await this.tokenRecords.findOne({
+      where: { tokenHash, type: 'refresh_token' },
+    });
     if (!record || record.expiresAt.getTime() < Date.now()) {
       throw new UnauthorizedException('Invalid refresh token');
     }
     if (record.status !== 'active') {
-      this.revokeFamily(record.familyId);
+      await this.revokeFamily(record.familyId);
       throw new UnauthorizedException('Refresh token reuse detected');
     }
-    record.status = 'used';
-    return record;
+    throw new UnauthorizedException('Invalid refresh token');
   }
 
-  revokeRefreshToken(refreshToken: string): void {
-    const record = this.refreshTokens.get(hashToken(refreshToken));
-    if (record) {
-      record.status = 'revoked';
-    }
+  async revokeRefreshToken(refreshToken: string): Promise<void> {
+    await this.tokenRecords.update(
+      { tokenHash: hashToken(refreshToken), type: 'refresh_token' },
+      { status: 'revoked' },
+    );
   }
 
-  revokeFamily(familyId: string): void {
-    for (const record of this.refreshTokens.values()) {
-      if (record.familyId === familyId) {
-        record.status = 'revoked';
-      }
+  async revokeFamily(familyId: string | null): Promise<void> {
+    if (!familyId) {
+      return;
     }
+    await this.tokenRecords.update(
+      { familyId, type: 'refresh_token' },
+      { status: 'revoked' },
+    );
   }
 
   verifyAccessToken(token: string): Record<string, unknown> {
@@ -127,4 +156,25 @@ export class TokenService {
       ignoreExpiration: false,
     }) as Record<string, unknown>;
   }
+}
+
+interface RefreshTokenRow {
+  account_id: string;
+  client_id: string;
+  family_id: string | null;
+  status: RefreshRecord['status'];
+  expires_at: Date | string;
+}
+
+function refreshRowToRecord(row: RefreshTokenRow): RefreshRecord {
+  return {
+    accountId: row.account_id,
+    clientId: row.client_id,
+    familyId: row.family_id ?? '',
+    status: row.status,
+    expiresAt:
+      row.expires_at instanceof Date
+        ? row.expires_at
+        : new Date(row.expires_at),
+  };
 }

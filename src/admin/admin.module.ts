@@ -21,6 +21,7 @@ import { AdminAuditLogsController } from './controllers/admin-audit-logs.control
 import { AdminClientsController } from './controllers/admin-clients.controller';
 import { AdminPermissionDashboardController } from './controllers/admin-permission-dashboard.controller';
 import { AdminPermissionsController } from './controllers/admin-permissions.controller';
+import { AdminServiceCredentialScopesController } from './controllers/admin-service-credential-scopes.controller';
 import { AdminServiceCredentialsController } from './controllers/admin-service-credentials.controller';
 import { AdminServicesController } from './controllers/admin-services.controller';
 import { AdminServiceOnboardingController } from './controllers/admin-service-onboarding.controller';
@@ -48,6 +49,7 @@ import { AdminGuard } from './admin.guard';
     AdminAccountsController,
     AdminServicesController,
     AdminServiceOnboardingController,
+    AdminServiceCredentialScopesController,
     AdminServiceCredentialsController,
     AdminClientsController,
     AdminPermissionDashboardController,

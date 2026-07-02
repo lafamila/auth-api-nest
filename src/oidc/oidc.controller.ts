@@ -122,17 +122,28 @@ export class OidcController {
 
   @Post('oauth/token')
   @HttpCode(200)
-  async token(@Body() body: TokenRequestDto, @Headers('authorization') auth?: string) {
+  async token(
+    @Body() body: TokenRequestDto,
+    @Headers('authorization') auth?: string,
+  ) {
     const clientCredentials = this.extractClientCredentials(body, auth);
-    const client = await this.clients.findByClientId(clientCredentials.clientId);
+    const client = await this.clients.findByClientId(
+      clientCredentials.clientId,
+    );
     if (client.status !== 'active' || client.service.status !== 'active') {
       throw new OAuthError('unauthorized_client', 'Client is disabled', 403);
     }
-    await this.clients.validateClientSecret(client, clientCredentials.clientSecret);
+    await this.clients.validateClientSecret(
+      client,
+      clientCredentials.clientSecret,
+    );
 
     if (body.grant_type === 'authorization_code') {
       if (!body.code || !body.redirect_uri || !body.code_verifier) {
-        throw new OAuthError('invalid_request', 'Missing authorization_code fields');
+        throw new OAuthError(
+          'invalid_request',
+          'Missing authorization_code fields',
+        );
       }
       const code = this.codes.consume(body.code);
       if (!code || code.clientId !== client.clientId) {
@@ -146,16 +157,23 @@ export class OidcController {
       }
       const account = await this.accounts.findById(code.accountId);
       if (account.passwordResetRequired) {
-        throw new OAuthError('access_denied', 'Password reset is required', 403);
+        throw new OAuthError(
+          'access_denied',
+          'Password reset is required',
+          403,
+        );
       }
-      const permission = await this.requirePermission(account.id, client.serviceId);
+      const permission = await this.requirePermission(
+        account.id,
+        client.serviceId,
+      );
       return this.tokens.issueTokens(account, client, permission);
     }
 
     if (!body.refresh_token) {
       throw new OAuthError('invalid_request', 'refresh_token is required');
     }
-    const refresh = this.tokens.consumeRefreshToken(body.refresh_token);
+    const refresh = await this.tokens.consumeRefreshToken(body.refresh_token);
     if (refresh.clientId !== client.clientId) {
       throw new UnauthorizedException('Refresh token client mismatch');
     }
@@ -163,15 +181,23 @@ export class OidcController {
     if (account.passwordResetRequired) {
       throw new OAuthError('access_denied', 'Password reset is required', 403);
     }
-    const permission = await this.requirePermission(account.id, client.serviceId);
-    return this.tokens.issueTokens(account, client, permission, refresh.familyId);
+    const permission = await this.requirePermission(
+      account.id,
+      client.serviceId,
+    );
+    return this.tokens.issueTokens(
+      account,
+      client,
+      permission,
+      refresh.familyId,
+    );
   }
 
   @Post('oauth/revoke')
   @HttpCode(200)
-  revoke(@Body('token') token: string) {
+  async revoke(@Body('token') token: string) {
     if (token) {
-      this.tokens.revokeRefreshToken(token);
+      await this.tokens.revokeRefreshToken(token);
     }
     return {};
   }
@@ -206,9 +232,10 @@ export class OidcController {
 
   private extractClientCredentials(body: TokenRequestDto, auth?: string) {
     if (auth?.startsWith('Basic ')) {
-      const decoded = Buffer.from(auth.slice('Basic '.length), 'base64').toString(
-        'utf8',
-      );
+      const decoded = Buffer.from(
+        auth.slice('Basic '.length),
+        'base64',
+      ).toString('utf8');
       const [clientId, clientSecret] = decoded.split(':');
       return { clientId, clientSecret };
     }
@@ -222,12 +249,17 @@ export class OidcController {
   }
 
   private async requirePermission(accountId: string, serviceId: string) {
-    const permission = await this.accountPermissions.findActiveOrCreateVisitorForFirstLogin(
-      accountId,
-      serviceId,
-    );
+    const permission =
+      await this.accountPermissions.findActiveOrCreateVisitorForFirstLogin(
+        accountId,
+        serviceId,
+      );
     if (!permission) {
-      throw new OAuthError('access_denied', 'No active service permission', 403);
+      throw new OAuthError(
+        'access_denied',
+        'No active service permission',
+        403,
+      );
     }
     return permission;
   }

@@ -8,6 +8,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import {
+  SERVICE_CREDENTIAL_SCOPE_KEYS,
   ServiceCredentialScope,
   ServiceCredentialStatus,
 } from '../../../database/entities/service-credential.entity';
@@ -22,7 +23,7 @@ export class CreateServiceCredentialDto {
 
   @IsArray()
   @ArrayNotEmpty()
-  @IsIn(['account.search', 'permission.read'], { each: true })
+  @IsIn(SERVICE_CREDENTIAL_SCOPE_KEYS, { each: true })
   scopes!: ServiceCredentialScope[];
 
   @IsOptional()
@@ -43,7 +44,7 @@ export class UpdateServiceCredentialDto {
   @IsOptional()
   @IsArray()
   @ArrayNotEmpty()
-  @IsIn(['account.search', 'permission.read'], { each: true })
+  @IsIn(SERVICE_CREDENTIAL_SCOPE_KEYS, { each: true })
   scopes?: ServiceCredentialScope[];
 
   @IsOptional()

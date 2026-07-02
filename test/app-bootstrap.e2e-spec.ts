@@ -638,6 +638,9 @@ describe('App bootstrap (e2e)', () => {
     expect(adminHtml).toContain('Confirm');
     expect(adminHtml).toContain('secretStorageConfirmed');
     expect(adminHtml).toContain('secret 을 별도로 보관했습니다');
+    expect(adminHtml).toContain('credentialScopeModal');
+    expect(adminHtml).toContain('data-credential-scope');
+    expect(adminHtml).not.toContain('CREDENTIAL_SCOPE_OPTIONS');
     expect(adminHtml).toContain('Concrete .env examples');
     expect(adminHtml).toContain('Service Approved Without Secrets');
     expect(adminHtml).toContain(
@@ -695,6 +698,8 @@ describe('App bootstrap (e2e)', () => {
     expect(serviceHtml).toContain('serviceRequestImportInput');
     expect(serviceHtml).toContain('serviceRequestImportMessage');
     expect(serviceHtml).toContain('service-request-import.js');
+    expect(serviceHtml).toContain('/api/service-credential-scopes');
+    expect(serviceHtml).toContain('data-credential-scope');
     expect(serviceHtml).toContain('JSON Preview');
     expect(serviceHtml).toContain('Request-update-only secret');
     expect(serviceHtml).toContain('Admin Session required');
@@ -703,7 +708,10 @@ describe('App bootstrap (e2e)', () => {
     );
     expect(serviceHtml).toContain('visitor permission is');
     expect(serviceHtml).toContain('readonly');
-    expect(serviceHtml).toContain('Requester identity always comes from');
+    expect(serviceHtml).toContain('Requester');
+    expect(serviceHtml).toContain(
+      'identity always comes from the current admin session.',
+    );
     expect(serviceHtml).toContain(
       "mode === 'bootstrap' && state.requiresBootstrap",
     );
@@ -711,8 +719,10 @@ describe('App bootstrap (e2e)', () => {
       'Bootstrap is unavailable because an active superadmin already exists.',
     );
     expect(serviceHtml).toContain(
-      "state.adminSession ? 'Logout' : 'Admin Session'",
+      "$('openAdminAccess').textContent = state.adminSession",
     );
+    expect(serviceHtml).toContain("? 'Logout'");
+    expect(serviceHtml).toContain(": 'Admin Session'");
     expect(serviceHtml).not.toContain('adminSessionForm');
     expect(serviceHtml).not.toContain('adminLogout');
 
@@ -732,6 +742,19 @@ describe('App bootstrap (e2e)', () => {
         expect(response.text).toContain('normalizeImportedServiceRequest');
         expect(response.text).toContain('Ignored unknown top-level fields');
         expect(response.text).toContain('Removed visitor permission');
+        expect(response.text).not.toContain('SUPPORTED_CREDENTIAL_SCOPES');
+      });
+
+    await request(app.getHttpServer())
+      .get('/api/service-credential-scopes')
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ key: 'account.search' }),
+            expect.objectContaining({ key: 'permission.read' }),
+          ]),
+        );
       });
   });
 
@@ -849,7 +872,7 @@ describe('App bootstrap (e2e)', () => {
       });
   });
 
-  it('removes direct admin write endpoints while keeping read and operational routes', async () => {
+  it('removes unsupported admin write endpoints while keeping allowed operational routes', async () => {
     const approved = await createApprovedService({
       permissions: [{ key: 'admin', label: 'Admin' }],
       oidcClients: [
@@ -874,12 +897,6 @@ describe('App bootstrap (e2e)', () => {
       .findOneByOrFail({
         serviceId,
       });
-    const credential = await dataSource
-      .getRepository(ServiceCredentialEntity)
-      .findOneByOrFail({
-        serviceId,
-      });
-
     await request(app.getHttpServer())
       .get('/api/admin/accounts')
       .set('Cookie', adminCookie)
@@ -900,6 +917,18 @@ describe('App bootstrap (e2e)', () => {
       .get(`/api/admin/services/${serviceId}/credentials`)
       .set('Cookie', adminCookie)
       .expect(200);
+    await request(app.getHttpServer())
+      .get('/api/admin/service-credential-scopes')
+      .set('Cookie', adminCookie)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ key: 'account.search' }),
+            expect.objectContaining({ key: 'permission.read' }),
+          ]),
+        );
+      });
 
     await request(app.getHttpServer())
       .post('/api/admin/accounts')
@@ -966,11 +995,6 @@ describe('App bootstrap (e2e)', () => {
       .send({})
       .expect(404);
     await request(app.getHttpServer())
-      .patch(`/api/admin/services/${serviceId}/credentials/${credential.id}`)
-      .set('Cookie', adminCookie)
-      .send({})
-      .expect(404);
-    await request(app.getHttpServer())
       .put(`/api/admin/accounts/${account.id}/services/${serviceId}/permission`)
       .set('Cookie', adminCookie)
       .send({})
@@ -983,13 +1007,13 @@ describe('App bootstrap (e2e)', () => {
       .expect(404);
   });
 
-  it('keeps service credential rotate and disable operations after onboarding approval', async () => {
+  it('keeps service credential update, rotate, and disable operations after onboarding approval', async () => {
     const approved = await createApprovedService({
       serviceCredentials: [
         {
           name: 'todo-api local',
           description: 'account search integration',
-          scopes: ['account.search', 'permission.read'],
+          scopes: ['account.search'],
         },
       ],
     });
@@ -1013,13 +1037,36 @@ describe('App bootstrap (e2e)', () => {
             expect.objectContaining({
               id: credential.id,
               keyId: credential.keyId,
-              scopes: ['account.search', 'permission.read'],
+              scopes: ['account.search'],
               status: 'active',
             }),
           ]),
         );
         expect(response.body[0].secret).toBeUndefined();
         expect(response.body[0].secretHash).toBeUndefined();
+      });
+
+    await request(app.getHttpServer())
+      .patch(
+        `/api/admin/services/${approved.service.id}/credentials/${credential.id}`,
+      )
+      .set('Cookie', adminCookie)
+      .send({
+        name: 'todo-api local updated',
+        scopes: ['account.search', 'permission.read'],
+      })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual(
+          expect.objectContaining({
+            id: credential.id,
+            name: 'todo-api local updated',
+            scopes: ['account.search', 'permission.read'],
+            status: 'active',
+          }),
+        );
+        expect(response.body.secret).toBeUndefined();
+        expect(response.body.secretHash).toBeUndefined();
       });
 
     const rotateResponse = await request(app.getHttpServer())

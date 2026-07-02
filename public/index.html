@@ -446,6 +446,56 @@
         padding: 20px;
       }
 
+      .scope-dialog {
+        width: min(520px, 100%);
+        max-height: min(680px, calc(100vh - 48px));
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 24px 70px rgb(22 32 51 / 28%);
+        padding: 20px;
+      }
+
+      .scope-dialog button {
+        font-size: 12px;
+        font-weight: 650;
+        padding: 6px 9px;
+      }
+
+      .scope-option-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .scope-option {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px;
+      }
+
+      .scope-option input {
+        width: auto;
+        margin: 3px 0 0;
+      }
+
+      .scope-option strong {
+        display: block;
+        font-size: 13px;
+      }
+
+      .scope-option-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 16px;
+      }
+
       .secret-dialog button {
         font-size: 12px;
         font-weight: 650;
@@ -906,6 +956,31 @@
       </div>
     </div>
 
+    <div
+      aria-labelledby="credentialScopeModalTitle"
+      aria-modal="true"
+      class="modal-backdrop"
+      hidden
+      id="credentialScopeModal"
+      role="dialog"
+    >
+      <div class="scope-dialog">
+        <div class="admin-access-head">
+          <h2 id="credentialScopeModalTitle">Edit Service Credential Scopes</h2>
+          <button aria-label="Close Scope Modal" class="icon-button" id="closeCredentialScopeModal">
+            X
+          </button>
+        </div>
+        <div class="hint" id="credentialScopeModalDescription"></div>
+        <div class="scope-option-list" id="credentialScopeOptions"></div>
+        <div class="message" id="credentialScopeModalFeedback"></div>
+        <div class="scope-option-footer">
+          <button class="secondary" id="cancelCredentialScopeModal" type="button">Cancel</button>
+          <button id="saveCredentialScopes" type="button">Save</button>
+        </div>
+      </div>
+    </div>
+
     <div class="admin-access-float">
           <button class="admin-access-button" id="openAdminAccess">Admin Session</button>
       <div
@@ -951,6 +1026,8 @@
         onboardingRequests: [],
         onboardingFilter: 'all',
         secretModal: null,
+        credentialScopeModal: null,
+        credentialScopeOptions: [],
         permissionsByService: {},
         clientsByService: {},
         credentialsByService: {},
@@ -997,6 +1074,11 @@
       function setSecretModalFeedback(text, isError = false) {
         $('secretModalFeedback').textContent = text;
         $('secretModalFeedback').classList.toggle('error', isError);
+      }
+
+      function setCredentialScopeModalFeedback(text, isError = false) {
+        $('credentialScopeModalFeedback').textContent = text;
+        $('credentialScopeModalFeedback').classList.toggle('error', isError);
       }
 
       function showAdminMain(isVisible) {
@@ -1251,6 +1333,13 @@
                     <td>
                       <div class="inline-actions">
                         <button
+                          class="secondary"
+                          data-edit-credential="${credential.id}"
+                          data-service-id="${credential.serviceId}"
+                        >
+                          Edit Scopes
+                        </button>
+                        <button
                           data-rotate-credential="${credential.id}"
                           data-service-id="${credential.serviceId}"
                           ${credential.status !== 'active' ? 'disabled' : ''}
@@ -1373,6 +1462,76 @@
         $('confirmSecretModal').disabled = false;
         setSecretModalFeedback('');
         $('secretModal').hidden = true;
+      }
+
+      function closeCredentialScopeModal() {
+        state.credentialScopeModal = null;
+        $('credentialScopeModalDescription').textContent = '';
+        $('credentialScopeOptions').innerHTML = '';
+        setCredentialScopeModalFeedback('');
+        $('credentialScopeModal').hidden = true;
+      }
+
+      function openCredentialScopeModal(serviceId, credential) {
+        const activeScopes = new Set(credential.scopes || []);
+        state.credentialScopeModal = {
+          serviceId,
+          credentialId: credential.id,
+        };
+        $('credentialScopeModalDescription').textContent =
+          `${credential.name || credential.keyId} / ${credential.keyId}`;
+        $('credentialScopeOptions').innerHTML = state.credentialScopeOptions
+          .map(
+            (scope) => `
+              <label class="scope-option">
+                <input
+                  data-credential-scope="${escapeHtml(scope.key)}"
+                  type="checkbox"
+                  ${activeScopes.has(scope.key) ? 'checked' : ''}
+                />
+                <span>
+                  <strong>${escapeHtml(scope.key)}</strong>
+                  <span class="hint">${escapeHtml(scope.label || '')}</span>
+                  <span class="hint">${escapeHtml(scope.description || '')}</span>
+                </span>
+              </label>
+            `,
+          )
+          .join('');
+        setCredentialScopeModalFeedback('');
+        $('credentialScopeModal').hidden = false;
+      }
+
+      async function saveCredentialScopes() {
+        const modal = state.credentialScopeModal;
+        if (!modal) {
+          return;
+        }
+        const scopes = Array.from(
+          document.querySelectorAll('[data-credential-scope]:checked'),
+        ).map((input) => input.dataset.credentialScope);
+        if (!scopes.length) {
+          setCredentialScopeModalFeedback('At least one scope is required.', true);
+          return;
+        }
+        try {
+          $('saveCredentialScopes').disabled = true;
+          await api(
+            `/api/admin/services/${modal.serviceId}/credentials/${modal.credentialId}`,
+            {
+              method: 'PATCH',
+              body: JSON.stringify({ scopes }),
+            },
+          );
+          await loadCredentials(modal.serviceId);
+          closeCredentialScopeModal();
+          setStatus('Service credential scopes updated');
+        } catch (error) {
+          setCredentialScopeModalFeedback(error.message, true);
+          setStatus(error.message, true);
+        } finally {
+          $('saveCredentialScopes').disabled = false;
+        }
       }
 
       function openApprovalSecretsModal(result) {
@@ -1580,6 +1739,10 @@
         renderCredentials(serviceId);
       }
 
+      async function loadCredentialScopeOptions() {
+        state.credentialScopeOptions = await api('/api/admin/service-credential-scopes');
+      }
+
       async function loadOnboardingRequests() {
         const params = new URLSearchParams();
         if (state.onboardingFilter !== 'all') {
@@ -1627,6 +1790,7 @@
           const [accounts, services] = await Promise.all([
             api('/api/admin/accounts'),
             api('/api/admin/services'),
+            loadCredentialScopeOptions(),
           ]);
           state.accounts = accounts;
           state.services = services;
@@ -1877,6 +2041,9 @@
         state.permissionDashboard.page += 1;
         await loadPermissionDashboard();
       });
+      $('closeCredentialScopeModal').addEventListener('click', closeCredentialScopeModal);
+      $('cancelCredentialScopeModal').addEventListener('click', closeCredentialScopeModal);
+      $('saveCredentialScopes').addEventListener('click', () => void saveCredentialScopes());
 
       document.addEventListener('click', (event) => {
         const target = event.target;
@@ -1947,6 +2114,7 @@
         if (!(target instanceof HTMLButtonElement)) {
           return;
         }
+        const editId = target.dataset.editCredential;
         const rotateId = target.dataset.rotateCredential;
         const disableId = target.dataset.disableCredential;
         const serviceId = target.dataset.serviceId;
@@ -1954,6 +2122,19 @@
           return;
         }
         try {
+          if (editId) {
+            const credential = (state.credentialsByService[serviceId] || []).find(
+              (item) => item.id === editId,
+            );
+            if (!credential) {
+              throw new Error('Service credential not loaded');
+            }
+            if (!state.credentialScopeOptions.length) {
+              await loadCredentialScopeOptions();
+            }
+            openCredentialScopeModal(serviceId, credential);
+            return;
+          }
           if (rotateId) {
             const rotatedSecret = await api(
               `/api/admin/services/${serviceId}/credentials/${rotateId}/rotate`,

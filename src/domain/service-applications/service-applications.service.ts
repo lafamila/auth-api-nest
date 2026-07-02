@@ -29,6 +29,20 @@ export interface ServiceAccessTokenClaims {
   };
 }
 
+export interface ServiceApplicationStatusView {
+  accountId: string;
+  serviceKey: string;
+  currentPermission: string | null;
+  status: ServiceApplicationStatus | 'none';
+  application: {
+    id: string;
+    status: ServiceApplicationStatus;
+    message: string;
+    createdAt: Date;
+    reviewedAt: Date | null;
+  } | null;
+}
+
 @Injectable()
 export class ServiceApplicationsService {
   constructor(
@@ -51,6 +65,46 @@ export class ServiceApplicationsService {
       where: status ? { status } : {},
       order: { createdAt: 'DESC' },
     });
+  }
+
+  async statusForServiceAccount(
+    serviceKey: string,
+    accountId: string,
+  ): Promise<ServiceApplicationStatusView> {
+    const service = await this.services.findOneBy({ serviceKey, status: 'active' });
+    if (!service) {
+      throw new NotFoundException('Service not found');
+    }
+    const [currentPermission, latestApplication] = await Promise.all([
+      this.accountPermissions.findOne({
+        where: { accountId, serviceId: service.id, status: 'active' },
+        relations: { permissionDefinition: true },
+      }),
+      this.applications.findOne({
+        where: { accountId, serviceId: service.id },
+        order: { createdAt: 'DESC' },
+      }),
+    ]);
+    const currentPermissionKey = currentPermission?.permissionDefinition.key ?? null;
+    const status =
+      currentPermissionKey && currentPermissionKey !== VISITOR_PERMISSION.key
+        ? 'approved'
+        : latestApplication?.status ?? 'none';
+    return {
+      accountId,
+      serviceKey,
+      currentPermission: currentPermissionKey,
+      status,
+      application: latestApplication
+        ? {
+            id: latestApplication.id,
+            status: latestApplication.status,
+            message: latestApplication.message,
+            createdAt: latestApplication.createdAt,
+            reviewedAt: latestApplication.reviewedAt,
+          }
+        : null,
+    };
   }
 
   async createFromVisitorToken(

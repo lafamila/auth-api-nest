@@ -1,4 +1,10 @@
-import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  PrimaryGeneratedColumn,
+} from 'typeorm';
 
 export type TokenRecordType = 'authorization_code' | 'refresh_token';
 export type TokenRecordStatus = 'active' | 'used' | 'revoked';
@@ -8,7 +14,7 @@ export class TokenRecordEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Index()
+  @Index({ unique: true })
   @Column({ name: 'token_hash' })
   tokenHash!: string;
 

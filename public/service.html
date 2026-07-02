@@ -11,7 +11,12 @@
         --line: #d9dee8;
         --text: #162033;
         font-family:
-          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
           sans-serif;
         background: #f5f7fb;
         color: var(--text);
@@ -115,7 +120,7 @@
       code,
       pre,
       .mono {
-        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
       }
 
       code {
@@ -207,6 +212,31 @@
 
       .span-2 {
         grid-column: 1 / -1;
+      }
+
+      .scope-option-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .scope-option {
+        align-items: start;
+        border: 1px solid #dce4ef;
+        border-radius: 8px;
+        display: grid;
+        gap: 9px;
+        grid-template-columns: auto minmax(0, 1fr);
+        padding: 9px;
+      }
+
+      .scope-option input {
+        margin: 3px 0 0;
+        width: auto;
+      }
+
+      .scope-option strong,
+      .scope-option span {
+        display: block;
       }
 
       label {
@@ -326,7 +356,9 @@
       <div class="toolbar">
         <div>
           <h1>Service Onboarding</h1>
-          <div class="hint">Create or revise auth-side service integration requests.</div>
+          <div class="hint">
+            Create or revise auth-side service integration requests.
+          </div>
         </div>
         <a class="hint" href="/admin">Admin console</a>
       </div>
@@ -336,14 +368,17 @@
       <div class="locked-state" id="lockedState">
         <h2>Admin Session required</h2>
         <p class="hint">
-          Sign in with a superadmin session before composing a service onboarding request.
+          Sign in with a superadmin session before composing a service
+          onboarding request.
         </p>
       </div>
 
       <section hidden id="serviceMain">
         <div class="toolbar">
           <h2>Create Service Onboarding Request</h2>
-          <button class="secondary" id="resetServiceRequestForm" type="button">Reset</button>
+          <button class="secondary" id="resetServiceRequestForm" type="button">
+            Reset
+          </button>
         </div>
         <div class="request-builder">
           <div class="import-panel">
@@ -351,8 +386,8 @@
               <div>
                 <h3>Import Request JSON</h3>
                 <div class="hint">
-                  Import replaces the full current form state. Requester identity always comes from
-                  the current admin session.
+                  Import replaces the full current form state. Requester
+                  identity always comes from the current admin session.
                 </div>
               </div>
               <div class="inline-actions">
@@ -362,7 +397,11 @@
                   id="serviceRequestImportInput"
                   type="file"
                 />
-                <button class="secondary" id="chooseServiceRequestImport" type="button">
+                <button
+                  class="secondary"
+                  id="chooseServiceRequestImport"
+                  type="button"
+                >
                   Choose JSON File
                 </button>
               </div>
@@ -370,8 +409,8 @@
             <div class="drop-zone" id="serviceRequestImportDropZone">
               <strong>Drop a service request JSON file here</strong>
               <div class="hint">
-                Unknown JSON fields are ignored and reported as warnings. visitor permission is
-                removed during import.
+                Unknown JSON fields are ignored and reported as warnings.
+                visitor permission is removed during import.
               </div>
             </div>
             <div class="message" id="serviceRequestImportMessage"></div>
@@ -398,7 +437,12 @@
               </label>
               <label>
                 Requester Email
-                <input id="requesterEmail" autocomplete="email" readonly type="email" />
+                <input
+                  id="requesterEmail"
+                  autocomplete="email"
+                  readonly
+                  type="email"
+                />
               </label>
             </div>
           </div>
@@ -406,7 +450,9 @@
           <div>
             <div class="toolbar">
               <h3>Permissions</h3>
-              <button class="secondary" id="addPermissionRow" type="button">Add Permission</button>
+              <button class="secondary" id="addPermissionRow" type="button">
+                Add Permission
+              </button>
             </div>
             <div class="repeatable-list" id="permissionRows"></div>
           </div>
@@ -414,7 +460,9 @@
           <div>
             <div class="toolbar">
               <h3>OIDC Clients</h3>
-              <button class="secondary" id="addClientRow" type="button">Add OIDC Client</button>
+              <button class="secondary" id="addClientRow" type="button">
+                Add OIDC Client
+              </button>
             </div>
             <div class="repeatable-list" id="clientRows"></div>
           </div>
@@ -422,7 +470,9 @@
           <div>
             <div class="toolbar">
               <h3>Service Credentials</h3>
-              <button class="secondary" id="addCredentialRow" type="button">Add Credential</button>
+              <button class="secondary" id="addCredentialRow" type="button">
+                Add Credential
+              </button>
             </div>
             <div class="repeatable-list" id="credentialRows"></div>
           </div>
@@ -433,7 +483,9 @@
           </div>
 
           <div class="inline-actions">
-            <button id="submitServiceRequest" type="button">Submit Request</button>
+            <button id="submitServiceRequest" type="button">
+              Submit Request
+            </button>
           </div>
           <div class="message" id="serviceRequestMessage"></div>
           <div class="create-result" hidden id="serviceRequestResult"></div>
@@ -442,7 +494,9 @@
     </main>
 
     <div class="admin-access-float">
-      <button class="admin-access-button" id="openAdminAccess">Admin Session</button>
+      <button class="admin-access-button" id="openAdminAccess">
+        Admin Session
+      </button>
       <div
         aria-labelledby="adminAccessTitle"
         class="admin-access-panel"
@@ -452,25 +506,53 @@
       >
         <div class="admin-access-head">
           <h2 id="adminAccessTitle">Admin Session</h2>
-          <button aria-label="Close Admin Access" class="icon-button" id="closeAdminAccess">
+          <button
+            aria-label="Close Admin Access"
+            class="icon-button"
+            id="closeAdminAccess"
+          >
             X
           </button>
         </div>
         <div class="form" id="bootstrapForm" hidden>
-          <label>Login ID <input id="bootstrapLoginId" autocomplete="username" /></label>
+          <label
+            >Login ID <input id="bootstrapLoginId" autocomplete="username"
+          /></label>
           <label>Name <input id="bootstrapName" autocomplete="name" /></label>
-          <label>Email <input id="bootstrapEmail" type="email" autocomplete="email" /></label>
-          <label>Password <input id="bootstrapPassword" type="password" autocomplete="new-password" /></label>
+          <label
+            >Email <input id="bootstrapEmail" type="email" autocomplete="email"
+          /></label>
+          <label
+            >Password
+            <input
+              id="bootstrapPassword"
+              type="password"
+              autocomplete="new-password"
+          /></label>
           <button id="startBootstrap" type="button">Create OTP Setup</button>
           <div class="secret-card" hidden id="bootstrapOtpCard"></div>
-          <label>OTP Code <input id="bootstrapOtpCode" inputmode="numeric" /></label>
-          <button id="completeBootstrap" type="button">Complete Bootstrap</button>
+          <label
+            >OTP Code <input id="bootstrapOtpCode" inputmode="numeric"
+          /></label>
+          <button id="completeBootstrap" type="button">
+            Complete Bootstrap
+          </button>
           <div class="hint">Only shown while no active superadmin exists.</div>
         </div>
         <div class="form" id="adminLoginForm" hidden>
-          <label>Login ID <input id="adminLoginId" autocomplete="username" /></label>
-          <label>Password <input id="adminPassword" type="password" autocomplete="current-password" /></label>
-          <label>Google OTP <input id="adminOtpCode" inputmode="numeric" /></label>
+          <label
+            >Login ID <input id="adminLoginId" autocomplete="username"
+          /></label>
+          <label
+            >Password
+            <input
+              id="adminPassword"
+              type="password"
+              autocomplete="current-password"
+          /></label>
+          <label
+            >Google OTP <input id="adminOtpCode" inputmode="numeric"
+          /></label>
           <button id="adminLogin" type="button">Login</button>
         </div>
         <div class="message" id="statusMessage"></div>
@@ -483,6 +565,7 @@
         adminSession: null,
         bootstrapChallengeId: null,
         requiresBootstrap: false,
+        credentialScopeOptions: [],
         serviceRequestDraft: {
           serviceKey: '',
           name: '',
@@ -561,13 +644,36 @@
         return response.json();
       }
 
+      async function loadCredentialScopeOptions() {
+        state.credentialScopeOptions = await requestJson(
+          '/api/service-credential-scopes',
+        );
+        renderServiceRequestRows();
+        renderServiceRequestPreview();
+      }
+
+      function credentialScopeKeys() {
+        return new Set(
+          state.credentialScopeOptions
+            .map((scope) => String(scope.key || '').trim())
+            .filter(Boolean),
+        );
+      }
+
+      function defaultCredentialScope() {
+        return state.credentialScopeOptions[0]?.key || '';
+      }
+
       function showServiceMain(isVisible) {
         $('serviceMain').hidden = !isVisible;
         $('lockedState').hidden = isVisible;
       }
 
       function showAccessPanel(mode) {
-        const safeMode = mode === 'bootstrap' && state.requiresBootstrap ? 'bootstrap' : 'login';
+        const safeMode =
+          mode === 'bootstrap' && state.requiresBootstrap
+            ? 'bootstrap'
+            : 'login';
         $('adminAccessPanel').hidden = false;
         $('bootstrapForm').hidden = safeMode !== 'bootstrap';
         $('adminLoginForm').hidden = safeMode !== 'login';
@@ -579,7 +685,9 @@
       }
 
       function updateAdminAccessButton() {
-        $('openAdminAccess').textContent = state.adminSession ? 'Logout' : 'Admin Session';
+        $('openAdminAccess').textContent = state.adminSession
+          ? 'Logout'
+          : 'Admin Session';
       }
 
       function getSessionRequester() {
@@ -598,16 +706,20 @@
       }
 
       function renderServiceRequestBasics() {
-        $('requestServiceKey').value = state.serviceRequestDraft.serviceKey ?? '';
+        $('requestServiceKey').value =
+          state.serviceRequestDraft.serviceKey ?? '';
         $('requestServiceName').value = state.serviceRequestDraft.name ?? '';
-        $('requestDescription').value = state.serviceRequestDraft.description ?? '';
+        $('requestDescription').value =
+          state.serviceRequestDraft.description ?? '';
         syncRequesterFromSession();
       }
 
       function syncServiceRequestBasics() {
-        state.serviceRequestDraft.serviceKey = $('requestServiceKey').value.trim();
+        state.serviceRequestDraft.serviceKey =
+          $('requestServiceKey').value.trim();
         state.serviceRequestDraft.name = $('requestServiceName').value.trim();
-        state.serviceRequestDraft.description = $('requestDescription').value.trim();
+        state.serviceRequestDraft.description =
+          $('requestDescription').value.trim();
         syncRequesterFromSession();
       }
 
@@ -622,11 +734,17 @@
               label: permission.label.trim(),
               description: permission.description.trim(),
             }))
-            .filter((permission) => permission.key || permission.label || permission.description),
+            .filter(
+              (permission) =>
+                permission.key || permission.label || permission.description,
+            ),
         };
-        if (state.serviceRequestDraft.description) payload.description = state.serviceRequestDraft.description;
-        if (state.serviceRequestDraft.requesterName) payload.requesterName = state.serviceRequestDraft.requesterName;
-        if (state.serviceRequestDraft.requesterEmail) payload.requesterEmail = state.serviceRequestDraft.requesterEmail;
+        if (state.serviceRequestDraft.description)
+          payload.description = state.serviceRequestDraft.description;
+        if (state.serviceRequestDraft.requesterName)
+          payload.requesterName = state.serviceRequestDraft.requesterName;
+        if (state.serviceRequestDraft.requesterEmail)
+          payload.requesterEmail = state.serviceRequestDraft.requesterEmail;
 
         const oidcClients = state.serviceRequestDraft.oidcClients
           .map((client) => ({
@@ -651,8 +769,10 @@
               redirectUris: client.redirectUris,
               requirePkce: client.requirePkce,
             };
-            if (client.postLogoutRedirectUris.length) normalized.postLogoutRedirectUris = client.postLogoutRedirectUris;
-            if (client.allowedScopes.length) normalized.allowedScopes = client.allowedScopes;
+            if (client.postLogoutRedirectUris.length)
+              normalized.postLogoutRedirectUris = client.postLogoutRedirectUris;
+            if (client.allowedScopes.length)
+              normalized.allowedScopes = client.allowedScopes;
             return normalized;
           });
         if (oidcClients.length) payload.oidcClients = oidcClients;
@@ -665,22 +785,27 @@
           }))
           .filter(
             (credential) =>
-              credential.name || credential.description || credential.scopes.length,
+              credential.name ||
+              credential.description ||
+              credential.scopes.length,
           )
           .map((credential) => {
             const normalized = {
               name: credential.name,
               scopes: credential.scopes,
             };
-            if (credential.description) normalized.description = credential.description;
+            if (credential.description)
+              normalized.description = credential.description;
             return normalized;
           });
-        if (serviceCredentials.length) payload.serviceCredentials = serviceCredentials;
+        if (serviceCredentials.length)
+          payload.serviceCredentials = serviceCredentials;
         return payload;
       }
 
       function validateServiceRequestPayload(payload) {
         const errors = [];
+        const supportedCredentialScopes = credentialScopeKeys();
         if (!payload.serviceKey) errors.push('Service key is required.');
         if (!payload.name) errors.push('Service name is required.');
         payload.permissions.forEach((permission, index) => {
@@ -689,15 +814,25 @@
           }
         });
         (payload.oidcClients || []).forEach((client, index) => {
-          if (!client.clientId) errors.push(`OIDC client ${index + 1} needs clientId.`);
-          if (!client.redirectUris.length) errors.push(`OIDC client ${index + 1} needs at least one redirect URI.`);
+          if (!client.clientId)
+            errors.push(`OIDC client ${index + 1} needs clientId.`);
+          if (!client.redirectUris.length)
+            errors.push(
+              `OIDC client ${index + 1} needs at least one redirect URI.`,
+            );
         });
         (payload.serviceCredentials || []).forEach((credential, index) => {
-          if (!credential.name) errors.push(`Service credential ${index + 1} needs a name.`);
-          if (!credential.scopes.length) errors.push(`Service credential ${index + 1} needs at least one scope.`);
+          if (!credential.name)
+            errors.push(`Service credential ${index + 1} needs a name.`);
+          if (!credential.scopes.length)
+            errors.push(
+              `Service credential ${index + 1} needs at least one scope.`,
+            );
           credential.scopes.forEach((scope) => {
-            if (!['account.search', 'permission.read'].includes(scope)) {
-              errors.push(`Service credential ${index + 1} scope ${scope} is not supported.`);
+            if (!supportedCredentialScopes.has(scope)) {
+              errors.push(
+                `Service credential ${index + 1} scope ${scope} is not supported.`,
+              );
             }
           });
         });
@@ -712,8 +847,39 @@
         );
       }
 
+      function credentialScopeOptionsHtml(credential, index) {
+        const selectedScopes = new Set(splitList(credential.scopes));
+        if (!state.credentialScopeOptions.length) {
+          return '<div class="hint">Credential scope metadata is not loaded.</div>';
+        }
+        return `
+          <div class="scope-option-list">
+            ${state.credentialScopeOptions
+              .map(
+                (scope) => `
+                  <label class="scope-option">
+                    <input
+                      data-credential-scope="${escapeHtml(scope.key)}"
+                      data-row-index="${index}"
+                      type="checkbox"
+                      ${selectedScopes.has(scope.key) ? 'checked' : ''}
+                    />
+                    <span>
+                      <strong>${escapeHtml(scope.key)}</strong>
+                      <span class="hint">${escapeHtml(scope.label || '')}</span>
+                      <span class="hint">${escapeHtml(scope.description || '')}</span>
+                    </span>
+                  </label>
+                `,
+              )
+              .join('')}
+          </div>
+        `;
+      }
+
       function renderServiceRequestRows() {
-        $('permissionRows').innerHTML = state.serviceRequestDraft.permissions.length
+        $('permissionRows').innerHTML = state.serviceRequestDraft.permissions
+          .length
           ? state.serviceRequestDraft.permissions
               .map(
                 (permission, index) => `
@@ -766,14 +932,15 @@
               .join('')
           : '<div class="hint">No OIDC clients. Add one when the service needs browser or app login.</div>';
 
-        $('credentialRows').innerHTML = state.serviceRequestDraft.serviceCredentials.length
+        $('credentialRows').innerHTML = state.serviceRequestDraft
+          .serviceCredentials.length
           ? state.serviceRequestDraft.serviceCredentials
               .map(
                 (credential, index) => `
                   <div class="repeatable-row">
                     <div class="form-grid">
                       <label>Name <input data-request-field="serviceCredentials.${index}.name" value="${escapeHtml(credential.name)}" /></label>
-                      <label>Scopes <textarea data-request-field="serviceCredentials.${index}.scopes">${escapeHtml(credential.scopes)}</textarea></label>
+                      <label>Scopes ${credentialScopeOptionsHtml(credential, index)}</label>
                       <label class="span-2">Description <textarea data-request-field="serviceCredentials.${index}.description">${escapeHtml(credential.description)}</textarea></label>
                     </div>
                     <div class="inline-actions">
@@ -815,8 +982,12 @@
           description: draft.description ?? '',
           requesterName: draft.requesterName ?? '',
           requesterEmail: draft.requesterEmail ?? '',
-          permissions: Array.isArray(draft.permissions) ? draft.permissions : [],
-          oidcClients: Array.isArray(draft.oidcClients) ? draft.oidcClients : [],
+          permissions: Array.isArray(draft.permissions)
+            ? draft.permissions
+            : [],
+          oidcClients: Array.isArray(draft.oidcClients)
+            ? draft.oidcClients
+            : [],
           serviceCredentials: Array.isArray(draft.serviceCredentials)
             ? draft.serviceCredentials
             : [],
@@ -828,7 +999,9 @@
 
       async function importServiceRequestFile(file) {
         if (!state.adminSession) {
-          setImportMessage('Admin session is required before importing.', { tone: 'error' });
+          setImportMessage('Admin session is required before importing.', {
+            tone: 'error',
+          });
           return;
         }
         if (!(file instanceof File)) {
@@ -836,11 +1009,18 @@
           return;
         }
         try {
+          if (!state.credentialScopeOptions.length) {
+            await loadCredentialScopeOptions();
+          }
           const helper = globalThis.ServiceRequestImport;
           if (!helper?.parseImportedServiceRequestText) {
             throw new Error('Import helper failed to load.');
           }
-          const imported = helper.parseImportedServiceRequestText(await file.text(), state.adminSession);
+          const imported = helper.parseImportedServiceRequestText(
+            await file.text(),
+            state.adminSession,
+            { supportedCredentialScopes: state.credentialScopeOptions },
+          );
           applyImportedServiceRequest(imported.draft);
           setServiceRequestMessage('');
           setImportMessage(
@@ -895,6 +1075,11 @@
 
       async function initializeAdminSession() {
         try {
+          await loadCredentialScopeOptions();
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+        try {
           const session = await requestJson('/api/admin/session');
           state.adminSession = session.account;
           state.requiresBootstrap = false;
@@ -928,6 +1113,9 @@
       }
 
       async function completeLogin(result, message) {
+        if (!state.credentialScopeOptions.length) {
+          await loadCredentialScopeOptions();
+        }
         state.adminSession = result.account;
         state.requiresBootstrap = false;
         $('adminAccessPanel').hidden = true;
@@ -959,7 +1147,10 @@
       $('startBootstrap').addEventListener('click', async () => {
         if (!state.requiresBootstrap) {
           showAccessPanel('login');
-          setStatus('Bootstrap is unavailable because an active superadmin already exists.', true);
+          setStatus(
+            'Bootstrap is unavailable because an active superadmin already exists.',
+            true,
+          );
           return;
         }
         try {
@@ -991,7 +1182,10 @@
       $('completeBootstrap').addEventListener('click', async () => {
         if (!state.requiresBootstrap) {
           showAccessPanel('login');
-          setStatus('Bootstrap is unavailable because an active superadmin already exists.', true);
+          setStatus(
+            'Bootstrap is unavailable because an active superadmin already exists.',
+            true,
+          );
           return;
         }
         try {
@@ -1043,20 +1237,29 @@
         $('serviceRequestImportInput').click();
       });
       $('serviceRequestImportInput').addEventListener('change', (event) => {
-        const file = event.target instanceof HTMLInputElement ? event.target.files?.[0] : null;
+        const file =
+          event.target instanceof HTMLInputElement
+            ? event.target.files?.[0]
+            : null;
         void importServiceRequestFile(file);
       });
       ['dragenter', 'dragover'].forEach((eventName) => {
-        $('serviceRequestImportDropZone').addEventListener(eventName, (event) => {
-          event.preventDefault();
-          $('serviceRequestImportDropZone').classList.add('drag-over');
-        });
+        $('serviceRequestImportDropZone').addEventListener(
+          eventName,
+          (event) => {
+            event.preventDefault();
+            $('serviceRequestImportDropZone').classList.add('drag-over');
+          },
+        );
       });
       ['dragleave', 'dragend'].forEach((eventName) => {
-        $('serviceRequestImportDropZone').addEventListener(eventName, (event) => {
-          event.preventDefault();
-          $('serviceRequestImportDropZone').classList.remove('drag-over');
-        });
+        $('serviceRequestImportDropZone').addEventListener(
+          eventName,
+          (event) => {
+            event.preventDefault();
+            $('serviceRequestImportDropZone').classList.remove('drag-over');
+          },
+        );
       });
       $('serviceRequestImportDropZone').addEventListener('drop', (event) => {
         event.preventDefault();
@@ -1064,7 +1267,11 @@
         void importServiceRequestFile(file);
       });
       $('addPermissionRow').addEventListener('click', () => {
-        state.serviceRequestDraft.permissions.push({ key: '', label: '', description: '' });
+        state.serviceRequestDraft.permissions.push({
+          key: '',
+          label: '',
+          description: '',
+        });
         renderServiceRequestRows();
         renderServiceRequestPreview();
       });
@@ -1084,21 +1291,43 @@
         state.serviceRequestDraft.serviceCredentials.push({
           name: '',
           description: '',
-          scopes: 'account.search',
+          scopes: defaultCredentialScope(),
         });
         renderServiceRequestRows();
         renderServiceRequestPreview();
       });
-      $('resetServiceRequestForm').addEventListener('click', resetServiceRequestForm);
+      $('resetServiceRequestForm').addEventListener(
+        'click',
+        resetServiceRequestForm,
+      );
       ['permissionRows', 'clientRows', 'credentialRows'].forEach((id) => {
         $(id).addEventListener('input', (event) => {
           const target = event.target;
-          if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+          if (
+            target instanceof HTMLInputElement ||
+            target instanceof HTMLTextAreaElement
+          ) {
             updateRequestDraftField(target.dataset.requestField, target.value);
           }
         });
         $(id).addEventListener('change', (event) => {
           const target = event.target;
+          if (
+            target instanceof HTMLInputElement &&
+            target.dataset.credentialScope
+          ) {
+            const index = Number(target.dataset.rowIndex);
+            const row = state.serviceRequestDraft.serviceCredentials[index];
+            if (!row) return;
+            const selected = Array.from(
+              document.querySelectorAll(
+                `[data-row-index="${index}"][data-credential-scope]:checked`,
+              ),
+            ).map((input) => input.dataset.credentialScope);
+            row.scopes = selected.join('\n');
+            renderServiceRequestPreview();
+            return;
+          }
           if (target instanceof HTMLSelectElement) {
             updateRequestDraftField(target.dataset.requestField, target.value);
           }
@@ -1119,6 +1348,9 @@
           setServiceRequestMessage('Admin session is required.', true);
           return;
         }
+        if (!state.credentialScopeOptions.length) {
+          await loadCredentialScopeOptions();
+        }
         const payload = buildServiceRequestPayload();
         const errors = validateServiceRequestPayload(payload);
         renderServiceRequestPreview();
@@ -1135,13 +1367,16 @@
           });
           state.serviceRequestResult = result;
           renderServiceRequestResult();
-          setServiceRequestMessage('Pending service onboarding request created.');
+          setServiceRequestMessage(
+            'Pending service onboarding request created.',
+          );
         } catch (error) {
-          const duplicateHint = /pending onboarding request|Service key already exists/i.test(
-            error.message,
-          )
-            ? ' Review existing pending requests or submit an update request with the requestSecret.'
-            : '';
+          const duplicateHint =
+            /pending onboarding request|Service key already exists/i.test(
+              error.message,
+            )
+              ? ' Review existing pending requests or submit an update request with the requestSecret.'
+              : '';
           setServiceRequestMessage(`${error.message}${duplicateHint}`, true);
         }
       });
