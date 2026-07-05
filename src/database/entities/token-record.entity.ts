@@ -39,6 +39,9 @@ export class TokenRecordEntity {
   @Column({ name: 'metadata_json', type: 'jsonb', nullable: true })
   metadataJson!: Record<string, unknown> | null;
 
+  @Column({ name: 'used_at', type: 'timestamptz', nullable: true })
+  usedAt!: Date | null;
+
   @Column({ name: 'expires_at', type: 'timestamptz' })
   expiresAt!: Date;
 

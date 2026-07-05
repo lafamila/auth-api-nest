@@ -32,6 +32,12 @@ export class AppConfigService {
     return this.config.get<string>('COOKIE_SECRET', 'dev-cookie-secret');
   }
 
+  get refreshRotationGraceSeconds(): number {
+    return Number(
+      this.config.get<string>('REFRESH_ROTATION_GRACE_SECONDS', '60'),
+    );
+  }
+
   get adminSessionCookieName(): string {
     return this.config.get<string>('ADMIN_SESSION_COOKIE_NAME', 'tas_admin_session');
   }

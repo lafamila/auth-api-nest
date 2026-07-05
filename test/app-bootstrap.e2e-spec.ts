@@ -18,6 +18,7 @@ import { ServiceEntity } from '../src/database/entities/service.entity';
 import { AccountsService } from '../src/domain/accounts/accounts.service';
 import { ServiceOnboardingService } from '../src/domain/service-onboarding/service-onboarding.service';
 import { TokenService } from '../src/oidc/token.service';
+import { hashToken } from '../src/common/crypto/token-hash';
 
 interface ApprovedServiceResult {
   approval: {
@@ -1453,6 +1454,117 @@ describe('App bootstrap (e2e)', () => {
       .query({
         serviceKey: todoApproved.service.serviceKey,
         q: account.loginId.slice(0, 4),
+      })
+      .expect(401);
+  });
+
+  it('allows a duplicate refresh within the grace window over HTTP', async () => {
+    const clientId = nextSuffix('grace-within-client');
+    const approved = await createApprovedService({
+      oidcClients: [
+        {
+          clientId,
+          clientType: 'public',
+          redirectUris: ['https://todo.example.com/grace-within'],
+        },
+      ],
+    });
+    const { account, password } = await createAccount();
+    const agent = request.agent(app.getHttpServer());
+    const tokens = await authorizeAndExchange(agent, {
+      clientId,
+      redirectUri: 'https://todo.example.com/grace-within',
+      expectedServiceKey: approved.service.serviceKey,
+      expectedPermission: 'visitor',
+      loginId: account.loginId,
+      password,
+    });
+
+    const firstRotation = await request(app.getHttpServer())
+      .post('/oauth/token')
+      .send({
+        grant_type: 'refresh_token',
+        client_id: clientId,
+        refresh_token: tokens.refresh_token,
+      })
+      .expect(200);
+    expect(firstRotation.body.refresh_token).toBeTruthy();
+
+    // Re-present the original refresh token inside the default 60s grace window.
+    const graceRotation = await request(app.getHttpServer())
+      .post('/oauth/token')
+      .send({
+        grant_type: 'refresh_token',
+        client_id: clientId,
+        refresh_token: tokens.refresh_token,
+      })
+      .expect(200);
+    expect(graceRotation.body.refresh_token).toBeTruthy();
+
+    // The successor from the first rotation still works (family not revoked).
+    await request(app.getHttpServer())
+      .post('/oauth/token')
+      .send({
+        grant_type: 'refresh_token',
+        client_id: clientId,
+        refresh_token: firstRotation.body.refresh_token,
+      })
+      .expect(200);
+  });
+
+  it('revokes the family when a refresh token is replayed beyond the grace window', async () => {
+    const clientId = nextSuffix('grace-beyond-client');
+    const approved = await createApprovedService({
+      oidcClients: [
+        {
+          clientId,
+          clientType: 'public',
+          redirectUris: ['https://todo.example.com/grace-beyond'],
+        },
+      ],
+    });
+    const { account, password } = await createAccount();
+    const agent = request.agent(app.getHttpServer());
+    const tokens = await authorizeAndExchange(agent, {
+      clientId,
+      redirectUri: 'https://todo.example.com/grace-beyond',
+      expectedServiceKey: approved.service.serviceKey,
+      expectedPermission: 'visitor',
+      loginId: account.loginId,
+      password,
+    });
+
+    const rotation = await request(app.getHttpServer())
+      .post('/oauth/token')
+      .send({
+        grant_type: 'refresh_token',
+        client_id: clientId,
+        refresh_token: tokens.refresh_token,
+      })
+      .expect(200);
+
+    // Age the consumed token past the grace window, then replay it.
+    await dataSource.query(
+      `UPDATE token_records SET used_at = now() - interval '10 minutes' WHERE token_hash = $1 AND type = 'refresh_token'`,
+      [hashToken(tokens.refresh_token)],
+    );
+
+    await request(app.getHttpServer())
+      .post('/oauth/token')
+      .send({
+        grant_type: 'refresh_token',
+        client_id: clientId,
+        refresh_token: tokens.refresh_token,
+      })
+      .expect(401);
+
+    // The family is revoked, so the successor is rejected too.
+    await request(app.getHttpServer())
+      .post('/oauth/token')
+      .send({
+        grant_type: 'refresh_token',
+        client_id: clientId,
+        refresh_token: rotation.body.refresh_token,
       })
       .expect(401);
   });

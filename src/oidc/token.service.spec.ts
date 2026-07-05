@@ -9,9 +9,11 @@ import { AccountServicePermissionEntity } from '../database/entities/account-ser
 import { ServicePermissionDefinitionEntity } from '../database/entities/service-permission-definition.entity';
 import { SigningKeyEntity } from '../database/entities/signing-key.entity';
 import { TokenRecordEntity } from '../database/entities/token-record.entity';
+import { hashToken } from '../common/crypto/token-hash';
 
 const config = {
   issuerUrl: 'http://localhost:3032',
+  refreshRotationGraceSeconds: 0,
 } as AppConfigService;
 
 const account = {
@@ -71,6 +73,69 @@ describe('TokenService', () => {
     expect(second.refresh_token).not.toBe(first.refresh_token);
     await expect(
       service.consumeRefreshToken(first.refresh_token),
+    ).rejects.toThrow('Refresh token reuse detected');
+  });
+
+  it('allows a duplicate refresh within the grace window without revoking the family', async () => {
+    const graceConfig = {
+      ...config,
+      refreshRotationGraceSeconds: 60,
+    } as AppConfigService;
+    const tokenRecords = new FakeTokenRecordRepository();
+    const service = new TokenService(
+      graceConfig,
+      await buildSigningKeyService(),
+      tokenRecords as never,
+    );
+
+    const first = await service.issueTokens(account, client, permission);
+    const consumed = await service.consumeRefreshToken(first.refresh_token);
+    const second = await service.issueTokens(
+      account,
+      client,
+      permission,
+      consumed.familyId,
+    );
+
+    // Re-presenting the already-used token within grace must not throw.
+    const graceConsumed = await service.consumeRefreshToken(
+      first.refresh_token,
+    );
+    expect(graceConsumed.familyId).toBe(consumed.familyId);
+    // The family stays alive: the real successor is still consumable.
+    const afterGrace = await service.consumeRefreshToken(second.refresh_token);
+    expect(afterGrace.accountId).toBe(account.id);
+  });
+
+  it('revokes the family when a used token is replayed beyond the grace window', async () => {
+    const graceConfig = {
+      ...config,
+      refreshRotationGraceSeconds: 60,
+    } as AppConfigService;
+    const tokenRecords = new FakeTokenRecordRepository();
+    const service = new TokenService(
+      graceConfig,
+      await buildSigningKeyService(),
+      tokenRecords as never,
+    );
+
+    const first = await service.issueTokens(account, client, permission);
+    const consumed = await service.consumeRefreshToken(first.refresh_token);
+    const second = await service.issueTokens(
+      account,
+      client,
+      permission,
+      consumed.familyId,
+    );
+
+    // Age the used token past the grace window, then replay it.
+    tokenRecords.ageUsedAt(first.refresh_token, 61 * 1000);
+    await expect(
+      service.consumeRefreshToken(first.refresh_token),
+    ).rejects.toThrow('Refresh token reuse detected');
+    // The whole family is revoked, so the successor is no longer usable.
+    await expect(
+      service.consumeRefreshToken(second.refresh_token),
     ).rejects.toThrow('Refresh token reuse detected');
   });
 
@@ -230,9 +295,18 @@ class FakeTokenRecordRepository {
       clientId: input.clientId as string,
       serviceId: input.serviceId ?? null,
       metadataJson: input.metadataJson ?? null,
+      usedAt: input.usedAt ?? null,
       expiresAt: input.expiresAt as Date,
       createdAt: new Date(),
     });
+  }
+
+  ageUsedAt(rawToken: string, ms: number): void {
+    const tokenHash = hashToken(rawToken);
+    const row = this.rows.find((entry) => entry.tokenHash === tokenHash);
+    if (row?.usedAt) {
+      row.usedAt = new Date(row.usedAt.getTime() - ms);
+    }
   }
 
   async query(_sql: string, params: unknown[]): Promise<unknown[]> {
@@ -245,17 +319,23 @@ class FakeTokenRecordRepository {
         entry.expiresAt.getTime() > Date.now(),
     );
     if (!row) {
-      return [];
+      return [[], 0];
     }
     row.status = 'used';
+    row.usedAt = new Date();
+    // Mirror the [rows, affectedCount] shape TypeORM returns for Postgres
+    // UPDATE ... RETURNING so the fake matches the real driver contract.
     return [
-      {
-        account_id: row.accountId,
-        client_id: row.clientId,
-        family_id: row.familyId,
-        status: row.status,
-        expires_at: row.expiresAt,
-      },
+      [
+        {
+          account_id: row.accountId,
+          client_id: row.clientId,
+          family_id: row.familyId,
+          status: row.status,
+          expires_at: row.expiresAt,
+        },
+      ],
+      1,
     ];
   }
 

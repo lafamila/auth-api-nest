@@ -101,10 +101,10 @@ export class TokenService {
 
   async consumeRefreshToken(refreshToken: string): Promise<RefreshRecord> {
     const tokenHash = hashToken(refreshToken);
-    const consumeResult = await this.tokenRecords.query<RefreshTokenRow[]>(
+    const consumeResult: unknown = await this.tokenRecords.query(
       `
         UPDATE token_records
-        SET status = 'used'
+        SET status = 'used', used_at = now()
         WHERE token_hash = $1
           AND type = 'refresh_token'
           AND status = 'active'
@@ -113,7 +113,7 @@ export class TokenService {
       `,
       [tokenHash],
     );
-    const consumed = consumeResult[0];
+    const consumed = extractReturnedRow<RefreshTokenRow>(consumeResult);
     if (consumed) {
       return refreshRowToRecord(consumed);
     }
@@ -124,11 +124,35 @@ export class TokenService {
     if (!record || record.expiresAt.getTime() < Date.now()) {
       throw new UnauthorizedException('Invalid refresh token');
     }
+    if (record.status === 'used' && this.isWithinRotationGrace(record.usedAt)) {
+      // A duplicate/retried rotation inside the grace window (e.g. the caller
+      // crashed before persisting the previous rotation response). Allow one
+      // more rotation instead of revoking the whole family. The identical
+      // successor cannot be re-returned because only token hashes are stored.
+      return {
+        accountId: record.accountId,
+        clientId: record.clientId,
+        familyId: record.familyId ?? '',
+        status: record.status,
+        expiresAt: record.expiresAt,
+      };
+    }
     if (record.status !== 'active') {
       await this.revokeFamily(record.familyId);
       throw new UnauthorizedException('Refresh token reuse detected');
     }
     throw new UnauthorizedException('Invalid refresh token');
+  }
+
+  private isWithinRotationGrace(usedAt: Date | null): boolean {
+    if (!usedAt) {
+      return false;
+    }
+    const graceSeconds = this.config.refreshRotationGraceSeconds;
+    if (!Number.isFinite(graceSeconds) || graceSeconds <= 0) {
+      return false;
+    }
+    return Date.now() - usedAt.getTime() <= graceSeconds * 1000;
   }
 
   async revokeRefreshToken(refreshToken: string): Promise<void> {
@@ -169,6 +193,19 @@ interface RefreshTokenRow {
   family_id: string | null;
   status: RefreshRecord['status'];
   expires_at: Date | string;
+}
+
+/**
+ * TypeORM's `query()` returns `[rows, affectedCount]` for `UPDATE ... RETURNING`
+ * on Postgres, while a plain rows array is used by unit fakes and other drivers.
+ * Normalize both shapes to the first returned row (or undefined).
+ */
+function extractReturnedRow<T>(result: unknown): T | undefined {
+  if (!Array.isArray(result)) {
+    return undefined;
+  }
+  const rows = Array.isArray(result[0]) ? (result[0] as unknown[]) : result;
+  return rows[0] as T | undefined;
 }
 
 function refreshRowToRecord(row: RefreshTokenRow): RefreshRecord {
