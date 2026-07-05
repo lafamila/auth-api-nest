@@ -1,45 +1,62 @@
 import { TokenService } from './token.service';
 import { SigningKeyService } from './signing-key.service';
 import { AppConfigService } from '../config/app-config.service';
+import { AesGcmService } from '../common/crypto/aes-gcm.service';
 import { AccountEntity } from '../database/entities/account.entity';
 import { OidcClientEntity } from '../database/entities/oidc-client.entity';
 import { ServiceEntity } from '../database/entities/service.entity';
 import { AccountServicePermissionEntity } from '../database/entities/account-service-permission.entity';
 import { ServicePermissionDefinitionEntity } from '../database/entities/service-permission-definition.entity';
+import { SigningKeyEntity } from '../database/entities/signing-key.entity';
 import { TokenRecordEntity } from '../database/entities/token-record.entity';
 
 const config = {
   issuerUrl: 'http://localhost:3032',
 } as AppConfigService;
 
+const account = {
+  id: 'account-1',
+  loginId: 'teddy',
+  email: 'teddy@example.com',
+  name: 'Teddy',
+} as AccountEntity;
+
+const service = {
+  id: 'service-1',
+  serviceKey: 'todo',
+  permissionSchemaVersion: 3,
+} as ServiceEntity;
+
+const client = {
+  clientId: 'todo-web',
+  service,
+} as OidcClientEntity;
+
+const permission = {
+  permissionDefinition: {
+    key: 'admin',
+  } as ServicePermissionDefinitionEntity,
+} as AccountServicePermissionEntity;
+
+async function buildSigningKeyService(
+  repo = new FakeSigningKeyRepository(),
+): Promise<SigningKeyService> {
+  const aes = new AesGcmService({
+    adminOtpEncryptionKey: 'unit-test-signing-encryption-key',
+  } as AppConfigService);
+  const signingKeys = new SigningKeyService(repo as never, aes);
+  await signingKeys.onModuleInit();
+  return signingKeys;
+}
+
 describe('TokenService', () => {
   it('issues and rotates refresh tokens by family', async () => {
     const tokenRecords = new FakeTokenRecordRepository();
     const service = new TokenService(
       config,
-      new SigningKeyService(),
+      await buildSigningKeyService(),
       tokenRecords as never,
     );
-    const account = {
-      id: 'account-1',
-      loginId: 'teddy',
-      email: 'teddy@example.com',
-      name: 'Teddy',
-    } as AccountEntity;
-    const app = {
-      id: 'service-1',
-      serviceKey: 'todo',
-      permissionSchemaVersion: 3,
-    } as ServiceEntity;
-    const client = {
-      clientId: 'todo-web',
-      service: app,
-    } as OidcClientEntity;
-    const permission = {
-      permissionDefinition: {
-        key: 'admin',
-      } as ServicePermissionDefinitionEntity,
-    } as AccountServicePermissionEntity;
 
     const first = await service.issueTokens(account, client, permission);
     const consumed = await service.consumeRefreshToken(first.refresh_token);
@@ -59,7 +76,7 @@ describe('TokenService', () => {
 
   it('keeps refresh tokens consumable after a service instance restart', async () => {
     const tokenRecords = new FakeTokenRecordRepository();
-    const signingKeys = new SigningKeyService();
+    const signingKeys = await buildSigningKeyService();
     const firstService = new TokenService(
       config,
       signingKeys,
@@ -70,26 +87,6 @@ describe('TokenService', () => {
       signingKeys,
       tokenRecords as never,
     );
-    const account = {
-      id: 'account-1',
-      loginId: 'teddy',
-      email: 'teddy@example.com',
-      name: 'Teddy',
-    } as AccountEntity;
-    const app = {
-      id: 'service-1',
-      serviceKey: 'todo',
-      permissionSchemaVersion: 3,
-    } as ServiceEntity;
-    const client = {
-      clientId: 'todo-web',
-      service: app,
-    } as OidcClientEntity;
-    const permission = {
-      permissionDefinition: {
-        key: 'admin',
-      } as ServicePermissionDefinitionEntity,
-    } as AccountServicePermissionEntity;
 
     const first = await firstService.issueTokens(account, client, permission);
     const consumed = await secondService.consumeRefreshToken(
@@ -100,35 +97,90 @@ describe('TokenService', () => {
     expect(consumed.clientId).toBe(client.clientId);
   });
 
-  it('issues body-lab access tokens with the service audience and owner claim', async () => {
-    const service = new TokenService(
+  it('reloads the persisted signing key so tokens survive a process restart', async () => {
+    const signingKeyRepo = new FakeSigningKeyRepository();
+    const firstSigningKeys = await buildSigningKeyService(signingKeyRepo);
+    const firstService = new TokenService(
       config,
-      new SigningKeyService(),
+      firstSigningKeys,
       new FakeTokenRecordRepository() as never,
     );
-    const account = {
-      id: 'account-1',
-      loginId: 'teddy',
-      email: 'teddy@example.com',
-      name: 'Teddy',
-    } as AccountEntity;
-    const app = {
-      id: 'service-1',
-      serviceKey: 'body-lab',
-      permissionSchemaVersion: 2,
-    } as ServiceEntity;
-    const client = {
+    const tokens = await firstService.issueTokens(account, client, permission);
+
+    // Simulate a fresh process: a new signing-key service backed by the same
+    // persisted rows must load the same kid and still verify the old token.
+    const secondSigningKeys = await buildSigningKeyService(signingKeyRepo);
+    const secondService = new TokenService(
+      config,
+      secondSigningKeys,
+      new FakeTokenRecordRepository() as never,
+    );
+
+    expect(secondSigningKeys.getActiveKey().kid).toBe(
+      firstSigningKeys.getActiveKey().kid,
+    );
+    expect(signingKeyRepo.rows).toHaveLength(1);
+    const payload = secondService.verifyAccessToken(tokens.access_token);
+    expect(payload.sub).toBe(account.id);
+  });
+
+  it('publishes the active key plus retiring keys in the JWKS', async () => {
+    const signingKeyRepo = new FakeSigningKeyRepository();
+    const active = await buildSigningKeyService(signingKeyRepo);
+    const oldToken = await new TokenService(
+      config,
+      active,
+      new FakeTokenRecordRepository() as never,
+    ).issueTokens(account, client, permission);
+
+    // Simulate a retired key left in the table from a prior rotation.
+    signingKeyRepo.rows[0].active = false;
+    const retiringKid = signingKeyRepo.rows[0].kid;
+    const rotated = await buildSigningKeyService(signingKeyRepo);
+    const rotatedTokenService = new TokenService(
+      config,
+      rotated,
+      new FakeTokenRecordRepository() as never,
+    );
+
+    const jwks = rotated.jwks();
+    const kids = jwks.keys.map((key) => key.kid);
+    expect(signingKeyRepo.rows).toHaveLength(2);
+    expect(kids).toContain(retiringKid);
+    expect(kids).toContain(rotated.getActiveKey().kid);
+    expect(kids).toHaveLength(2);
+    // The prior key must still verify tokens it signed.
+    expect(
+      rotatedTokenService.verifyAccessToken(oldToken.access_token).sub,
+    ).toBe(account.id);
+  });
+
+  it('issues body-lab access tokens with the service audience and owner claim', async () => {
+    const tokenService = new TokenService(
+      config,
+      await buildSigningKeyService(),
+      new FakeTokenRecordRepository() as never,
+    );
+    const bodyLabClient = {
       clientId: 'body-lab-ios',
-      service: app,
+      service: {
+        id: 'service-1',
+        serviceKey: 'body-lab',
+        permissionSchemaVersion: 2,
+      } as ServiceEntity,
     } as OidcClientEntity;
-    const permission = {
+    const ownerPermission = {
       permissionDefinition: {
         key: 'owner',
       } as ServicePermissionDefinitionEntity,
     } as AccountServicePermissionEntity;
 
-    const tokens = await service.issueTokens(account, client, permission);
-    const payload = service.verifyAccessToken(tokens.access_token);
+    const tokens = await tokenService.issueTokens(
+      account,
+      bodyLabClient,
+      ownerPermission,
+    );
+    const payload = tokenService.verifyAccessToken(tokens.access_token);
 
     expect(payload.aud).toBe('service:body-lab');
     expect(payload.scope).toBe('openid profile email service.permission');
@@ -139,6 +191,30 @@ describe('TokenService', () => {
     });
   });
 });
+
+class FakeSigningKeyRepository {
+  readonly rows: SigningKeyEntity[] = [];
+
+  async find(): Promise<SigningKeyEntity[]> {
+    return [...this.rows].sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    );
+  }
+
+  create(input: Partial<SigningKeyEntity>): SigningKeyEntity {
+    return { ...input } as SigningKeyEntity;
+  }
+
+  async save(entity: SigningKeyEntity): Promise<SigningKeyEntity> {
+    const row = {
+      ...entity,
+      id: `signing-key-${this.rows.length + 1}`,
+      createdAt: new Date(Date.now() + this.rows.length),
+    } as SigningKeyEntity;
+    this.rows.push(row);
+    return row;
+  }
+}
 
 class FakeTokenRecordRepository {
   private readonly rows: TokenRecordEntity[] = [];

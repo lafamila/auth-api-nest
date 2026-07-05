@@ -1,7 +1,10 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import request from 'supertest';
 import { AppConfigService } from '../src/config/app-config.service';
+import { AesGcmService } from '../src/common/crypto/aes-gcm.service';
+import { SigningKeyEntity } from '../src/database/entities/signing-key.entity';
 import { OidcController } from '../src/oidc/oidc.controller';
 import { SigningKeyService } from '../src/oidc/signing-key.service';
 
@@ -14,6 +17,21 @@ describe('OIDC discovery (e2e)', () => {
       providers: [
         SigningKeyService,
         { provide: AppConfigService, useValue: { issuerUrl: 'http://localhost:3032' } },
+        {
+          provide: getRepositoryToken(SigningKeyEntity),
+          useValue: {
+            find: async () => [],
+            create: (input: unknown) => input,
+            save: async (entity: unknown) => entity,
+          },
+        },
+        {
+          provide: AesGcmService,
+          useValue: {
+            encrypt: (value: string) => value,
+            decrypt: (value: string) => value,
+          },
+        },
         { provide: 'AccountsService', useValue: {} },
       ],
     })

@@ -4,6 +4,8 @@ import { AccountsModule } from '../domain/accounts/accounts.module';
 import { AccountPermissionsModule } from '../domain/account-permissions/account-permissions.module';
 import { AppConfigModule } from '../config/app-config.module';
 import { OidcClientsModule } from '../domain/oidc-clients/oidc-clients.module';
+import { AesGcmService } from '../common/crypto/aes-gcm.service';
+import { SigningKeyEntity } from '../database/entities/signing-key.entity';
 import { TokenRecordEntity } from '../database/entities/token-record.entity';
 import { OidcController } from './oidc.controller';
 import { LoginController } from './login.controller';
@@ -19,13 +21,14 @@ import { TokenService } from './token.service';
     AccountsModule,
     OidcClientsModule,
     AccountPermissionsModule,
-    TypeOrmModule.forFeature([TokenRecordEntity]),
+    TypeOrmModule.forFeature([TokenRecordEntity, SigningKeyEntity]),
   ],
   controllers: [OidcController, LoginController],
   providers: [
     AuthorizationCodeService,
     AuthorizeFlowService,
     OidcProviderAdapterService,
+    AesGcmService,
     SigningKeyService,
     TokenService,
   ],
