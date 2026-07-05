@@ -151,6 +151,8 @@ describe('App bootstrap (e2e)', () => {
       redirectUris: string[];
       allowedScopes?: string[];
       requirePkce?: boolean;
+      accessTokenTtlSeconds?: number;
+      refreshTokenTtlSeconds?: number;
     }>;
     serviceCredentials?: Array<{
       name: string;
@@ -1456,6 +1458,41 @@ describe('App bootstrap (e2e)', () => {
         q: account.loginId.slice(0, 4),
       })
       .expect(401);
+  });
+
+  it('issues access tokens honoring a per-client TTL override', async () => {
+    const clientId = nextSuffix('ttl-override-client');
+    const approved = await createApprovedService({
+      oidcClients: [
+        {
+          clientId,
+          clientType: 'public',
+          redirectUris: ['https://todo.example.com/ttl-override'],
+          accessTokenTtlSeconds: 1800,
+        },
+      ],
+    });
+    const { account, password } = await createAccount();
+    const agent = request.agent(app.getHttpServer());
+    const tokens = await authorizeAndExchange(agent, {
+      clientId,
+      redirectUri: 'https://todo.example.com/ttl-override',
+      expectedServiceKey: approved.service.serviceKey,
+      expectedPermission: 'visitor',
+      loginId: account.loginId,
+      password,
+    });
+
+    const payload = app
+      .get(TokenService)
+      .verifyAccessToken(tokens.access_token) as { iat: number; exp: number };
+    expect(payload.exp - payload.iat).toBe(1800);
+
+    const storedClient = await dataSource
+      .getRepository(OidcClientEntity)
+      .findOneByOrFail({ clientId });
+    expect(storedClient.accessTokenTtlSeconds).toBe(1800);
+    expect(storedClient.refreshTokenTtlSeconds).toBeNull();
   });
 
   it('allows a duplicate refresh within the grace window over HTTP', async () => {

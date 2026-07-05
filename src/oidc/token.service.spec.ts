@@ -13,6 +13,8 @@ import { hashToken } from '../common/crypto/token-hash';
 
 const config = {
   issuerUrl: 'http://localhost:3032',
+  accessTokenTtlSeconds: 900,
+  refreshTokenTtlSeconds: 604800,
   refreshRotationGraceSeconds: 0,
 } as AppConfigService;
 
@@ -160,6 +162,47 @@ describe('TokenService', () => {
 
     expect(consumed.accountId).toBe(account.id);
     expect(consumed.clientId).toBe(client.clientId);
+  });
+
+  it('falls back to env token TTLs when the client has no override', async () => {
+    const tokenService = new TokenService(
+      config,
+      await buildSigningKeyService(),
+      new FakeTokenRecordRepository() as never,
+    );
+    const tokens = await tokenService.issueTokens(account, client, permission);
+    const payload = tokenService.verifyAccessToken(tokens.access_token) as {
+      iat: number;
+      exp: number;
+    };
+    expect(tokens.expires_in).toBe(900);
+    expect(payload.exp - payload.iat).toBe(900);
+  });
+
+  it('applies per-client token TTL overrides over the env defaults', async () => {
+    const tokenService = new TokenService(
+      config,
+      await buildSigningKeyService(),
+      new FakeTokenRecordRepository() as never,
+    );
+    const overrideClient = {
+      clientId: 'game-platform-api',
+      service,
+      accessTokenTtlSeconds: 1800,
+      refreshTokenTtlSeconds: 2592000,
+    } as OidcClientEntity;
+
+    const tokens = await tokenService.issueTokens(
+      account,
+      overrideClient,
+      permission,
+    );
+    const payload = tokenService.verifyAccessToken(tokens.access_token) as {
+      iat: number;
+      exp: number;
+    };
+    expect(tokens.expires_in).toBe(1800);
+    expect(payload.exp - payload.iat).toBe(1800);
   });
 
   it('reloads the persisted signing key so tokens survive a process restart', async () => {

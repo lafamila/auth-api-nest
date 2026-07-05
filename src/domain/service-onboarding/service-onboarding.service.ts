@@ -170,6 +170,8 @@ export class ServiceOnboardingService {
           'service.permission',
         ],
         requirePkce: clientSpec.requirePkce ?? true,
+        accessTokenTtlSeconds: clientSpec.accessTokenTtlSeconds ?? null,
+        refreshTokenTtlSeconds: clientSpec.refreshTokenTtlSeconds ?? null,
       };
       if (existing && existing.serviceId === service.id) {
         await this.clientsService.update(service.id, existing.id, input);

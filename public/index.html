@@ -1301,6 +1301,8 @@
                         <div><strong>Post Logout</strong>: ${client.postLogoutRedirectUris.length ? client.postLogoutRedirectUris.map((uri) => `<div class="mono">${escapeHtml(uri)}</div>`).join('') : '-'}</div>
                         <div><strong>Grant Types</strong>: ${escapeHtml((client.allowedGrantTypes || []).join(', ') || '-')}</div>
                         <div><strong>Scopes</strong>: ${escapeHtml((client.allowedScopes || []).join(', ') || '-')}</div>
+                        <div><strong>Access TTL</strong>: ${client.accessTokenTtlSeconds ? escapeHtml(String(client.accessTokenTtlSeconds)) + 's' : 'env default'}</div>
+                        <div><strong>Refresh TTL</strong>: ${client.refreshTokenTtlSeconds ? escapeHtml(String(client.refreshTokenTtlSeconds)) + 's' : 'env default'}</div>
                       </div>
                     </td>
                   </tr>

@@ -74,6 +74,8 @@ export class OidcClientsService {
           'service.permission',
         ],
         requirePkce: input.requirePkce ?? true,
+        accessTokenTtlSeconds: input.accessTokenTtlSeconds ?? null,
+        refreshTokenTtlSeconds: input.refreshTokenTtlSeconds ?? null,
         status: 'active',
       }),
     );
@@ -122,6 +124,12 @@ export class OidcClientsService {
     }
     if (input.requirePkce !== undefined) {
       client.requirePkce = input.requirePkce;
+    }
+    if (input.accessTokenTtlSeconds !== undefined) {
+      client.accessTokenTtlSeconds = input.accessTokenTtlSeconds;
+    }
+    if (input.refreshTokenTtlSeconds !== undefined) {
+      client.refreshTokenTtlSeconds = input.refreshTokenTtlSeconds;
     }
     const saved = await this.clients.save(client);
     await this.auditLogs.record({
@@ -175,6 +183,8 @@ export class OidcClientsService {
       allowedGrantTypes: client.allowedGrantTypes,
       allowedScopes: client.allowedScopes,
       requirePkce: client.requirePkce,
+      accessTokenTtlSeconds: client.accessTokenTtlSeconds,
+      refreshTokenTtlSeconds: client.refreshTokenTtlSeconds,
       status: client.status,
       createdAt: client.createdAt,
       updatedAt: client.updatedAt,

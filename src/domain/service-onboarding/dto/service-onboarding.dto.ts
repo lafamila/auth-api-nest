@@ -4,8 +4,10 @@ import {
   IsBoolean,
   IsEmail,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -53,6 +55,16 @@ export class OnboardingOidcClientDto {
   @IsOptional()
   @IsBoolean()
   requirePkce?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  accessTokenTtlSeconds?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  refreshTokenTtlSeconds?: number;
 }
 
 export class OnboardingCredentialDto {

@@ -36,6 +36,10 @@ export class TokenService {
   ) {
     const key = this.signingKeys.getActiveKey();
     const nowSeconds = Math.floor(Date.now() / 1000);
+    const accessTtlSeconds =
+      client.accessTokenTtlSeconds ?? this.config.accessTokenTtlSeconds;
+    const refreshTtlSeconds =
+      client.refreshTokenTtlSeconds ?? this.config.refreshTokenTtlSeconds;
     const serviceClaim = {
       key: client.service.serviceKey,
       permission: permission.permissionDefinition.key,
@@ -55,7 +59,7 @@ export class TokenService {
       key.privateKeyPem,
       {
         algorithm: 'RS256',
-        expiresIn: '15m',
+        expiresIn: accessTtlSeconds,
         keyid: key.kid,
       },
     );
@@ -73,12 +77,12 @@ export class TokenService {
       key.privateKeyPem,
       {
         algorithm: 'RS256',
-        expiresIn: '15m',
+        expiresIn: accessTtlSeconds,
         keyid: key.kid,
       },
     );
     const refreshToken = randomBytes(48).toString('base64url');
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + refreshTtlSeconds * 1000);
     await this.tokenRecords.insert({
       tokenHash: hashToken(refreshToken),
       type: 'refresh_token',
@@ -92,7 +96,7 @@ export class TokenService {
     });
     return {
       token_type: 'Bearer',
-      expires_in: 900,
+      expires_in: accessTtlSeconds,
       id_token: idToken,
       access_token: accessToken,
       refresh_token: refreshToken,

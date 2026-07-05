@@ -3,8 +3,10 @@ import {
   IsArray,
   IsBoolean,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
+  Min,
   MinLength,
 } from 'class-validator';
 import {
@@ -48,6 +50,16 @@ export class CreateOidcClientDto {
   @IsOptional()
   @IsBoolean()
   requirePkce?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  accessTokenTtlSeconds?: number | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  refreshTokenTtlSeconds?: number | null;
 }
 
 export class UpdateOidcClientDto {
@@ -84,6 +96,16 @@ export class UpdateOidcClientDto {
   requirePkce?: boolean;
 
   @IsOptional()
+  @IsInt()
+  @Min(1)
+  accessTokenTtlSeconds?: number | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  refreshTokenTtlSeconds?: number | null;
+
+  @IsOptional()
   @IsString()
   @MinLength(16)
   clientSecret?: string;
@@ -105,6 +127,8 @@ export interface OidcClientView {
   allowedGrantTypes: string[];
   allowedScopes: string[];
   requirePkce: boolean;
+  accessTokenTtlSeconds: number | null;
+  refreshTokenTtlSeconds: number | null;
   status: OidcClientStatus;
   createdAt: Date;
   updatedAt: Date;

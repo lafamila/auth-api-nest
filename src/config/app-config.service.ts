@@ -32,6 +32,16 @@ export class AppConfigService {
     return this.config.get<string>('COOKIE_SECRET', 'dev-cookie-secret');
   }
 
+  get accessTokenTtlSeconds(): number {
+    return Number(this.config.get<string>('ACCESS_TOKEN_TTL_SECONDS', '900'));
+  }
+
+  get refreshTokenTtlSeconds(): number {
+    return Number(
+      this.config.get<string>('REFRESH_TOKEN_TTL_SECONDS', '604800'),
+    );
+  }
+
   get refreshRotationGraceSeconds(): number {
     return Number(
       this.config.get<string>('REFRESH_ROTATION_GRACE_SECONDS', '60'),

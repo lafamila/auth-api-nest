@@ -50,6 +50,20 @@ export class OidcClientEntity {
   @Column({ name: 'require_pkce', default: true })
   requirePkce!: boolean;
 
+  @Column({
+    name: 'access_token_ttl_seconds',
+    type: 'integer',
+    nullable: true,
+  })
+  accessTokenTtlSeconds!: number | null;
+
+  @Column({
+    name: 'refresh_token_ttl_seconds',
+    type: 'integer',
+    nullable: true,
+  })
+  refreshTokenTtlSeconds!: number | null;
+
   @Column({ default: 'active' })
   status!: OidcClientStatus;
 
