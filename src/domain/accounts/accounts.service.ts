@@ -5,7 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { PasswordService } from '../../common/crypto/password.service';
 import {
   ADMIN_TEMPORARY_RESET_PASSWORD,
@@ -15,6 +15,7 @@ import {
 import { AccountServicePermissionEntity } from '../../database/entities/account-service-permission.entity';
 import { AccountEntity } from '../../database/entities/account.entity';
 import { ServiceEntity } from '../../database/entities/service.entity';
+import { TokenRecordEntity } from '../../database/entities/token-record.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { VISITOR_PERMISSION } from '../permissions/visitor-permission';
 import { CreateAccountDto, UpdateAccountDto } from './dto/account.dto';
@@ -37,6 +38,8 @@ export class AccountsService {
     private readonly dataSource: DataSource,
     private readonly passwordService: PasswordService,
     private readonly auditLogs: AuditLogsService,
+    @InjectRepository(TokenRecordEntity)
+    private readonly tokenRecords: Repository<TokenRecordEntity>,
   ) {}
 
   list(): Promise<AccountEntity[]> {
@@ -189,6 +192,10 @@ export class AccountsService {
       const before = this.safeAccount(account);
       Object.assign(account, input);
       const updated = await accountRepository.save(account);
+      if (input.status === 'disabled') {
+        // A disabled account must not be able to keep refreshing sessions.
+        await this.revokeAccountRefreshTokens(updated.id, manager);
+      }
       return { before, updated };
     });
     await this.auditLogs.record({
@@ -208,11 +215,27 @@ export class AccountsService {
     account.passwordHash = await this.passwordService.hash(nextPassword);
     account.passwordResetRequired = resetRequired;
     await this.accounts.save(account);
+    // Invalidate existing refresh chains so an old session cannot outlive a
+    // password reset.
+    await this.revokeAccountRefreshTokens(id);
     await this.auditLogs.record({
       action: 'account.reset_password',
       targetType: 'account',
       targetId: id,
     });
+  }
+
+  private async revokeAccountRefreshTokens(
+    accountId: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repository = manager
+      ? manager.getRepository(TokenRecordEntity)
+      : this.tokenRecords;
+    await repository.update(
+      { accountId, type: 'refresh_token', status: In(['active', 'used']) },
+      { status: 'revoked' },
+    );
   }
 
   async authenticate(

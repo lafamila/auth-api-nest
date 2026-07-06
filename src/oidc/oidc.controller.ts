@@ -173,6 +173,18 @@ export class OidcController {
     if (!body.refresh_token) {
       throw new OAuthError('invalid_request', 'refresh_token is required');
     }
+    // Deny disabled accounts before consuming the token so a lockout cannot be
+    // laundered into a fresh access token, and so a still-valid token is not
+    // burned by the attempt.
+    const holder = await this.tokens.getRefreshTokenAccountId(
+      body.refresh_token,
+    );
+    if (holder) {
+      const holderAccount = await this.accounts.findById(holder.accountId);
+      if (holderAccount.status !== 'active') {
+        throw new OAuthError('access_denied', 'Account is not active', 403);
+      }
+    }
     const refresh = await this.tokens.consumeRefreshToken(body.refresh_token);
     if (refresh.clientId !== client.clientId) {
       throw new UnauthorizedException('Refresh token client mismatch');

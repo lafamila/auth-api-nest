@@ -159,6 +159,18 @@ export class TokenService {
     return Date.now() - usedAt.getTime() <= graceSeconds * 1000;
   }
 
+  async getRefreshTokenAccountId(
+    refreshToken: string,
+  ): Promise<{ accountId: string; clientId: string } | null> {
+    const record = await this.tokenRecords.findOne({
+      where: { tokenHash: hashToken(refreshToken), type: 'refresh_token' },
+    });
+    if (!record) {
+      return null;
+    }
+    return { accountId: record.accountId, clientId: record.clientId };
+  }
+
   async revokeRefreshToken(refreshToken: string): Promise<void> {
     await this.tokenRecords.update(
       { tokenHash: hashToken(refreshToken), type: 'refresh_token' },

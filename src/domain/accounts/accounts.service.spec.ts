@@ -2,6 +2,7 @@ import { ConflictException } from '@nestjs/common';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { PasswordService } from '../../common/crypto/password.service';
 import { AccountEntity } from '../../database/entities/account.entity';
+import { TokenRecordEntity } from '../../database/entities/token-record.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { AccountsService } from './accounts.service';
 
@@ -38,6 +39,7 @@ describe('AccountsService', () => {
       dataSource,
       {} as PasswordService,
       { record: jest.fn() } as unknown as AuditLogsService,
+      { update: jest.fn() } as unknown as Repository<TokenRecordEntity>,
     );
 
     await expect(service.update(account.id, { status: 'disabled' })).rejects.toBeInstanceOf(

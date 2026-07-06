@@ -1495,6 +1495,95 @@ describe('App bootstrap (e2e)', () => {
     expect(storedClient.refreshTokenTtlSeconds).toBeNull();
   });
 
+  it('denies refresh and revokes the family after the account is disabled', async () => {
+    const clientId = nextSuffix('disable-refresh-client');
+    const approved = await createApprovedService({
+      oidcClients: [
+        {
+          clientId,
+          clientType: 'public',
+          redirectUris: ['https://todo.example.com/disable-refresh'],
+        },
+      ],
+    });
+    const { account, password } = await createAccount();
+    const agent = request.agent(app.getHttpServer());
+    const tokens = await authorizeAndExchange(agent, {
+      clientId,
+      redirectUri: 'https://todo.example.com/disable-refresh',
+      expectedServiceKey: approved.service.serviceKey,
+      expectedPermission: 'visitor',
+      loginId: account.loginId,
+      password,
+    });
+
+    const rotated = await request(app.getHttpServer())
+      .post('/oauth/token')
+      .send({
+        grant_type: 'refresh_token',
+        client_id: clientId,
+        refresh_token: tokens.refresh_token,
+      })
+      .expect(200);
+
+    await app.get(AccountsService).update(account.id, { status: 'disabled' });
+
+    await request(app.getHttpServer())
+      .post('/oauth/token')
+      .send({
+        grant_type: 'refresh_token',
+        client_id: clientId,
+        refresh_token: rotated.body.refresh_token,
+      })
+      .expect(403)
+      .expect((response) => {
+        expect(response.body.error).toBe('access_denied');
+      });
+
+    const remaining = await dataSource.query(
+      `SELECT count(*)::int AS c FROM token_records WHERE account_id = $1 AND type = 'refresh_token' AND status IN ('active', 'used')`,
+      [account.id],
+    );
+    expect(remaining[0].c).toBe(0);
+  });
+
+  it('revokes refresh families when an account password is reset', async () => {
+    const clientId = nextSuffix('reset-refresh-client');
+    const approved = await createApprovedService({
+      oidcClients: [
+        {
+          clientId,
+          clientType: 'public',
+          redirectUris: ['https://todo.example.com/reset-refresh'],
+        },
+      ],
+    });
+    const { account, password } = await createAccount();
+    const agent = request.agent(app.getHttpServer());
+    const tokens = await authorizeAndExchange(agent, {
+      clientId,
+      redirectUri: 'https://todo.example.com/reset-refresh',
+      expectedServiceKey: approved.service.serviceKey,
+      expectedPermission: 'visitor',
+      loginId: account.loginId,
+      password,
+    });
+
+    await app
+      .get(AccountsService)
+      .resetPassword(account.id, 'New-password-1234!');
+
+    // The account is still active, but its refresh family was revoked.
+    await request(app.getHttpServer())
+      .post('/oauth/token')
+      .send({
+        grant_type: 'refresh_token',
+        client_id: clientId,
+        refresh_token: tokens.refresh_token,
+      })
+      .expect(401);
+  });
+
   it('allows a duplicate refresh within the grace window over HTTP', async () => {
     const clientId = nextSuffix('grace-within-client');
     const approved = await createApprovedService({
