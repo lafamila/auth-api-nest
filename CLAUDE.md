@@ -111,6 +111,21 @@ When auth APIs, claims, admin console flows, or credential scope semantics chang
 - General signup requires email verification. Signup-created accounts do not receive eager account-service rows; `visitor` is created lazily on first login to an active service only when no row exists yet.
 - Normal passwords require at least 8 characters and at least one special character. Admin reset value `123456789` is a forced temporary password and must set a reset-required state so the user changes it after login.
 
+## Token Lifecycle & Signing Keys
+
+Phase 1 게임 플랫폼 세션 안정화 작업으로 확정된 토큰/서명키 정책:
+
+- **서명키 DB 영속화** — RS256 서명키는 최초 1회 생성 후 `signing_keys` 테이블에 저장한다. private key 는 `ADMIN_OTP_ENCRYPTION_KEY` 로 at-rest 암호화(AesGcmService 재사용, 신규 env 키 없음). auth 재시작 후에도 동일 `kid` 를 로드하므로 재시작 전에 발급된 access token 이 계속 검증된다.
+- **JWKS 다중 키** — `GET /oauth/jwks` 는 active 키 + retiring 키를 함께 노출한다. access token 검증은 JWT 헤더 `kid` 기반. 소비 서비스는 JWKS 를 `kid` 로 캐시하고 미지의 `kid` 는 refetch 한다(현행 jose `createRemoteJWKSet` 소비자는 자동 처리).
+- **토큰 TTL env 설정화 + per-client override** — `ACCESS_TOKEN_TTL_SECONDS`(기본 900), `REFRESH_TOKEN_TTL_SECONDS`(기본 604800). OIDC client 는 `oidc_clients.access_token_ttl_seconds` / `refresh_token_ttl_seconds`(nullable)로 값을 재정의할 수 있다. 발급 시 우선순위: **client override → env → 코드 기본값**. per-client 값은 service onboarding request/update 스펙(`accessTokenTtlSeconds` / `refreshTokenTtlSeconds`)으로만 신청한다(원칙 8 — auth admin 임의 수정 금지).
+- **Refresh rotation grace** — `REFRESH_ROTATION_GRACE_SECONDS`(기본 60). 이미 rotate 된 refresh token 을 grace 이내 재제시하면 family 폐기 대신 새 rotation 1회를 허용한다(크래시-재시도 대비). grace 초과 재사용은 기존대로 family 전체 revoke + 401. hash 만 저장하므로 동일 successor 원문을 재반환하지는 않는다.
+- **Revocation 정합성** — 계정 disable / 비밀번호 reset 시 해당 계정 refresh family 전체를 revoke 한다. refresh grant 는 token 소비 전에 `account.status` 를 검사해 비활성 계정을 `403 access_denied` 로 거절한다.
+- **Authorization code 영속화** — auth code 는 in-memory 가 아니라 `token_records`(type=`authorization_code`)에 저장하고 consume 시 DELETE(단일 사용). 재시작 순간에 진행 중이던 로그인도 완료된다. 만료된 `token_records` row 는 기동 시 + refresh 시(throttled) best-effort 로 정리한다.
+
+신규 env 키(배포 env 반영 필요): `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`, `REFRESH_ROTATION_GRACE_SECONDS`. 모두 기본값이 현행 동작과 동일하므로 미설정 시 무변경. 서명키 암호화는 기존 `ADMIN_OTP_ENCRYPTION_KEY` 를 재사용한다.
+
 ## Security & Configuration Tips
 
 Never commit secrets, private keys, database URLs, or runtime state. Keep issuer, client secrets, cookie settings, and PostgreSQL credentials in environment variables. Auth changes require tests before merge.
+
+The RS256 signing private key is now stored in `signing_keys` encrypted at rest with `ADMIN_OTP_ENCRYPTION_KEY`. Keep that key stable across restarts and deployments: rotating it makes existing stored signing keys undecodable (a new key is generated instead), and it also invalidates admin OTP secrets.

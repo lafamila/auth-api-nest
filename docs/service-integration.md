@@ -24,6 +24,30 @@ The request should include the intended `serviceKey`, display name, permission
 definitions, OIDC client specs, redirect URIs, scopes, client type, PKCE choice,
 and backend service credential scopes.
 
+An OIDC client spec may optionally set `accessTokenTtlSeconds` and
+`refreshTokenTtlSeconds` (integers, seconds) to override the workspace default
+token lifetimes for that client — for example a longer refresh lifetime for a
+long-lived mobile/game session. Omit them to inherit the
+`ACCESS_TOKEN_TTL_SECONDS` / `REFRESH_TOKEN_TTL_SECONDS` env defaults. These are
+core spec fields, so changing them later requires a service onboarding update
+request rather than a direct edit.
+
+```json
+{
+  "clientId": "game-platform-api",
+  "clientType": "confidential",
+  "redirectUris": ["https://game.lafamila.xyz/auth/callback"],
+  "allowedScopes": ["openid", "profile", "email", "service.permission"],
+  "requirePkce": true,
+  "accessTokenTtlSeconds": 900,
+  "refreshTokenTtlSeconds": 2592000
+}
+```
+
+The canonical body-lab example
+([docs/examples/body-lab-service-onboarding-create.json](/Users/lafamila/work/teddy/auth-api-nest/docs/examples/body-lab-service-onboarding-create.json))
+intentionally omits both fields, so body-lab keeps the env-default lifetimes.
+
 There are two ways to create the same request:
 
 1. A service team or deployment agent sends the JSON directly to the public API.
@@ -134,10 +158,17 @@ On the first successful login to an active service, if the user has no row at al
 ## Example Token Validation Checklist
 
 1. Fetch discovery metadata.
-2. Fetch JWKS and cache by `kid`.
+2. Fetch JWKS and cache by `kid`. Auth may publish more than one key (the active
+   signing key plus retiring keys during a rotation), so select the key whose
+   `kid` matches the token header and refetch JWKS when you encounter an unknown
+   `kid`. Libraries like `jose` `createRemoteJWKSet` handle this automatically.
 3. Verify signature, issuer, expiration, and audience.
 4. Read `https://lafamila.xyz/claims/service`.
 5. Reject if claim key does not match the current service.
+
+Signing keys are persisted across auth restarts, so a restart no longer rotates
+the `kid`; consumers do not need to special-case auth deployments beyond the
+normal unknown-`kid` refetch.
 
 ## body-lab Integration
 

@@ -33,13 +33,24 @@ through `body-lab-api-nest` server callbacks instead of direct native login.
 
 `POST /oauth/token` with `grant_type=refresh_token` consumes the current refresh token and returns a new access token plus a rotated refresh token. Reusing an already used refresh token revokes the family and fails the request.
 
+Within `REFRESH_ROTATION_GRACE_SECONDS` (default 60) of a token being rotated, re-presenting that same token is treated as a client retry (for example the caller crashed before persisting the previous response) and is allowed one more rotation instead of revoking the family. Replays after the window still revoke the family. The identical successor is not re-returned, because only token hashes are stored; the retry receives a fresh rotation.
+
+Disabling an account or resetting its password revokes that account's refresh families. The refresh grant also rejects a non-active account with `403 access_denied` before consuming the token, so a temporary lockout does not burn the refresh chain.
+
+## Signing Keys and JWKS
+
+The RS256 signing key is generated once and persisted in `signing_keys` (private key encrypted at rest with `ADMIN_OTP_ENCRYPTION_KEY`), so access tokens issued before an auth restart keep verifying. `GET /oauth/jwks` publishes the active key plus any retiring keys, and access-token verification resolves the key by the JWT header `kid`. Consumers must cache JWKS by `kid` and refetch when they encounter an unknown `kid`.
+
 ## Token Lifetimes
 
-- Authorization code: 1 minute
-- Access token: 15 minutes
-- Refresh token: 7 days
+- Authorization code: 1 minute (persisted in `token_records`, single-use via delete-on-consume)
+- Access token: `ACCESS_TOKEN_TTL_SECONDS` (default 900 seconds), overridable per client
+- Refresh token: `REFRESH_TOKEN_TTL_SECONDS` (default 604800 seconds), overridable per client
+- Refresh rotation grace: `REFRESH_ROTATION_GRACE_SECONDS` (default 60 seconds)
 - Auth session cookie: 12 hours in Phase 1
 - Admin session cookie: idle 30 minutes, absolute 12 hours
+
+Per-client overrides (`accessTokenTtlSeconds` / `refreshTokenTtlSeconds`) are requested through the service onboarding request/update spec, not by editing the client directly. Resolution order at issuance is client override → env value → built-in default. Expired `token_records` rows are pruned best-effort at startup and, throttled, during refresh.
 
 ## Admin Bootstrap + Login
 
