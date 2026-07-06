@@ -1,7 +1,13 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes, randomUUID } from 'node:crypto';
 import * as jwt from 'jsonwebtoken';
+import { extractReturnedRow } from '../database/pg-returning';
 import { hashToken } from '../common/crypto/token-hash';
 import { AccountEntity } from '../database/entities/account.entity';
 import { OidcClientEntity } from '../database/entities/oidc-client.entity';
@@ -19,14 +25,23 @@ interface RefreshRecord {
   expiresAt: Date;
 }
 
+const CLEANUP_THROTTLE_MS = 10 * 60 * 1000;
+
 @Injectable()
-export class TokenService {
+export class TokenService implements OnModuleInit {
+  private readonly logger = new Logger(TokenService.name);
+  private lastCleanupAt = 0;
+
   constructor(
     private readonly config: AppConfigService,
     private readonly signingKeys: SigningKeyService,
     @InjectRepository(TokenRecordEntity)
     private readonly tokenRecords: Repository<TokenRecordEntity>,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.cleanupExpiredTokens();
+  }
 
   async issueTokens(
     account: AccountEntity,
@@ -104,6 +119,7 @@ export class TokenService {
   }
 
   async consumeRefreshToken(refreshToken: string): Promise<RefreshRecord> {
+    this.maybeCleanupExpiredTokens();
     const tokenHash = hashToken(refreshToken);
     const consumeResult: unknown = await this.tokenRecords.query(
       `
@@ -146,6 +162,32 @@ export class TokenService {
       throw new UnauthorizedException('Refresh token reuse detected');
     }
     throw new UnauthorizedException('Invalid refresh token');
+  }
+
+  /**
+   * Best-effort removal of long-expired token records (abandoned authorization
+   * codes and expired refresh tokens). Runs at startup and, throttled, during
+   * refresh so a long-running process still trims storage without a scheduler.
+   */
+  async cleanupExpiredTokens(): Promise<void> {
+    this.lastCleanupAt = Date.now();
+    try {
+      await this.tokenRecords.query(
+        `DELETE FROM token_records WHERE expires_at < now() - interval '1 hour'`,
+        [],
+      );
+    } catch (error) {
+      this.logger.warn(
+        `token_records cleanup skipped: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  private maybeCleanupExpiredTokens(): void {
+    if (Date.now() - this.lastCleanupAt < CLEANUP_THROTTLE_MS) {
+      return;
+    }
+    void this.cleanupExpiredTokens();
   }
 
   private isWithinRotationGrace(usedAt: Date | null): boolean {
@@ -209,19 +251,6 @@ interface RefreshTokenRow {
   family_id: string | null;
   status: RefreshRecord['status'];
   expires_at: Date | string;
-}
-
-/**
- * TypeORM's `query()` returns `[rows, affectedCount]` for `UPDATE ... RETURNING`
- * on Postgres, while a plain rows array is used by unit fakes and other drivers.
- * Normalize both shapes to the first returned row (or undefined).
- */
-function extractReturnedRow<T>(result: unknown): T | undefined {
-  if (!Array.isArray(result)) {
-    return undefined;
-  }
-  const rows = Array.isArray(result[0]) ? (result[0] as unknown[]) : result;
-  return rows[0] as T | undefined;
 }
 
 function refreshRowToRecord(row: RefreshTokenRow): RefreshRecord {

@@ -145,7 +145,7 @@ export class OidcController {
           'Missing authorization_code fields',
         );
       }
-      const code = this.codes.consume(body.code);
+      const code = await this.codes.consume(body.code);
       if (!code || code.clientId !== client.clientId) {
         throw new OAuthError('invalid_grant', 'Invalid authorization code');
       }

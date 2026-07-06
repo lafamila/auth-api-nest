@@ -126,7 +126,7 @@ export class AuthorizeFlowService {
         ),
       };
     }
-    const code = this.codes.create({
+    const code = await this.codes.create({
       accountId: account.id,
       clientId: validated.client.clientId,
       redirectUri: validated.request.redirectUri,
