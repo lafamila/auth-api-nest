@@ -233,9 +233,7 @@ export class TokenService implements OnModuleInit {
   verifyAccessToken(token: string): Record<string, unknown> {
     const decoded = jwt.decode(token, { complete: true });
     const kid =
-      decoded && typeof decoded === 'object'
-        ? (decoded.header?.kid as string | undefined)
-        : undefined;
+      decoded && typeof decoded === 'object' ? decoded.header?.kid : undefined;
     const key = this.signingKeys.getVerificationKey(kid);
     return jwt.verify(token, key, {
       algorithms: ['RS256'],

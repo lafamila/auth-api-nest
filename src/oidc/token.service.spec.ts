@@ -314,11 +314,11 @@ class FakeSigningKeyRepository {
   }
 
   async save(entity: SigningKeyEntity): Promise<SigningKeyEntity> {
-    const row = {
+    const row: SigningKeyEntity = {
       ...entity,
       id: `signing-key-${this.rows.length + 1}`,
       createdAt: new Date(Date.now() + this.rows.length),
-    } as SigningKeyEntity;
+    };
     this.rows.push(row);
     return row;
   }
