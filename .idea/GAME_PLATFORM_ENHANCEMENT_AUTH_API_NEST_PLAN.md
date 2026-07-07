@@ -1,5 +1,5 @@
 ---
-status: PREPARED
+status: IN_PROGRESS
 summary: "게임 세션 장기 유지를 위한 auth 보강 — 서명키 DB 영속화+JWKS 다중 키, refresh rotation grace, 토큰 TTL env/per-client 설정화, revocation 정합성, 운영 위생"
 ---
 
