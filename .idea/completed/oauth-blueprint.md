@@ -1,3 +1,10 @@
+---
+status: COMPLETED
+summary: "워크스페이스 중앙 OAuth2/OIDC provider(auth-api-nest)의 최초 설계 blueprint — 목표, 시스템 경계, 서비스/권한 모델, 초기 결정사항."
+completed_at: 2026-07-08
+completion_reason: "Blueprint 가 auth-api-nest 로 구현 완료됨 (운영급 중앙 OIDC provider). 일부 초기 결정(seed superadmin, 공개 가입 없음)은 이후 /admin bootstrap + email-verified signup 정책으로 대체 — 현행 계약은 CLAUDE.md 와 docs/ 가 canonical."
+---
+
 # Teddy OAuth/OIDC Blueprint
 
 ## Goal

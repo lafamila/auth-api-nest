@@ -1,14 +1,19 @@
 # auth-api-nest
 
-Planning-stage NestJS authentication service for the workspace-wide OIDC/OAuth2 provider. Decisions live in `.idea/oauth-blueprint.md`.
+운영급 중앙 OIDC/OAuth2 provider (NestJS). 워크스페이스의 로그인/권한이 필요한 모든 서비스(todo, game-platform, body-lab 등)가 이 서버를 OIDC Provider 로 신뢰한다. 계정/서비스/권한/OIDC client/service credential 관리, service onboarding request, 내장 admin console, e2e 스펙과 `docs/` 통합 문서를 갖춘 구현 완료 서비스다. 최초 설계 결정 문서는 `.idea/completed/oauth-blueprint.md` 참조 (일부 초기 결정은 이후 bootstrap/email-verified signup 정책으로 대체됨 — 현행 계약은 이 파일과 `docs/` 가 canonical).
 
 > 이 파일이 본 레포의 canonical 가이드입니다. `AGENTS.md` 는 codex 호환용 stub 입니다.
+
+- **Lifecycle**: DEPLOY
+- **Status**: active
+- **Port**: 3032
+- **Auth**: provider — 이 서비스가 중앙 OIDC 제공자
 
 ## 워크스페이스 대원칙 (canonical)
 
 이 레포는 `../CLAUDE.md` 의 **DEVELOPMENT PRINCIPLES** 섹션을 따른다. 핵심 재진술:
 
-1. **인증** — 본 레포가 *중앙 인증 서버* 자체. 다른 서비스가 이 레포를 OIDC Provider 로 신뢰한다. `.idea/oauth-blueprint.md` 의 결정(NestJS + oidc-provider + PostgreSQL, issuer `https://auth.lafamila.xyz`)을 따른다.
+1. **인증** — 본 레포가 *중앙 인증 서버* 자체. 다른 서비스가 이 레포를 OIDC Provider 로 신뢰한다. `.idea/completed/oauth-blueprint.md` 의 결정(NestJS + oidc-provider + PostgreSQL, issuer `https://auth.lafamila.xyz`)을 따른다.
 2. **기능 단위 커밋** — 한 기능이 계획-구현-검토를 통과하면 즉시 1개의 커밋. 여러 기능을 묶지 않는다.
 3. **Agent co-author 제외** — Codex, Claude, OmX 등 agent/tool 저자를 `Co-authored-by` trailer 로 추가하지 않는다. 사용자가 명시적으로 요청한 경우만 예외.
 4. **계획 → 구현 → 검토** — 계획 단계에서 검토 통과 기준(어떤 테스트/명령이 통과해야 "done"인지)을 명시한다. auth 관련 변경은 *반드시* 머지 전 테스트.
@@ -32,14 +37,11 @@ Planning-stage NestJS authentication service for the workspace-wide OIDC/OAuth2 
 
 ## Project Structure & Module Organization
 
-Expected scaffold (현 시점 planning-stage):
-
-- `src/` for NestJS modules, controllers, services, guards, adapters.
-- `src/auth/` for login, password validation, sessions, OIDC provider wiring.
-- `src/admin/` for admin APIs and embedded admin console integration.
-- `src/database/` for PostgreSQL entities, migrations, persistence adapters.
+- `src/` for NestJS modules, controllers, services, guards, adapters (`oidc/`, `admin/`, `signup/`, `database/`, `config/`, `domain/`, `internal/`, `common/`, `health.controller.ts` 등).
+- `src/database/` for PostgreSQL persistence and migrations (`RUN_MIGRATIONS=true` 시 기동 시 실행).
 - `test/` for e2e tests; colocate unit tests as `*.spec.ts`.
-- `.idea/` for design/decision documents (`oauth-blueprint.md` is the spec).
+- `docs/` for integration docs (`auth-flows.md`, `admin-api.md`, `service-integration.md`).
+- `.idea/` for design/decision documents (최초 blueprint 는 `.idea/completed/oauth-blueprint.md`).
 - `.omx/` is local agent/runtime state and must remain untracked.
 
 ## Build, Test, and Development Commands
