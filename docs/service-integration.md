@@ -191,7 +191,9 @@ Content-Type: application/json
 }
 ```
 
-The auth server only accepts this request when the token's service claim key matches `serviceKey` and the permission is `visitor`.
+The auth server accepts the visitor request when the token's service claim matches the account's active permission for `serviceKey`. A visitor may optionally include an active service-defined `requestedPermissionKey`; omitting it preserves the admin-selected onboarding flow.
+
+An authenticated non-visitor may use the same endpoint to request a strictly higher active permission for that service by including `requestedPermissionKey`. Permission definitions are ordered by `sortOrder` and then creation order. Same-level requests, downgrades, inactive or unknown definitions, managed `superadmin`, mismatched token permissions, and targets belonging to another service are rejected.
 
 On the first successful login to an active service, if the user has no row at all for that service, auth lazily creates `visitor` and issues the token with that claim. If a row already exists in a non-active state, auth denies access instead of auto-restoring it.
 

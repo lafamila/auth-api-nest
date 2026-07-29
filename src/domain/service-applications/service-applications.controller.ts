@@ -40,8 +40,10 @@ export class ServiceApplicationsController {
     if (!token) {
       throw new UnauthorizedException('Bearer access token is required');
     }
-    const claims = this.tokens.verifyAccessToken(token) as ServiceAccessTokenClaims;
-    return this.applications.createFromVisitorToken(claims, body);
+    const claims = this.tokens.verifyAccessToken(
+      token,
+    ) as ServiceAccessTokenClaims;
+    return this.applications.createFromAccessToken(claims, body);
   }
 
   @UseGuards(AdminGuard)

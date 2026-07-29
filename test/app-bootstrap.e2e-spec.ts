@@ -16,6 +16,7 @@ import { ServiceOnboardingRequestEntity } from '../src/database/entities/service
 import { ServicePermissionDefinitionEntity } from '../src/database/entities/service-permission-definition.entity';
 import { ServiceEntity } from '../src/database/entities/service.entity';
 import { AccountsService } from '../src/domain/accounts/accounts.service';
+import { ServiceApplicationsService } from '../src/domain/service-applications/service-applications.service';
 import { ServiceOnboardingService } from '../src/domain/service-onboarding/service-onboarding.service';
 import { TokenService } from '../src/oidc/token.service';
 import { hashToken } from '../src/common/crypto/token-hash';
@@ -1198,6 +1199,118 @@ describe('App bootstrap (e2e)', () => {
       expectedServiceKey: approved.service.serviceKey,
       expectedPermission: 'admin',
     });
+  });
+
+  it('allows only strictly higher service-defined permission applications', async () => {
+    const clientId = nextSuffix('permission-upgrade-client');
+    const approved = await createApprovedService({
+      permissions: [
+        { key: 'user', label: 'User' },
+        { key: 'admin', label: 'Admin' },
+      ],
+      oidcClients: [
+        {
+          clientId,
+          clientType: 'public',
+          redirectUris: ['travel://auth/callback'],
+        },
+      ],
+    });
+    const { account, password } = await createAccount();
+    const agent = request.agent(app.getHttpServer());
+    const visitorTokens = await authorizeAndExchange(agent, {
+      clientId,
+      redirectUri: 'travel://auth/callback',
+      expectedServiceKey: approved.service.serviceKey,
+      expectedPermission: 'visitor',
+      loginId: account.loginId,
+      password,
+    });
+
+    const userApplication = await request(app.getHttpServer())
+      .post('/api/service-applications')
+      .set('authorization', `Bearer ${visitorTokens.access_token}`)
+      .send({
+        serviceKey: approved.service.serviceKey,
+        requestedPermissionKey: 'user',
+      })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(
+        `/api/admin/service-applications/${userApplication.body.id}/approve`,
+      )
+      .set('Cookie', adminCookie)
+      .send({
+        targetPermissionDefinitionId: approved.permissionsByKey.get('user')?.id,
+      })
+      .expect(201);
+
+    const userTokens = await authorizeAndExchange(agent, {
+      clientId,
+      redirectUri: 'travel://auth/callback',
+      expectedServiceKey: approved.service.serviceKey,
+      expectedPermission: 'user',
+    });
+    const applyAsUser = (requestedPermissionKey?: string, message?: string) =>
+      request(app.getHttpServer())
+        .post('/api/service-applications')
+        .set('authorization', `Bearer ${userTokens.access_token}`)
+        .send({
+          serviceKey: approved.service.serviceKey,
+          ...(requestedPermissionKey ? { requestedPermissionKey } : {}),
+          ...(message ? { message } : {}),
+        });
+
+    await applyAsUser().expect(400);
+    await applyAsUser('user').expect(400);
+    await applyAsUser('visitor').expect(400);
+    await applyAsUser('superadmin').expect(400);
+    await applyAsUser('missing').expect(400);
+    await request(app.getHttpServer())
+      .post('/api/service-applications')
+      .set('authorization', `Bearer ${userTokens.access_token}`)
+      .send({
+        serviceKey: nextSuffix('other-service'),
+        requestedPermissionKey: 'admin',
+      })
+      .expect(403);
+
+    const adminPermission = approved.permissionsByKey.get('admin');
+    expect(adminPermission).toBeDefined();
+    await dataSource
+      .getRepository(ServicePermissionDefinitionEntity)
+      .update({ id: adminPermission!.id }, { status: 'deprecated' });
+    await applyAsUser('admin').expect(400);
+    await dataSource
+      .getRepository(ServicePermissionDefinitionEntity)
+      .update({ id: adminPermission!.id }, { status: 'active' });
+
+    const adminApplication = await applyAsUser('admin', 'First request').expect(
+      201,
+    );
+    const updatedApplication = await applyAsUser(
+      'admin',
+      'Updated request',
+    ).expect(201);
+    expect(updatedApplication.body.id).toBe(adminApplication.body.id);
+    expect(updatedApplication.body.message).toBe('Updated request');
+    expect(updatedApplication.body.targetPermissionDefinitionId).toBe(
+      adminPermission!.id,
+    );
+
+    await expect(
+      app
+        .get(ServiceApplicationsService)
+        .statusForServiceAccount(approved.service.serviceKey, account.id),
+    ).resolves.toEqual(expect.objectContaining({ status: 'pending' }));
+
+    await request(app.getHttpServer())
+      .post(
+        `/api/admin/service-applications/${adminApplication.body.id}/approve`,
+      )
+      .set('Cookie', adminCookie)
+      .send({ targetPermissionDefinitionId: adminPermission!.id })
+      .expect(201);
   });
 
   it('lazily grants visitor to an existing account after a new service is approved', async () => {

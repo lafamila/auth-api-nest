@@ -17,7 +17,10 @@ import {
 import { ServicePermissionDefinitionEntity } from '../../database/entities/service-permission-definition.entity';
 import { ServiceEntity } from '../../database/entities/service.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
-import { VISITOR_PERMISSION } from '../permissions/visitor-permission';
+import {
+  SUPERADMIN_PERMISSION,
+  VISITOR_PERMISSION,
+} from '../permissions/managed-permissions';
 import { CreateServiceApplicationDto } from './dto/service-application.dto';
 
 export interface ServiceAccessTokenClaims {
@@ -76,7 +79,10 @@ export class ServiceApplicationsService {
     serviceKey: string,
     accountId: string,
   ): Promise<ServiceApplicationStatusView> {
-    const service = await this.services.findOneBy({ serviceKey, status: 'active' });
+    const service = await this.services.findOneBy({
+      serviceKey,
+      status: 'active',
+    });
     if (!service) {
       throw new NotFoundException('Service not found');
     }
@@ -90,11 +96,18 @@ export class ServiceApplicationsService {
         order: { createdAt: 'DESC' },
       }),
     ]);
-    const currentPermissionKey = currentPermission?.permissionDefinition.key ?? null;
-    const status =
-      currentPermissionKey && currentPermissionKey !== VISITOR_PERMISSION.key
-        ? 'approved'
-        : latestApplication?.status ?? 'none';
+    const currentPermissionKey =
+      currentPermission?.permissionDefinition.key ?? null;
+    const latestApplicationTargetsCurrentPermission =
+      latestApplication?.targetPermissionDefinitionId != null &&
+      latestApplication.targetPermissionDefinitionId ===
+        currentPermission?.permissionDefinitionId;
+    const status = latestApplicationTargetsCurrentPermission
+      ? 'approved'
+      : (latestApplication?.status ??
+        (currentPermissionKey && currentPermissionKey !== VISITOR_PERMISSION.key
+          ? 'approved'
+          : 'none'));
     return {
       accountId,
       serviceKey,
@@ -119,7 +132,7 @@ export class ServiceApplicationsService {
     };
   }
 
-  async createFromVisitorToken(
+  async createFromAccessToken(
     claims: ServiceAccessTokenClaims,
     input: CreateServiceApplicationDto,
   ): Promise<ServiceApplicationEntity> {
@@ -129,30 +142,58 @@ export class ServiceApplicationsService {
       throw new UnauthorizedException('Service access token is required');
     }
     if (serviceClaim.key !== input.serviceKey) {
-      throw new ForbiddenException('Token service claim does not match request');
+      throw new ForbiddenException(
+        'Token service claim does not match request',
+      );
     }
-    if (serviceClaim.permission !== VISITOR_PERMISSION.key) {
-      throw new ForbiddenException('Only visitor accounts can apply for service access');
-    }
-
     const [account, service] = await Promise.all([
       this.accounts.findOneBy({ id: accountId, status: 'active' }),
-      this.services.findOneBy({ serviceKey: input.serviceKey, status: 'active' }),
+      this.services.findOneBy({
+        serviceKey: input.serviceKey,
+        status: 'active',
+      }),
     ]);
     if (!account || !service) {
       throw new NotFoundException('Account or service not found');
     }
 
-    const requestedPermission = input.requestedPermissionKey
-      ? await this.findRequestedPermission(service.id, input.requestedPermissionKey)
-      : null;
-
     const currentPermission = await this.accountPermissions.findOne({
       where: { accountId: account.id, serviceId: service.id, status: 'active' },
       relations: { permissionDefinition: true },
     });
-    if (currentPermission?.permissionDefinition.key !== VISITOR_PERMISSION.key) {
-      throw new ForbiddenException('Current service permission is not visitor');
+    if (
+      !currentPermission ||
+      currentPermission.permissionDefinition.status !== 'active'
+    ) {
+      throw new ForbiddenException('Current service permission is not active');
+    }
+    if (
+      serviceClaim.permission !== currentPermission.permissionDefinition.key
+    ) {
+      throw new ForbiddenException(
+        'Token permission does not match current permission',
+      );
+    }
+
+    if (
+      !input.requestedPermissionKey &&
+      currentPermission.permissionDefinition.key !== VISITOR_PERMISSION.key
+    ) {
+      throw new BadRequestException(
+        'requestedPermissionKey is required for permission upgrades',
+      );
+    }
+    const requestedPermission = input.requestedPermissionKey
+      ? await this.findRequestedPermission(
+          service.id,
+          input.requestedPermissionKey,
+        )
+      : null;
+    if (requestedPermission) {
+      await this.assertStrictPermissionUpgrade(
+        currentPermission.permissionDefinition,
+        requestedPermission,
+      );
     }
 
     const existing = await this.applications.findOneBy({
@@ -210,13 +251,18 @@ export class ServiceApplicationsService {
         throw new NotFoundException('Service application not found');
       }
       if (application.status !== 'pending') {
-        throw new BadRequestException('Only pending applications can be approved');
+        throw new BadRequestException(
+          'Only pending applications can be approved',
+        );
       }
       if (
         application.targetPermissionDefinitionId &&
-        application.targetPermissionDefinitionId !== targetPermissionDefinitionId
+        application.targetPermissionDefinitionId !==
+          targetPermissionDefinitionId
       ) {
-        throw new BadRequestException('Approval target must match requested permission');
+        throw new BadRequestException(
+          'Approval target must match requested permission',
+        );
       }
       const targetPermission = await manager.findOne(
         ServicePermissionDefinitionEntity,
@@ -229,10 +275,14 @@ export class ServiceApplicationsService {
         },
       );
       if (!targetPermission) {
-        throw new BadRequestException('Target permission must be active and belong to service');
+        throw new BadRequestException(
+          'Target permission must be active and belong to service',
+        );
       }
       if (targetPermission.key === VISITOR_PERMISSION.key) {
-        throw new BadRequestException('Application must be approved to a non-visitor permission');
+        throw new BadRequestException(
+          'Application must be approved to a non-visitor permission',
+        );
       }
 
       const existingPermission = await manager.findOne(
@@ -241,8 +291,23 @@ export class ServiceApplicationsService {
           where: {
             accountId: application.accountId,
             serviceId: application.serviceId,
+            status: 'active',
           },
+          relations: { permissionDefinition: true },
         },
+      );
+      if (
+        !existingPermission ||
+        existingPermission.permissionDefinition.status !== 'active'
+      ) {
+        throw new BadRequestException(
+          'Current service permission is not active',
+        );
+      }
+      await this.assertStrictPermissionUpgrade(
+        existingPermission.permissionDefinition,
+        targetPermission,
+        manager.getRepository(ServicePermissionDefinitionEntity),
       );
       await manager.save(
         AccountServicePermissionEntity,
@@ -285,12 +350,16 @@ export class ServiceApplicationsService {
     applicationId: string,
     reviewerAccountId?: string | null,
   ): Promise<ServiceApplicationEntity> {
-    const application = await this.applications.findOneBy({ id: applicationId });
+    const application = await this.applications.findOneBy({
+      id: applicationId,
+    });
     if (!application) {
       throw new NotFoundException('Service application not found');
     }
     if (application.status !== 'pending') {
-      throw new BadRequestException('Only pending applications can be rejected');
+      throw new BadRequestException(
+        'Only pending applications can be rejected',
+      );
     }
     application.status = 'rejected';
     application.reviewedByAccountId = reviewerAccountId ?? null;
@@ -318,11 +387,39 @@ export class ServiceApplicationsService {
       key,
       status: 'active',
     });
-    if (!permission || permission.key === VISITOR_PERMISSION.key) {
+    if (
+      !permission ||
+      permission.key === VISITOR_PERMISSION.key ||
+      permission.key === SUPERADMIN_PERMISSION.key
+    ) {
       throw new BadRequestException(
-        'requestedPermissionKey must be an active non-visitor permission for the service',
+        'requestedPermissionKey must be an active requestable permission for the service',
       );
     }
     return permission;
+  }
+
+  private async assertStrictPermissionUpgrade(
+    currentPermission: ServicePermissionDefinitionEntity,
+    requestedPermission: ServicePermissionDefinitionEntity,
+    permissionRepository = this.permissions,
+  ): Promise<void> {
+    const requestablePermissions = (
+      await permissionRepository.find({
+        where: { serviceId: currentPermission.serviceId, status: 'active' },
+        order: { sortOrder: 'ASC', createdAt: 'ASC' },
+      })
+    ).filter((permission) => permission.key !== SUPERADMIN_PERMISSION.key);
+    const currentIndex = requestablePermissions.findIndex(
+      (permission) => permission.id === currentPermission.id,
+    );
+    const requestedIndex = requestablePermissions.findIndex(
+      (permission) => permission.id === requestedPermission.id,
+    );
+    if (currentIndex < 0 || requestedIndex <= currentIndex) {
+      throw new BadRequestException(
+        'requestedPermissionKey must be strictly higher than the current permission',
+      );
+    }
   }
 }

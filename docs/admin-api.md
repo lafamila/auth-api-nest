@@ -113,9 +113,9 @@ Permission definition writes happen through approved onboarding specs or service
 
 ## Service Applications
 
-Visitor users can request service access through:
+Authenticated users can request service access or a permission upgrade through:
 
-- `POST /api/service-applications`: requires a bearer access token whose service claim permission is `visitor`. Body: `serviceKey`, optional `message`.
+- `POST /api/service-applications`: requires a bearer access token whose service claim matches the active account permission for `serviceKey`. Body: `serviceKey`, optional `requestedPermissionKey` and `message`. Visitors may omit the target for the existing onboarding flow; non-visitors must request an active service-defined permission that is strictly higher than their current permission. Managed `superadmin`, same-level requests, and downgrades are rejected.
 
 Admins review requests through:
 
