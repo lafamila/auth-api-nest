@@ -136,6 +136,46 @@ Rules:
 2. The credential must include `account.search`.
 3. The raw secret is shown only once at create/rotate time and must be stored by the consuming service, not by this repo.
 
+### Verifying a credential presented by a third party
+
+The guard above authenticates *the caller's own* credential. When a service is
+handed someone else's credential (for example a device or a second deployment of
+the same service pushing data), it asks auth whether that credential is valid:
+
+```http
+POST /api/internal/service-credentials/verify
+x-auth-service-key-id: {caller keyId}
+x-auth-service-secret: {caller secret}
+Content-Type: application/json
+
+{ "keyId": "asc_todo_a1b2c3d4e5f6a7b8", "secret": "...", "requiredScope": "sync" }
+```
+
+```json
+{ "valid": true, "serviceKey": "todo", "scopes": ["sync"], "status": "active" }
+{ "valid": false, "reason": "invalid_credential" }
+```
+
+Rules:
+
+1. Valid and invalid results are both HTTP 200; only caller authentication
+   failure is 401. Read the verdict from `valid`.
+2. `reason` is one of `invalid_credential`, `disabled`, `scope_missing` and
+   nothing else — it never reveals whether a `keyId` exists or which service
+   owns it.
+3. The verified credential must belong to the caller's own `serviceKey`. A
+   credential from another service is reported as `invalid_credential`.
+4. `requiredScope` is optional and must be a known scope key; omit it to skip
+   the scope check. An unknown scope key is a 400.
+5. `disabled` covers a disabled credential, an inactive owning service, and an
+   expired credential. Callers that cache the verdict should keep the TTL short
+   enough for admin-side revocation to take effect.
+6. Every attempt is audit-logged as `service_credential.verify` with the target
+   and caller `keyId`. Secrets are never logged.
+
+The `sync` scope exists for this flow: a service deployment pushing/pulling data
+changes to another deployment of the same service.
+
 `visitor` is the default permission state for services, but auth does not pre-create every account-service row. Services should treat both `visitor` and a denied login caused by an existing non-active assignment as no-access or application-required states unless their domain explicitly supports visitor behavior.
 
 When a logged-in user has `visitor`, the service can show an access request form and call:

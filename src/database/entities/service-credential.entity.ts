@@ -22,6 +22,12 @@ export const SERVICE_CREDENTIAL_SCOPE_DEFINITIONS = [
     description:
       'Allows a service backend to read permission upgrade request status and current permissions.',
   },
+  {
+    key: 'sync',
+    label: 'Data Sync',
+    description:
+      'Allows a service deployment to push/pull data changes to another deployment of the same service.',
+  },
 ] as const;
 
 export type ServiceCredentialScope =

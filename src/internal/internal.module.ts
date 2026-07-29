@@ -4,11 +4,16 @@ import { ServiceApplicationsModule } from '../domain/service-applications/servic
 import { ServiceCredentialsModule } from '../domain/service-credentials/service-credentials.module';
 import { InternalServiceAccountsController } from './internal-service-accounts.controller';
 import { InternalServiceApplicationsController } from './internal-service-applications.controller';
+import { InternalServiceCredentialsController } from './internal-service-credentials.controller';
 import { InternalServiceCredentialsGuard } from './internal-service-credentials.guard';
 
 @Module({
   imports: [AccountsModule, ServiceApplicationsModule, ServiceCredentialsModule],
-  controllers: [InternalServiceAccountsController, InternalServiceApplicationsController],
+  controllers: [
+    InternalServiceAccountsController,
+    InternalServiceApplicationsController,
+    InternalServiceCredentialsController,
+  ],
   providers: [InternalServiceCredentialsGuard],
 })
 export class InternalModule {}

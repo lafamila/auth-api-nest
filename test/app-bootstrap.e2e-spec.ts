@@ -157,7 +157,7 @@ describe('App bootstrap (e2e)', () => {
     serviceCredentials?: Array<{
       name: string;
       description?: string;
-      scopes: Array<'account.search' | 'permission.read'>;
+      scopes: Array<'account.search' | 'permission.read' | 'sync'>;
     }>;
   }): Promise<ApprovedServiceResult> {
     const suffix = nextSuffix('service');
@@ -1458,6 +1458,151 @@ describe('App bootstrap (e2e)', () => {
         q: account.loginId.slice(0, 4),
       })
       .expect(401);
+  });
+
+  it('verifies a presented service credential for the caller own service', async () => {
+    const todoApproved = await createApprovedService({
+      serviceCredentials: [
+        { name: 'sync caller credential', scopes: ['sync'] },
+        { name: 'laptop sync credential', scopes: ['sync'] },
+        { name: 'no sync credential', scopes: ['account.search'] },
+      ],
+    });
+    const otherApproved = await createApprovedService({
+      serviceCredentials: [{ name: 'other service sync', scopes: ['sync'] }],
+    });
+
+    const secretByName = (approved: ApprovedServiceResult, name: string) => {
+      const secret = approved.approval.secrets.find(
+        (candidate) =>
+          candidate.kind === 'service_credential' && candidate.name === name,
+      ) as { keyId: string; secret: string } | undefined;
+      expect(secret).toBeTruthy();
+      return secret as { keyId: string; secret: string };
+    };
+    const caller = secretByName(todoApproved, 'sync caller credential');
+    const laptop = secretByName(todoApproved, 'laptop sync credential');
+    const noSync = secretByName(todoApproved, 'no sync credential');
+    const foreign = secretByName(otherApproved, 'other service sync');
+
+    const verifyAs = (body: Record<string, unknown>) =>
+      request(app.getHttpServer())
+        .post('/api/internal/service-credentials/verify')
+        .set('x-auth-service-key-id', caller.keyId)
+        .set('x-auth-service-secret', caller.secret)
+        .send(body);
+
+    await request(app.getHttpServer())
+      .get('/api/service-credential-scopes')
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual(
+          expect.arrayContaining([expect.objectContaining({ key: 'sync' })]),
+        );
+      });
+
+    await request(app.getHttpServer())
+      .post('/api/internal/service-credentials/verify')
+      .send({ keyId: laptop.keyId, secret: laptop.secret, requiredScope: 'sync' })
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .post('/api/internal/service-credentials/verify')
+      .set('x-auth-service-key-id', caller.keyId)
+      .set('x-auth-service-secret', 'wrong-caller-secret')
+      .send({ keyId: laptop.keyId, secret: laptop.secret, requiredScope: 'sync' })
+      .expect(401);
+
+    await verifyAs({
+      keyId: laptop.keyId,
+      secret: laptop.secret,
+      requiredScope: 'sync',
+    })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual({
+          valid: true,
+          serviceKey: todoApproved.service.serviceKey,
+          scopes: ['sync'],
+          status: 'active',
+        });
+      });
+
+    await verifyAs({
+      keyId: laptop.keyId,
+      secret: 'wrong-target-secret',
+      requiredScope: 'sync',
+    })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual({
+          valid: false,
+          reason: 'invalid_credential',
+        });
+      });
+
+    await verifyAs({
+      keyId: noSync.keyId,
+      secret: noSync.secret,
+      requiredScope: 'sync',
+    })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual({ valid: false, reason: 'scope_missing' });
+      });
+
+    await verifyAs({ keyId: noSync.keyId, secret: noSync.secret })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual({
+          valid: true,
+          serviceKey: todoApproved.service.serviceKey,
+          scopes: ['account.search'],
+          status: 'active',
+        });
+      });
+
+    await verifyAs({
+      keyId: foreign.keyId,
+      secret: foreign.secret,
+      requiredScope: 'sync',
+    })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual({
+          valid: false,
+          reason: 'invalid_credential',
+        });
+      });
+
+    await verifyAs({
+      keyId: laptop.keyId,
+      secret: laptop.secret,
+      requiredScope: 'not.a.scope',
+    }).expect(400);
+
+    const laptopCredential = await dataSource
+      .getRepository(ServiceCredentialEntity)
+      .findOneByOrFail({ keyId: laptop.keyId });
+    expect(laptopCredential.lastUsedAt).not.toBeNull();
+
+    await request(app.getHttpServer())
+      .post(
+        `/api/admin/services/${todoApproved.service.id}/credentials/${laptopCredential.id}/disable`,
+      )
+      .set('Cookie', adminCookie)
+      .send({})
+      .expect(201);
+
+    await verifyAs({
+      keyId: laptop.keyId,
+      secret: laptop.secret,
+      requiredScope: 'sync',
+    })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual({ valid: false, reason: 'disabled' });
+      });
   });
 
   it('issues access tokens honoring a per-client TTL override', async () => {

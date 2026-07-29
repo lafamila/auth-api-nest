@@ -103,6 +103,61 @@ New or changed services should submit these values through the service onboardin
 
 When auth APIs, claims, admin console flows, or credential scope semantics change, update docs and report affected repos before finishing the feature.
 
+## Internal Service Credential APIs (`/api/internal/**`)
+
+`/api/internal/**` 는 브라우저 세션이 아니라 **service credential 헤더**로 인증한다. `InternalServiceCredentialsGuard` 가 `x-auth-service-key-id` / `x-auth-service-secret` 로 **호출자 자신**을 인증하고, 각 엔드포인트가 필요한 scope 와 serviceKey 동일성을 추가로 검사한다.
+
+### Service credential scopes
+
+`SERVICE_CREDENTIAL_SCOPE_DEFINITIONS` (`src/database/entities/service-credential.entity.ts`) 가 **단일 소스**다. admin scope 목록 API(`GET /api/admin/service-credential-scopes`), 공개 신청 화면용 목록 API(`GET /api/service-credential-scopes`), credential/onboarding DTO 검증(`@IsIn(SERVICE_CREDENTIAL_SCOPE_KEYS)`)이 모두 이 상수를 읽으므로 키를 추가하면 자동 반영된다. scope 는 기존 `service_credentials.scopes` 컬럼에 들어가는 **값**이므로 DB 마이그레이션이 필요하지 않다.
+
+| scope | 용도 |
+|---|---|
+| `account.search` | 서비스 백엔드의 auth 계정 검색 |
+| `permission.read` | 권한 상태·승급 요청 조회 |
+| `sync` | 같은 서비스의 다른 배포본과 데이터 push/pull (동기화 기기 credential) |
+
+### `POST /api/internal/service-credentials/verify`
+
+**"제3자가 제시한 credential 이 유효한가"** 를 auth 에 물어보는 창구다. guard 는 호출자 자신만 검증하므로 이 엔드포인트가 없으면 서비스가 남의 credential 을 확인할 방법이 없다. **범용 서비스 간 인증 수단**으로 설계했으며 todo 로컬↔NAS 동기화가 첫 소비자다.
+
+호출자 인증 헤더 (필수):
+
+```
+x-auth-service-key-id: {호출자 자신의 keyId}
+x-auth-service-secret: {호출자 자신의 secret}
+```
+
+요청 / 응답:
+
+```http
+POST /api/internal/service-credentials/verify
+Content-Type: application/json
+
+{ "keyId": "asc_todo_a1b2c3d4e5f6a7b8", "secret": "...", "requiredScope": "sync" }
+```
+
+```json
+{ "valid": true, "serviceKey": "todo", "scopes": ["sync"], "status": "active" }
+{ "valid": false, "reason": "invalid_credential" }
+```
+
+계약 규칙:
+
+- 유효/무효 **모두 HTTP 200**(`@HttpCode(200)`)이며 판정은 `valid` 로만 전달한다. 호출자 인증 실패만 401 이다.
+- 실패 사유는 **`invalid_credential` / `disabled` / `scope_missing` 3종뿐**이다. 존재 여부·소속 서비스 같은 추가 정보를 노출하지 않는다. 내부 상세 사유(`not_found`·`secret_mismatch`·`cross_service`·`status_disabled`·`service_inactive`·`expired`·`scope_missing`)는 감사 로그에만 남는다.
+- **검사 순서가 계약의 일부다**: secret 검증 → serviceKey 동일성 → 사용 가능 상태 → scope. secret 을 먼저 보므로 secret 을 모르는 호출자에게는 keyId 존재·비활성 여부가 새지 않는다.
+- **serviceKey 동일성 제약** — 대상 credential 의 serviceKey 가 호출자와 다르면 `invalid_credential` 이다(403 이 아니다 — 타 서비스 keyId 의 존재를 노출하지 않기 위해). 좁게 시작한 의도적 결정이며, 서비스 간 교차 검증이 필요해지면 그때 넓힌다.
+- `requiredScope` 는 선택이다. 생략하면 scope 검사를 건너뛴다. 값은 `SERVICE_CREDENTIAL_SCOPE_KEYS` 중 하나여야 하며 아니면 **400**(`ValidationPipe`, `forbidNonWhitelisted: true` 이므로 정의되지 않은 본문 필드도 400).
+- secret 비교는 `authenticate()` 와 같은 `PasswordService.verify`(argon2id) 를 재사용한다. 별도 해시 비교 로직을 만들지 않는다.
+- `disabled` 는 credential `status`, 소속 service `status`, `expiresAt` 만료를 모두 포함한다. 즉 admin 에서 credential 을 disable 하면 이 창구도 즉시 `disabled` 를 돌려준다(소비 서비스가 결과를 캐시하면 캐시 TTL 만큼 지연된다).
+- 검증 성공 시 **대상** credential 의 `lastUsedAt` / `lastUsedFrom` 를 갱신한다. 동기화 기기 credential 은 auth 를 직접 호출하지 않으므로, 이 갱신이 없으면 admin 화면에서 영원히 "미사용"으로 보인다. `lastUsedFrom` 은 질의한 서비스의 주소다.
+- **rate limit 없음.** 이 레포에는 범용 throttler 가 없고(기존 rate limit 은 signup·onboarding 전용 DB 카운터다) 호출자가 이미 유효한 credential 을 보유해야 하므로 공개 창구가 아니다. argon2 검증 비용이 사실상 속도를 제한한다.
+
+감사 로그(`audit_logs`)는 성공·실패 모두 남는다: `action: 'service_credential.verify'`, `targetType: 'service_credential'`, `targetId`(대상 credential id, 미존재 시 `null`), `afterJson: { valid, reason, detail, targetKeyId, requiredScope, callerCredentialId, callerKeyId, callerServiceKey }`, `ipAddress`, `userAgent`. secret 은 절대 기록하지 않는다.
+
+동기화 기기 credential 온보딩(원칙 8): 서비스가 `/service` 화면에서 **update request** 를 제출해 `serviceCredentials` 에 항목(name + scopes `['sync']`)을 추가하고 superadmin 이 승인하면, 새 `keyId` 와 raw secret 이 승인 응답에 **1회만** 노출된다(원칙 10). auth 는 그 secret 을 다시 보여주지 않으며, 폐기는 admin 의 credential disable 로 한다.
+
 ## Admin Bootstrap & Signup Contract
 
 - If no active superadmin exists, `/admin` shows bootstrap and allows creating the first superadmin only after Google OTP registration and verification are complete.

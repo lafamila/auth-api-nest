@@ -21,6 +21,12 @@ import {
   UpdateServiceCredentialDto,
 } from './dto/service-credential.dto';
 import { AuthenticatedServiceCredential } from './service-credential-request';
+import {
+  SERVICE_CREDENTIAL_VERIFICATION_REASON_BY_DETAIL,
+  ServiceCredentialVerificationDetail,
+  ServiceCredentialVerificationResult,
+  VerifyServiceCredentialContext,
+} from './service-credential-verification';
 
 @Injectable()
 export class ServiceCredentialsService {
@@ -181,6 +187,57 @@ export class ServiceCredentialsService {
     };
   }
 
+  /**
+   * 제3자가 제시한 credential 을 검증한다. 호출자 자신을 인증하는 `authenticate` 와 달리
+   * 예외를 던지지 않고 판정값을 돌려주므로, 서비스 간 인증 창구로 재사용할 수 있다.
+   */
+  async verifyPresented(
+    keyId: string,
+    secret: string,
+    context: VerifyServiceCredentialContext,
+  ): Promise<ServiceCredentialVerificationResult> {
+    const credential = await this.credentials.findOne({
+      where: { keyId },
+      relations: { service: true },
+    });
+    const detail = credential
+      ? await this.resolveVerificationDetail(credential, secret, context)
+      : 'not_found';
+    const reason =
+      detail === 'ok'
+        ? null
+        : SERVICE_CREDENTIAL_VERIFICATION_REASON_BY_DETAIL[detail];
+
+    await this.auditLogs.record({
+      action: 'service_credential.verify',
+      targetType: 'service_credential',
+      targetId: credential?.id ?? null,
+      afterJson: {
+        valid: detail === 'ok',
+        reason,
+        detail,
+        targetKeyId: keyId,
+        requiredScope: context.requiredScope ?? null,
+        callerCredentialId: context.caller.credentialId,
+        callerKeyId: context.caller.keyId,
+        callerServiceKey: context.caller.serviceKey,
+      },
+      ipAddress: context.ipAddress ?? null,
+      userAgent: context.userAgent ?? null,
+    });
+
+    if (!credential || reason) {
+      return { valid: false, reason: reason ?? 'invalid_credential' };
+    }
+    await this.markUsed(credential.id, context.ipAddress ?? null);
+    return {
+      valid: true,
+      serviceKey: credential.service.serviceKey,
+      scopes: [...credential.scopes],
+      status: credential.status,
+    };
+  }
+
   async markUsed(credentialId: string, lastUsedFrom: string | null): Promise<void> {
     await this.credentials.update(
       { id: credentialId },
@@ -232,15 +289,60 @@ export class ServiceCredentialsService {
     return credential;
   }
 
-  private assertCredentialUsable(credential: ServiceCredentialEntity): void {
+  private async resolveVerificationDetail(
+    credential: ServiceCredentialEntity,
+    secret: string,
+    context: VerifyServiceCredentialContext,
+  ): Promise<ServiceCredentialVerificationDetail> {
+    // secret 검증을 먼저 한다 — 그래야 존재·비활성·소속 정보가 secret 을 모르는 호출자에게 새지 않는다.
+    const secretMatches = await this.passwordService.verify(
+      credential.secretHash,
+      secret,
+    );
+    if (!secretMatches) {
+      return 'secret_mismatch';
+    }
+    if (credential.service.serviceKey !== context.caller.serviceKey) {
+      return 'cross_service';
+    }
+    const usability = this.evaluateUsability(credential);
+    if (usability !== 'usable') {
+      return usability;
+    }
+    if (
+      context.requiredScope &&
+      !credential.scopes.includes(context.requiredScope)
+    ) {
+      return 'scope_missing';
+    }
+    return 'ok';
+  }
+
+  private evaluateUsability(
+    credential: ServiceCredentialEntity,
+  ): 'usable' | 'status_disabled' | 'service_inactive' | 'expired' {
     if (credential.status !== 'active') {
-      throw new UnauthorizedException('Service credential is disabled');
+      return 'status_disabled';
     }
     if (credential.service.status !== 'active') {
-      throw new UnauthorizedException('Service is inactive');
+      return 'service_inactive';
     }
     if (credential.expiresAt && credential.expiresAt.getTime() <= Date.now()) {
-      throw new UnauthorizedException('Service credential has expired');
+      return 'expired';
+    }
+    return 'usable';
+  }
+
+  private assertCredentialUsable(credential: ServiceCredentialEntity): void {
+    switch (this.evaluateUsability(credential)) {
+      case 'status_disabled':
+        throw new UnauthorizedException('Service credential is disabled');
+      case 'service_inactive':
+        throw new UnauthorizedException('Service is inactive');
+      case 'expired':
+        throw new UnauthorizedException('Service credential has expired');
+      default:
+        return;
     }
   }
 
