@@ -1,5 +1,5 @@
 ---
-status: PREPARED
+status: IN_PROGRESS
 summary: "service credential 에 sync scope 를 추가하고, 다른 서비스가 제시받은 credential 을 검증할 수 있는 내부 엔드포인트를 신설한다."
 ---
 
