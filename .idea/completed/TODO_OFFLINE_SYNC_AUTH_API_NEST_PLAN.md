@@ -1,6 +1,8 @@
 ---
-status: IN_PROGRESS
+status: COMPLETED
 summary: "service credential 에 sync scope 를 추가하고, 다른 서비스가 제시받은 credential 을 검증할 수 있는 내부 엔드포인트를 신설한다."
+completed_at: 2026-07-30
+completion_reason: "auth verify 엔드포인트·양방향 동기화·부트스트랩·실시간(socket) 검증까지 전부 배포 완료."
 ---
 
 # TODO OFFLINE SYNC — auth-api-nest execution plan
