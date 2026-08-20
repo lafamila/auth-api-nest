@@ -10,6 +10,64 @@
 6. Auth redirects back to the service with either `code` or a standard OAuth `error`.
 7. Service exchanges the code at `POST /oauth/token` with `grant_type=authorization_code`, `client_id`, optional `client_secret`, `redirect_uri`, and `code_verifier`.
 
+## Request-Scoped Account Selection
+
+OIDC discovery advertises `prompt_values_supported: ["select_account"]`.
+`select_account` is the only supported `prompt` value; `prompt=login`, unknown
+values, repeated values, and space-delimited combinations are rejected with
+`invalid_request` after client and exact redirect URI validation.
+
+A service that needs a different account for one authorization request sends
+the normal Authorization Code + PKCE parameters plus:
+
+```text
+prompt=select_account
+```
+
+When a hosted form is required, auth creates a five-minute server-side login
+transaction in `token_records`. The browser receives an opaque transaction
+handle in the auth-hosted form and a transaction-specific signed HttpOnly
+browser-binding cookie. Only hashes of both values are stored. The transaction
+contains the canonical validated client, exact redirect URI, scope, state,
+PKCE, prompt, and the current `tas_session` subject snapshot.
+
+`POST /oauth/login` accepts the transaction handle, credentials, and (for
+account selection) the current/other action. It does not accept authorize
+parameters from the browser. Auth reloads and revalidates the stored request,
+requires the browser-binding cookie and current session snapshot to match, and
+atomically consumes the transaction before issuing a code or changing
+`tas_session`. Wrong credentials leave the transaction available for another
+attempt; expiry, replay, a browser mismatch, or a changed central session fail
+locally without redirecting to browser-submitted data. Separate transactions
+and cookies allow concurrent tabs.
+
+When the browser already has a signed `tas_session`, auth shows the current
+account and a `다른 계정 사용` credential form. Both forms are hosted on the
+auth origin. Hosted pages also send a `frame-ancestors 'none'` CSP,
+`X-Frame-Options: DENY`, and `Cache-Control: no-store`.
+
+- Selecting the current account issues a code for the `tas_session` subject.
+- Valid alternate credentials issue a code for that alternate subject.
+- Neither selection path creates, clears, or replaces `tas_session`.
+- Invalid alternate credentials re-render the selection page and leave the
+  existing `tas_session` unchanged.
+- Account/reset status, active service/client status, exact redirect URI,
+  PKCE, lazy `visitor`, and service permission behavior are the same as normal
+  authorization.
+
+The registered callback URI and token request are unchanged. A relying party
+must consume the authorization transaction `state`, exchange the code on its
+backend where applicable, and use the returned token `sub` as the selected
+account. It must not accept a browser-provided account ID as a substitute for
+the code subject. Ending a secondary app session must not call central auth
+`/logout`, because that endpoint intentionally clears the primary
+`tas_session`.
+
+Deployments must run migration `AllowPreAuthTokenRecords20260820000000`, which
+makes `token_records.account_id` nullable for pre-authentication login
+transactions. Authorization codes and refresh tokens continue to require and
+write an account ID in their service paths.
+
 ## Native Public Clients
 
 Some services may still use public OIDC clients. They do not send or store a

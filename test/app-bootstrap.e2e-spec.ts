@@ -224,6 +224,103 @@ describe('App bootstrap (e2e)', () => {
     };
   }
 
+  function createPkce(label: string) {
+    const verifier = `verifier-${nextSuffix(label)}`;
+    return {
+      verifier,
+      challenge: createHash('sha256').update(verifier).digest('base64url'),
+    };
+  }
+
+  function getSetCookies(response: {
+    headers: Record<string, string | string[] | undefined>;
+  }): string[] {
+    const value = response.headers['set-cookie'];
+    if (!value) {
+      return [];
+    }
+    return Array.isArray(value) ? value : [value];
+  }
+
+  function getCookiePair(
+    response: { headers: Record<string, string | string[] | undefined> },
+    name: string,
+  ): string {
+    const cookie = getSetCookies(response).find((value) =>
+      value.startsWith(`${name}=`),
+    );
+    expect(cookie).toBeDefined();
+    return cookie!.split(';')[0];
+  }
+
+  function hiddenValue(html: string, name: string): string {
+    const match = html.match(new RegExp(`name="${name}" value="([^"]+)"`));
+    expect(match).not.toBeNull();
+    return match![1];
+  }
+
+  async function exchangeAuthorizationCode(input: {
+    clientId: string;
+    redirectUri: string;
+    codeVerifier: string;
+    location: string;
+  }) {
+    const redirect = new URL(input.location);
+    expect(redirect.searchParams.get('error')).toBeNull();
+    const code = redirect.searchParams.get('code');
+    expect(code).toBeTruthy();
+    const tokenResponse = await request(app.getHttpServer())
+      .post('/oauth/token')
+      .send({
+        grant_type: 'authorization_code',
+        client_id: input.clientId,
+        redirect_uri: input.redirectUri,
+        code,
+        code_verifier: input.codeVerifier,
+      })
+      .expect(200);
+    return app
+      .get(TokenService)
+      .verifyAccessToken(tokenResponse.body.access_token);
+  }
+
+  async function establishHostedSession(input: {
+    agent: request.Agent;
+    clientId: string;
+    redirectUri: string;
+    loginId: string;
+    password: string;
+  }) {
+    const pkce = createPkce('hosted-session');
+    const authorizeQuery = buildAuthorizeQuery({
+      clientId: input.clientId,
+      redirectUri: input.redirectUri,
+      codeChallenge: pkce.challenge,
+    });
+    const page = await input.agent
+      .get('/oauth/authorize')
+      .query(authorizeQuery)
+      .expect(200);
+    const response = await input.agent
+      .post('/oauth/login')
+      .type('form')
+      .send({
+        login_transaction: hiddenValue(page.text, 'login_transaction'),
+        loginId: input.loginId,
+        password: input.password,
+      })
+      .expect(302);
+    return {
+      payload: await exchangeAuthorizationCode({
+        clientId: input.clientId,
+        redirectUri: input.redirectUri,
+        codeVerifier: pkce.verifier,
+        location: response.headers.location,
+      }),
+      sessionCookie: getCookiePair(response, 'tas_session'),
+    };
+  }
+
   async function authorizeAndExchange(
     agent: request.Agent,
     input: {
@@ -260,7 +357,10 @@ describe('App bootstrap (e2e)', () => {
             .post('/oauth/login')
             .type('form')
             .send({
-              ...authorizeQuery,
+              login_transaction: hiddenValue(
+                initialAuthorizeResponse.text,
+                'login_transaction',
+              ),
               loginId: input.loginId,
               password: input.password,
             })
@@ -353,10 +453,10 @@ describe('App bootstrap (e2e)', () => {
           `<a href="${expectedSignupHref}">sign up</a>`,
         );
         expect(response.text).toContain('id="failure-message"');
-        expect(response.text).toContain(`name="client_id" value="${clientId}"`);
-        expect(response.text).toContain(
-          'name="state" value="hosted-login-state"',
-        );
+        expect(response.text).toContain('name="login_transaction"');
+        expect(response.text).not.toContain('name="client_id"');
+        expect(response.text).not.toContain('name="state"');
+        expect(response.text).not.toContain('name="code_challenge"');
         expect(response.text).not.toContain('password/complete-reset');
         expect(response.text).toContain('Teddy Auth');
         expect(response.text).not.toContain('Continue in your browser');
@@ -387,13 +487,16 @@ describe('App bootstrap (e2e)', () => {
       state: 'resume-state',
     });
 
-    await agent.get('/oauth/authorize').query(authorizeQuery).expect(200);
+    const loginPage = await agent
+      .get('/oauth/authorize')
+      .query(authorizeQuery)
+      .expect(200);
 
     const loginResponse = await agent
       .post('/oauth/login')
       .type('form')
       .send({
-        ...authorizeQuery,
+        login_transaction: hiddenValue(loginPage.text, 'login_transaction'),
         loginId: account.loginId,
         password,
       })
@@ -453,12 +556,15 @@ describe('App bootstrap (e2e)', () => {
       codeChallenge,
     });
 
-    await agent.get('/oauth/authorize').query(authorizeQuery).expect(200);
+    const loginPage = await agent
+      .get('/oauth/authorize')
+      .query(authorizeQuery)
+      .expect(200);
     await agent
       .post('/oauth/login')
       .type('form')
       .send({
-        ...authorizeQuery,
+        login_transaction: hiddenValue(loginPage.text, 'login_transaction'),
         loginId: account.loginId,
         password,
       })
@@ -504,48 +610,738 @@ describe('App bootstrap (e2e)', () => {
       });
   });
 
-  it('honors prompt=login by showing the hosted login page even with tas_session', async () => {
-    const clientId = nextSuffix('hosted-login-prompt-client');
+  it('selects a request account while preserving the exact P1 tas_session', async () => {
+    const clientId = nextSuffix('select-account-client');
+    const redirectUri = 'https://todo.example.com/auth/select-account';
     await createApprovedService({
       oidcClients: [
         {
           clientId,
           clientType: 'public',
-          redirectUris: ['https://todo.example.com/auth/prompt-test'],
+          redirectUris: [redirectUri],
         },
       ],
     });
-    const { account, password } = await createAccount();
+    const p1 = await createAccount({ name: 'Player One' });
+    const p2 = await createAccount({ name: 'Player Two' });
     const agent = request.agent(app.getHttpServer());
-    const codeChallenge = createHash('sha256')
-      .update(`verifier-${nextSuffix('hosted-login-prompt')}`)
-      .digest('base64url');
-    const authorizeQuery = buildAuthorizeQuery({
-      clientId,
-      redirectUri: 'https://todo.example.com/auth/prompt-test',
-      codeChallenge,
-    });
 
-    await agent.get('/oauth/authorize').query(authorizeQuery).expect(200);
+    const p1Session = await establishHostedSession({
+      agent,
+      clientId,
+      redirectUri,
+      loginId: p1.account.loginId,
+      password: p1.password,
+    });
+    expect(p1Session.payload.sub).toBe(p1.account.id);
+    expect(p1Session.sessionCookie).toMatch(/^tas_session=/);
+
+    const p2Pkce = createPkce('select-account-p2');
+    const p2Query = buildAuthorizeQuery({
+      clientId,
+      redirectUri,
+      codeChallenge: p2Pkce.challenge,
+      state: 'player-2-state',
+      prompt: 'select_account',
+    });
+    const selectionPage = await agent
+      .get('/oauth/authorize')
+      .query(p2Query)
+      .expect(200)
+      .expect('X-Frame-Options', 'DENY')
+      .expect('Cache-Control', 'no-store');
+    expect(selectionPage.headers['content-security-policy']).toContain(
+      "frame-ancestors 'none'",
+    );
+    expect(selectionPage.text).toContain('계정 선택');
+    expect(selectionPage.text).toContain('다른 계정 사용');
+    expect(selectionPage.text).toContain(p1.account.loginId);
+    expect(selectionPage.text).not.toContain('name="prompt"');
+    expect(getSetCookies(selectionPage)).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/^tas_session=/)]),
+    );
+    const loginTransaction = hiddenValue(
+      selectionPage.text,
+      'login_transaction',
+    );
+
     await agent
       .post('/oauth/login')
       .type('form')
       .send({
-        ...authorizeQuery,
-        loginId: account.loginId,
-        password,
+        login_transaction: loginTransaction,
+        account_selection: 'other',
+        loginId: p2.account.loginId,
+        password: 'wrong-password',
+      })
+      .expect(200)
+      .expect((response) => {
+        expect(response.text).toContain('Invalid credentials');
+        expect(response.text).not.toContain('property prompt should not exist');
+        expect(getSetCookies(response)).not.toEqual(
+          expect.arrayContaining([expect.stringMatching(/^tas_session=/)]),
+        );
+      });
+
+    const p2Response = await agent
+      .post('/oauth/login')
+      .type('form')
+      .send({
+        login_transaction: loginTransaction,
+        account_selection: 'other',
+        loginId: p2.account.loginId,
+        password: p2.password,
+      })
+      .expect(302);
+    expect(getSetCookies(p2Response)).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/^tas_session=/)]),
+    );
+    const p2Payload = await exchangeAuthorizationCode({
+      clientId,
+      redirectUri,
+      codeVerifier: p2Pkce.verifier,
+      location: p2Response.headers.location,
+    });
+    expect(p2Payload.sub).toBe(p2.account.id);
+    expect(p2Payload['https://lafamila.xyz/claims/service']).toEqual(
+      expect.objectContaining({ permission: 'visitor' }),
+    );
+
+    const normalPkce = createPkce('normal-after-player-2');
+    const normalResponse = await agent
+      .get('/oauth/authorize')
+      .query(
+        buildAuthorizeQuery({
+          clientId,
+          redirectUri,
+          codeChallenge: normalPkce.challenge,
+          state: 'normal-after-player-2',
+        }),
+      )
+      .expect(302);
+    const normalPayload = await exchangeAuthorizationCode({
+      clientId,
+      redirectUri,
+      codeVerifier: normalPkce.verifier,
+      location: normalResponse.headers.location,
+    });
+    expect(normalPayload.sub).toBe(p1.account.id);
+
+    const currentPkce = createPkce('select-current');
+    const currentQuery = buildAuthorizeQuery({
+      clientId,
+      redirectUri,
+      codeChallenge: currentPkce.challenge,
+      state: 'select-current-state',
+      prompt: 'select_account',
+    });
+    const currentPage = await agent
+      .get('/oauth/authorize')
+      .query(currentQuery)
+      .expect(200);
+    const currentResponse = await agent
+      .post('/oauth/login')
+      .type('form')
+      .send({
+        login_transaction: hiddenValue(currentPage.text, 'login_transaction'),
+        account_selection: 'current',
+      })
+      .expect(302);
+    expect(getSetCookies(currentResponse)).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/^tas_session=/)]),
+    );
+    const currentPayload = await exchangeAuthorizationCode({
+      clientId,
+      redirectUri,
+      codeVerifier: currentPkce.verifier,
+      location: currentResponse.headers.location,
+    });
+    expect(currentPayload.sub).toBe(p1.account.id);
+  });
+
+  it('rejects stale prompt values, combinations, and unknown login transactions', async () => {
+    const clientId = nextSuffix('prompt-validation-client');
+    const redirectUri = 'https://todo.example.com/auth/prompt-validation';
+    await createApprovedService({
+      oidcClients: [
+        {
+          clientId,
+          clientType: 'public',
+          redirectUris: [redirectUri],
+        },
+      ],
+    });
+    const pkce = createPkce('prompt-validation');
+
+    for (const prompt of [
+      'login',
+      'none',
+      'select_account login',
+      'select_account select_account',
+    ]) {
+      const response = await request(app.getHttpServer())
+        .get('/oauth/authorize')
+        .query(
+          buildAuthorizeQuery({
+            clientId,
+            redirectUri,
+            codeChallenge: pkce.challenge,
+            prompt,
+          }),
+        )
+        .expect(302);
+      const redirect = new URL(response.headers.location);
+      expect(redirect.searchParams.get('error')).toBe('invalid_request');
+      expect(redirect.searchParams.get('state')).toBe('state');
+    }
+
+    await request(app.getHttpServer())
+      .post('/oauth/login')
+      .type('form')
+      .send({
+        login_transaction: 'unknown-transaction',
+        account_selection: 'other',
+        loginId: 'unknown',
+        password: 'unknown',
+      })
+      .expect(400)
+      .expect((response) => {
+        expect(response.text).toContain('Invalid or expired login transaction');
+        expect(response.text).not.toContain('property prompt should not exist');
+      });
+  });
+
+  it.each([
+    ['client_id', 'tampered-client'],
+    ['state', 'tampered-state'],
+    ['redirect_uri', 'https://attacker.example.com/callback'],
+    ['code_challenge', 'tampered-pkce-challenge'],
+    ['scope', 'openid profile'],
+  ])(
+    'rejects hosted login POST tampering of %s while keeping the transaction usable',
+    async (field, value) => {
+      const clientId = nextSuffix(`tamper-${field}-client`);
+      const redirectUri = `https://todo.example.com/auth/tamper-${field}`;
+      await createApprovedService({
+        oidcClients: [
+          {
+            clientId,
+            clientType: 'public',
+            redirectUris: [redirectUri],
+          },
+        ],
+      });
+      const account = await createAccount();
+      const agent = request.agent(app.getHttpServer());
+      const pkce = createPkce(`tamper-${field}`);
+      const authorizeQuery = buildAuthorizeQuery({
+        clientId,
+        redirectUri,
+        codeChallenge: pkce.challenge,
+        state: `original-${field}-state`,
+      });
+      const page = await agent
+        .get('/oauth/authorize')
+        .query(authorizeQuery)
+        .expect(200);
+      const transaction = hiddenValue(page.text, 'login_transaction');
+
+      await agent
+        .post('/oauth/login')
+        .type('form')
+        .send({
+          login_transaction: transaction,
+          loginId: account.account.loginId,
+          password: account.password,
+          [field]: value,
+        })
+        .expect(400)
+        .expect((response) => {
+          expect(JSON.stringify(response.body)).toContain(
+            `property ${field} should not exist`,
+          );
+          expect(response.headers.location).toBeUndefined();
+        });
+
+      const cleanResponse = await agent
+        .post('/oauth/login')
+        .type('form')
+        .send({
+          login_transaction: transaction,
+          loginId: account.account.loginId,
+          password: account.password,
+        })
+        .expect(302);
+      expect(
+        new URL(cleanResponse.headers.location).searchParams.get('state'),
+      ).toBe(`original-${field}-state`);
+    },
+  );
+
+  it('blocks ordinary hosted login CSRF from a transaction created in another browser', async () => {
+    const clientId = nextSuffix('ordinary-login-csrf-client');
+    const redirectUri = 'https://todo.example.com/auth/ordinary-login-csrf';
+    await createApprovedService({
+      oidcClients: [
+        {
+          clientId,
+          clientType: 'public',
+          redirectUris: [redirectUri],
+        },
+      ],
+    });
+    const attacker = await createAccount({ name: 'Attacker Account' });
+    const p1 = await createAccount({ name: 'Victim P1' });
+    const attackerAgent = request.agent(app.getHttpServer());
+    const victimAgent = request.agent(app.getHttpServer());
+    const csrfPkce = createPkce('ordinary-login-csrf');
+    const csrfQuery = buildAuthorizeQuery({
+      clientId,
+      redirectUri,
+      codeChallenge: csrfPkce.challenge,
+    });
+    const attackerPage = await attackerAgent
+      .get('/oauth/authorize')
+      .query(csrfQuery)
+      .expect(200);
+    const attackerTransaction = hiddenValue(
+      attackerPage.text,
+      'login_transaction',
+    );
+    const p1Session = await establishHostedSession({
+      agent: victimAgent,
+      clientId,
+      redirectUri,
+      loginId: p1.account.loginId,
+      password: p1.password,
+    });
+
+    await victimAgent
+      .post('/oauth/login')
+      .type('form')
+      .send({
+        login_transaction: attackerTransaction,
+        loginId: attacker.account.loginId,
+        password: attacker.password,
+      })
+      .expect(400)
+      .expect((response) => {
+        expect(response.text).toContain('Invalid or expired login transaction');
+        expect(getSetCookies(response)).not.toEqual(
+          expect.arrayContaining([expect.stringMatching(/^tas_session=/)]),
+        );
+      });
+
+    const normalPkce = createPkce('ordinary-login-csrf-normal');
+    const normalResponse = await victimAgent
+      .get('/oauth/authorize')
+      .query(
+        buildAuthorizeQuery({
+          clientId,
+          redirectUri,
+          codeChallenge: normalPkce.challenge,
+        }),
+      )
+      .expect(302);
+    const normalPayload = await exchangeAuthorizationCode({
+      clientId,
+      redirectUri,
+      codeVerifier: normalPkce.verifier,
+      location: normalResponse.headers.location,
+    });
+    expect(normalPayload.sub).toBe(p1.account.id);
+    expect(p1Session.sessionCookie).toMatch(/^tas_session=/);
+  });
+
+  it('supports concurrent selection tabs completed in either order', async () => {
+    const clientId = nextSuffix('concurrent-selection-client');
+    const redirectUri = 'https://todo.example.com/auth/concurrent-selection';
+    await createApprovedService({
+      oidcClients: [
+        {
+          clientId,
+          clientType: 'public',
+          redirectUris: [redirectUri],
+        },
+      ],
+    });
+    const p1 = await createAccount();
+    const p2 = await createAccount();
+    const agent = request.agent(app.getHttpServer());
+    await establishHostedSession({
+      agent,
+      clientId,
+      redirectUri,
+      loginId: p1.account.loginId,
+      password: p1.password,
+    });
+    const firstPkce = createPkce('concurrent-selection-first');
+    const secondPkce = createPkce('concurrent-selection-second');
+    const firstQuery = buildAuthorizeQuery({
+      clientId,
+      redirectUri,
+      codeChallenge: firstPkce.challenge,
+      state: 'first-tab-state',
+      prompt: 'select_account',
+    });
+    const secondQuery = buildAuthorizeQuery({
+      clientId,
+      redirectUri,
+      codeChallenge: secondPkce.challenge,
+      state: 'second-tab-state',
+      prompt: 'select_account',
+    });
+    const firstPage = await agent
+      .get('/oauth/authorize')
+      .query(firstQuery)
+      .expect(200);
+    const secondPage = await agent
+      .get('/oauth/authorize')
+      .query(secondQuery)
+      .expect(200);
+    const firstTransaction = hiddenValue(firstPage.text, 'login_transaction');
+    const secondTransaction = hiddenValue(secondPage.text, 'login_transaction');
+    expect(firstTransaction).not.toBe(secondTransaction);
+
+    const secondResponse = await agent
+      .post('/oauth/login')
+      .type('form')
+      .send({
+        login_transaction: secondTransaction,
+        account_selection: 'other',
+        loginId: p2.account.loginId,
+        password: p2.password,
+      })
+      .expect(302);
+    const firstResponse = await agent
+      .post('/oauth/login')
+      .type('form')
+      .send({
+        login_transaction: firstTransaction,
+        account_selection: 'other',
+        loginId: p2.account.loginId,
+        password: p2.password,
       })
       .expect(302);
 
-    await agent
+    const secondPayload = await exchangeAuthorizationCode({
+      clientId,
+      redirectUri,
+      codeVerifier: secondPkce.verifier,
+      location: secondResponse.headers.location,
+    });
+    const firstPayload = await exchangeAuthorizationCode({
+      clientId,
+      redirectUri,
+      codeVerifier: firstPkce.verifier,
+      location: firstResponse.headers.location,
+    });
+    expect(secondPayload.sub).toBe(p2.account.id);
+    expect(firstPayload.sub).toBe(p2.account.id);
+    expect(
+      new URL(secondResponse.headers.location).searchParams.get('state'),
+    ).toBe('second-tab-state');
+    expect(
+      new URL(firstResponse.headers.location).searchParams.get('state'),
+    ).toBe('first-tab-state');
+  });
+
+  it('fails closed when tas_session changes after selection page render', async () => {
+    const clientId = nextSuffix('selection-session-change-client');
+    const redirectUri = 'https://todo.example.com/auth/session-change';
+    await createApprovedService({
+      oidcClients: [
+        {
+          clientId,
+          clientType: 'public',
+          redirectUris: [redirectUri],
+        },
+      ],
+    });
+    const p1 = await createAccount();
+    const replacement = await createAccount();
+    const agent = request.agent(app.getHttpServer());
+    await establishHostedSession({
+      agent,
+      clientId,
+      redirectUri,
+      loginId: p1.account.loginId,
+      password: p1.password,
+    });
+    const selectPkce = createPkce('selection-session-change');
+    const selectionPage = await agent
       .get('/oauth/authorize')
-      .query({ ...authorizeQuery, prompt: 'login' })
-      .expect(200)
+      .query(
+        buildAuthorizeQuery({
+          clientId,
+          redirectUri,
+          codeChallenge: selectPkce.challenge,
+          prompt: 'select_account',
+        }),
+      )
+      .expect(200);
+    const oldTransaction = hiddenValue(selectionPage.text, 'login_transaction');
+
+    await agent.get('/logout').expect(200);
+    await establishHostedSession({
+      agent,
+      clientId,
+      redirectUri,
+      loginId: replacement.account.loginId,
+      password: replacement.password,
+    });
+    await agent
+      .post('/oauth/login')
+      .type('form')
+      .send({
+        login_transaction: oldTransaction,
+        account_selection: 'current',
+      })
+      .expect(400)
       .expect((response) => {
-        expect(response.text).toContain('action="/oauth/login"');
-        expect(response.text).toContain('name="prompt" value="login"');
-        expect(response.text).toContain('name="loginId"');
+        expect(response.text).toContain(
+          'Login session changed during authorization',
+        );
       });
+
+    const normalPkce = createPkce('selection-session-change-normal');
+    const normalResponse = await agent
+      .get('/oauth/authorize')
+      .query(
+        buildAuthorizeQuery({
+          clientId,
+          redirectUri,
+          codeChallenge: normalPkce.challenge,
+        }),
+      )
+      .expect(302);
+    const normalPayload = await exchangeAuthorizationCode({
+      clientId,
+      redirectUri,
+      codeVerifier: normalPkce.verifier,
+      location: normalResponse.headers.location,
+    });
+    expect(normalPayload.sub).toBe(replacement.account.id);
+  });
+
+  it('allows exactly one concurrent transaction submission and rejects replay', async () => {
+    const clientId = nextSuffix('transaction-replay-client');
+    const redirectUri = 'https://todo.example.com/auth/transaction-replay';
+    await createApprovedService({
+      oidcClients: [
+        {
+          clientId,
+          clientType: 'public',
+          redirectUris: [redirectUri],
+        },
+      ],
+    });
+    const account = await createAccount();
+    const agent = request.agent(app.getHttpServer());
+    const pkce = createPkce('transaction-replay');
+    const page = await agent
+      .get('/oauth/authorize')
+      .query(
+        buildAuthorizeQuery({
+          clientId,
+          redirectUri,
+          codeChallenge: pkce.challenge,
+        }),
+      )
+      .expect(200);
+    const transaction = hiddenValue(page.text, 'login_transaction');
+    const transactionCookie = getSetCookies(page).find((cookie) =>
+      cookie.startsWith('tas_authorize_transaction_'),
+    );
+    expect(transactionCookie).toBeDefined();
+    const cookiePair = transactionCookie!.split(';')[0];
+    const submission = {
+      login_transaction: transaction,
+      loginId: account.account.loginId,
+      password: account.password,
+    };
+
+    const attempts = await Promise.all([
+      request(app.getHttpServer())
+        .post('/oauth/login')
+        .set('Cookie', cookiePair)
+        .type('form')
+        .send(submission),
+      request(app.getHttpServer())
+        .post('/oauth/login')
+        .set('Cookie', cookiePair)
+        .type('form')
+        .send(submission),
+    ]);
+    expect(attempts.map((response) => response.status).sort()).toEqual([
+      302, 400,
+    ]);
+    const success = attempts.find((response) => response.status === 302)!;
+    await exchangeAuthorizationCode({
+      clientId,
+      redirectUri,
+      codeVerifier: pkce.verifier,
+      location: success.headers.location,
+    });
+
+    await request(app.getHttpServer())
+      .post('/oauth/login')
+      .set('Cookie', cookiePair)
+      .type('form')
+      .send(submission)
+      .expect(400);
+  });
+
+  it('rejects an expired hosted login transaction before authentication', async () => {
+    const clientId = nextSuffix('expired-login-transaction-client');
+    const redirectUri = 'https://todo.example.com/auth/expired-transaction';
+    await createApprovedService({
+      oidcClients: [
+        {
+          clientId,
+          clientType: 'public',
+          redirectUris: [redirectUri],
+        },
+      ],
+    });
+    const account = await createAccount();
+    const agent = request.agent(app.getHttpServer());
+    const pkce = createPkce('expired-login-transaction');
+    const page = await agent
+      .get('/oauth/authorize')
+      .query(
+        buildAuthorizeQuery({
+          clientId,
+          redirectUri,
+          codeChallenge: pkce.challenge,
+        }),
+      )
+      .expect(200);
+    const transaction = hiddenValue(page.text, 'login_transaction');
+    await dataSource.query(
+      `UPDATE token_records
+       SET expires_at = now() - interval '1 second'
+       WHERE token_hash = $1 AND type = 'authorization_login'`,
+      [hashToken(transaction)],
+    );
+
+    await agent
+      .post('/oauth/login')
+      .type('form')
+      .send({
+        login_transaction: transaction,
+        loginId: account.account.loginId,
+        password: account.password,
+      })
+      .expect(400)
+      .expect((response) => {
+        expect(response.text).toContain('Invalid or expired login transaction');
+        expect(getSetCookies(response)).not.toEqual(
+          expect.arrayContaining([expect.stringMatching(/^tas_session=/)]),
+        );
+      });
+  });
+
+  it('applies account, client, and service status policy to account selection', async () => {
+    const clientId = nextSuffix('select-account-policy-client');
+    const redirectUri = 'https://todo.example.com/auth/select-account-policy';
+    const approved = await createApprovedService({
+      oidcClients: [
+        {
+          clientId,
+          clientType: 'public',
+          redirectUris: [redirectUri],
+        },
+      ],
+    });
+    const p1 = await createAccount();
+    const disabled = await createAccount();
+    const resetRequired = await createAccount();
+    const agent = request.agent(app.getHttpServer());
+    await establishHostedSession({
+      agent,
+      clientId,
+      redirectUri,
+      loginId: p1.account.loginId,
+      password: p1.password,
+    });
+    await dataSource
+      .getRepository(AccountEntity)
+      .update({ id: disabled.account.id }, { status: 'disabled' });
+    await dataSource
+      .getRepository(AccountEntity)
+      .update(
+        { id: resetRequired.account.id },
+        { passwordResetRequired: true },
+      );
+
+    const submitOtherAccount = async (input: {
+      loginId: string;
+      password: string;
+      expectedMessage: string;
+    }) => {
+      const pkce = createPkce('select-account-policy');
+      const query = buildAuthorizeQuery({
+        clientId,
+        redirectUri,
+        codeChallenge: pkce.challenge,
+        prompt: 'select_account',
+      });
+      const page = await agent.get('/oauth/authorize').query(query).expect(200);
+      await agent
+        .post('/oauth/login')
+        .type('form')
+        .send({
+          login_transaction: hiddenValue(page.text, 'login_transaction'),
+          account_selection: 'other',
+          loginId: input.loginId,
+          password: input.password,
+        })
+        .expect(200)
+        .expect((response) => {
+          expect(response.text).toContain(input.expectedMessage);
+          expect(getSetCookies(response)).not.toEqual(
+            expect.arrayContaining([expect.stringMatching(/^tas_session=/)]),
+          );
+        });
+    };
+
+    await submitOtherAccount({
+      loginId: disabled.account.loginId,
+      password: disabled.password,
+      expectedMessage: 'Invalid credentials',
+    });
+    await submitOtherAccount({
+      loginId: resetRequired.account.loginId,
+      password: resetRequired.password,
+      expectedMessage: 'Password reset is required',
+    });
+
+    const statusPkce = createPkce('select-account-status');
+    const statusQuery = buildAuthorizeQuery({
+      clientId,
+      redirectUri,
+      codeChallenge: statusPkce.challenge,
+      prompt: 'select_account',
+    });
+    await dataSource
+      .getRepository(OidcClientEntity)
+      .update({ clientId }, { status: 'disabled' });
+    await agent.get('/oauth/authorize').query(statusQuery).expect(400).expect({
+      error: 'unauthorized_client',
+      error_description: 'Client is disabled',
+    });
+
+    await dataSource
+      .getRepository(OidcClientEntity)
+      .update({ clientId }, { status: 'active' });
+    await dataSource
+      .getRepository(ServiceEntity)
+      .update({ id: approved.service.id }, { status: 'disabled' });
+    await agent.get('/oauth/authorize').query(statusQuery).expect(400).expect({
+      error: 'unauthorized_client',
+      error_description: 'Client is disabled',
+    });
   });
 
   it('shows a failure message on hosted login credential errors', async () => {
@@ -570,13 +1366,16 @@ describe('App bootstrap (e2e)', () => {
       codeChallenge,
     });
 
-    await agent.get('/oauth/authorize').query(authorizeQuery).expect(200);
+    const loginPage = await agent
+      .get('/oauth/authorize')
+      .query(authorizeQuery)
+      .expect(200);
 
     await agent
       .post('/oauth/login')
       .type('form')
       .send({
-        ...authorizeQuery,
+        login_transaction: hiddenValue(loginPage.text, 'login_transaction'),
         loginId: account.loginId,
         password: 'wrong-password',
       })
@@ -765,8 +1564,10 @@ describe('App bootstrap (e2e)', () => {
   it('creates and revises a pending service onboarding request with its request secret', async () => {
     const suffix = nextSuffix('pending-update');
     const serviceKey = suffix;
+    const requestIp = `2001:db8::${Date.now().toString(16)}`;
     const createResponse = await request(app.getHttpServer())
       .post('/api/service-onboarding-requests')
+      .set('x-forwarded-for', requestIp)
       .send({
         serviceKey,
         name: `Pending ${suffix}`,
@@ -805,6 +1606,7 @@ describe('App bootstrap (e2e)', () => {
       .post(
         `/api/service-onboarding-requests/${createResponse.body.request.id}/update`,
       )
+      .set('x-forwarded-for', requestIp)
       .set('x-request-secret', createResponse.body.requestSecret)
       .send({
         serviceKey,
@@ -1616,14 +2418,22 @@ describe('App bootstrap (e2e)', () => {
 
     await request(app.getHttpServer())
       .post('/api/internal/service-credentials/verify')
-      .send({ keyId: laptop.keyId, secret: laptop.secret, requiredScope: 'sync' })
+      .send({
+        keyId: laptop.keyId,
+        secret: laptop.secret,
+        requiredScope: 'sync',
+      })
       .expect(401);
 
     await request(app.getHttpServer())
       .post('/api/internal/service-credentials/verify')
       .set('x-auth-service-key-id', caller.keyId)
       .set('x-auth-service-secret', 'wrong-caller-secret')
-      .send({ keyId: laptop.keyId, secret: laptop.secret, requiredScope: 'sync' })
+      .send({
+        keyId: laptop.keyId,
+        secret: laptop.secret,
+        requiredScope: 'sync',
+      })
       .expect(401);
 
     await verifyAs({
@@ -1661,7 +2471,10 @@ describe('App bootstrap (e2e)', () => {
     })
       .expect(200)
       .expect((response) => {
-        expect(response.body).toEqual({ valid: false, reason: 'scope_missing' });
+        expect(response.body).toEqual({
+          valid: false,
+          reason: 'scope_missing',
+        });
       });
 
     await verifyAs({ keyId: noSync.keyId, secret: noSync.secret })

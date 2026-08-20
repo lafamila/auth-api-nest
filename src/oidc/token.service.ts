@@ -141,7 +141,11 @@ export class TokenService implements OnModuleInit {
     const record = await this.tokenRecords.findOne({
       where: { tokenHash, type: 'refresh_token' },
     });
-    if (!record || record.expiresAt.getTime() < Date.now()) {
+    if (
+      !record ||
+      !record.accountId ||
+      record.expiresAt.getTime() < Date.now()
+    ) {
       throw new UnauthorizedException('Invalid refresh token');
     }
     if (record.status === 'used' && this.isWithinRotationGrace(record.usedAt)) {
@@ -207,7 +211,7 @@ export class TokenService implements OnModuleInit {
     const record = await this.tokenRecords.findOne({
       where: { tokenHash: hashToken(refreshToken), type: 'refresh_token' },
     });
-    if (!record) {
+    if (!record || !record.accountId) {
       return null;
     }
     return { accountId: record.accountId, clientId: record.clientId };

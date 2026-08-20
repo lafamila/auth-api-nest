@@ -6,7 +6,10 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 
-export type TokenRecordType = 'authorization_code' | 'refresh_token';
+export type TokenRecordType =
+  | 'authorization_code'
+  | 'authorization_login'
+  | 'refresh_token';
 export type TokenRecordStatus = 'active' | 'used' | 'revoked';
 
 @Entity('token_records')
@@ -27,8 +30,8 @@ export class TokenRecordEntity {
   @Column({ name: 'family_id', type: 'varchar', nullable: true })
   familyId!: string | null;
 
-  @Column({ name: 'account_id' })
-  accountId!: string;
+  @Column({ name: 'account_id', type: 'varchar', nullable: true })
+  accountId!: string | null;
 
   @Column({ name: 'client_id' })
   clientId!: string;

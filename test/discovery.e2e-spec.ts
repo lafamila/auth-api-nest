@@ -16,7 +16,10 @@ describe('OIDC discovery (e2e)', () => {
       controllers: [OidcController],
       providers: [
         SigningKeyService,
-        { provide: AppConfigService, useValue: { issuerUrl: 'http://localhost:3032' } },
+        {
+          provide: AppConfigService,
+          useValue: { issuerUrl: 'http://localhost:3032' },
+        },
         {
           provide: getRepositoryToken(SigningKeyEntity),
           useValue: {
@@ -57,7 +60,12 @@ describe('OIDC discovery (e2e)', () => {
       .expect(200)
       .expect((response) => {
         expect(response.body.issuer).toBe('http://localhost:3032');
-        expect(response.body.code_challenge_methods_supported).toContain('S256');
+        expect(response.body.code_challenge_methods_supported).toContain(
+          'S256',
+        );
+        expect(response.body.prompt_values_supported).toEqual([
+          'select_account',
+        ]);
       });
 
     await request(app.getHttpServer())

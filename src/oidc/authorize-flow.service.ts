@@ -5,6 +5,8 @@ import { OidcClientsService } from '../domain/oidc-clients/oidc-clients.service'
 import { AuthorizationCodeService } from './authorization-code.service';
 import { OAuthError } from './oauth-error';
 
+export const SELECT_ACCOUNT_PROMPT = 'select_account';
+
 export interface AuthorizeRequestInput {
   clientId: string;
   redirectUri: string;
@@ -48,7 +50,7 @@ export class AuthorizeFlowService {
     if (
       !request.clientId ||
       !request.redirectUri ||
-      !request.scope?.includes('openid')
+      !request.scope?.split(/\s+/).includes('openid')
     ) {
       throw new OAuthError(
         'invalid_request',
@@ -64,6 +66,20 @@ export class AuthorizeFlowService {
         'invalid_request',
         'redirect_uri must exactly match',
       );
+    }
+    if (
+      request.prompt !== undefined &&
+      request.prompt !== SELECT_ACCOUNT_PROMPT
+    ) {
+      return {
+        kind: 'redirect',
+        redirectUrl: this.buildErrorRedirectUrl(
+          request.redirectUri,
+          request.state,
+          'invalid_request',
+          'Unsupported prompt value or combination',
+        ),
+      };
     }
     if (client.requirePkce && request.codeChallengeMethod !== 'S256') {
       return {
@@ -144,17 +160,15 @@ export class AuthorizeFlowService {
     };
   }
 
-  renderHostedLoginPage(request: AuthorizeRequestInput, failureMessage = '') {
-    const hiddenFields = [
-      this.hiddenInput('client_id', request.clientId),
-      this.hiddenInput('redirect_uri', request.redirectUri),
-      this.hiddenInput('response_type', request.responseType),
-      this.hiddenInput('scope', request.scope),
-      this.hiddenInput('state', request.state),
-      this.hiddenInput('code_challenge', request.codeChallenge),
-      this.hiddenInput('code_challenge_method', request.codeChallengeMethod),
-      this.hiddenInput('prompt', request.prompt),
-    ].join('');
+  renderHostedLoginPage(
+    request: AuthorizeRequestInput,
+    loginTransaction: string,
+    failureMessage = '',
+  ) {
+    const hiddenFields = this.hiddenInput(
+      'login_transaction',
+      loginTransaction,
+    );
     const failureText = this.escapeHtml(failureMessage);
     const failureVisibility = failureText ? 'visible' : 'hidden';
     const signupHref = this.escapeHtml(this.buildSignupUrl(request));
@@ -288,6 +302,152 @@ export class AuthorizeFlowService {
       <a href="${signupHref}">sign up</a>
       <p id="failure-message" role="alert">${failureText}</p>
     </form>
+  </body>
+</html>`;
+  }
+
+  renderAccountSelectionPage(
+    request: AuthorizeRequestInput,
+    loginTransaction: string,
+    currentAccount?: { loginId: string; name: string },
+    failureMessage = '',
+  ) {
+    const hiddenFields = this.hiddenInput(
+      'login_transaction',
+      loginTransaction,
+    );
+    const failureText = this.escapeHtml(failureMessage);
+    const failureVisibility = failureText ? 'visible' : 'hidden';
+    const currentAccountForm = currentAccount
+      ? `<form method="post" action="/oauth/login">
+      ${hiddenFields}
+      ${this.hiddenInput('account_selection', 'current')}
+      <button class="current-account" type="submit">
+        <span>${this.escapeHtml(currentAccount.name)}</span>
+        <small>${this.escapeHtml(currentAccount.loginId)}</small>
+      </button>
+    </form>`
+      : '';
+    return `<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>계정 선택</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #eef1f5;
+        --panel: #ffffff;
+        --line: #d9dee7;
+        --text: #151b28;
+        --muted: #687386;
+        --accent: #1d4ed8;
+        --accent-soft: #e9efff;
+        --danger: #b42318;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: var(--bg);
+        color: var(--text);
+      }
+      main {
+        width: min(380px, calc(100vw - 32px));
+        display: grid;
+        gap: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 18px 50px rgb(25 33 48 / 10%);
+        padding: 22px;
+      }
+      form { display: grid; gap: 10px; }
+      h1 { margin: 0; font-size: 21px; line-height: 1.2; }
+      .subtitle, .divider {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .divider { padding-top: 4px; font-weight: 700; }
+      input, button {
+        width: 100%;
+        border-radius: 6px;
+        font: inherit;
+        outline: none;
+      }
+      input {
+        border: 1px solid var(--line);
+        color: var(--text);
+        font-size: 16px;
+        padding: 10px;
+      }
+      input:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
+      button {
+        min-height: 40px;
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: #fff;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 700;
+        padding: 9px 12px;
+      }
+      .current-account {
+        display: grid;
+        gap: 2px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        text-align: left;
+      }
+      .current-account small { color: var(--muted); font-weight: 500; }
+      #failure-message {
+        min-height: 1.25rem;
+        margin: 0;
+        color: var(--danger);
+        font-size: 13px;
+        visibility: ${failureVisibility};
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>계정 선택</h1>
+      <p class="subtitle">이 요청에 사용할 계정을 선택하세요.</p>
+      ${currentAccountForm}
+      <p class="divider">다른 계정 사용</p>
+      <form method="post" action="/oauth/login">
+        ${hiddenFields}
+        ${this.hiddenInput('account_selection', 'other')}
+        <input
+          name="loginId"
+          type="text"
+          placeholder="ID"
+          aria-label="ID"
+          autocomplete="username"
+          required
+        />
+        <input
+          name="password"
+          type="password"
+          placeholder="PW"
+          aria-label="PW"
+          autocomplete="current-password"
+          required
+        />
+        <button type="submit">로그인</button>
+        <p id="failure-message" role="alert">${failureText}</p>
+      </form>
+    </main>
   </body>
 </html>`;
   }

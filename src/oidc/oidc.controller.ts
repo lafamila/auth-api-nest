@@ -16,12 +16,16 @@ import { AccountsService } from '../domain/accounts/accounts.service';
 import { OidcClientsService } from '../domain/oidc-clients/oidc-clients.service';
 import { AppConfigService } from '../config/app-config.service';
 import { AuthorizationCodeService } from './authorization-code.service';
-import { AuthorizeFlowService } from './authorize-flow.service';
+import {
+  AuthorizeFlowService,
+  SELECT_ACCOUNT_PROMPT,
+} from './authorize-flow.service';
 import { TokenRequestDto } from './dto/token.dto';
 import { OAuthError } from './oauth-error';
 import { verifyPkceS256 } from './pkce';
 import { SigningKeyService } from './signing-key.service';
 import { TokenService } from './token.service';
+import { HostedLoginTransactionService } from './hosted-login-transaction.service';
 
 type SignedCookieRequest = Request & {
   signedCookies?: Record<string, string | undefined>;
@@ -38,6 +42,7 @@ export class OidcController {
     private readonly authorizeFlow: AuthorizeFlowService,
     private readonly signingKeys: SigningKeyService,
     private readonly tokens: TokenService,
+    private readonly hostedLoginTransactions: HostedLoginTransactionService,
   ) {}
 
   @Get('.well-known/openid-configuration')
@@ -61,7 +66,7 @@ export class OidcController {
       ],
       code_challenge_methods_supported: ['S256'],
       scopes_supported: ['openid', 'profile', 'email', 'service.permission'],
-      prompt_values_supported: ['login'],
+      prompt_values_supported: [SELECT_ACCOUNT_PROMPT],
     };
   }
 
@@ -98,11 +103,51 @@ export class OidcController {
         return response.redirect(validated.redirectUrl);
       }
       const accountId = request.signedCookies?.tas_session;
-      if (!accountId || prompt?.split(/\s+/).includes('login')) {
+      if (validated.request.prompt === SELECT_ACCOUNT_PROMPT) {
+        const currentAccount = accountId
+          ? await this.accounts.findById(accountId)
+          : undefined;
+        const transaction = await this.hostedLoginTransactions.create({
+          request: validated.request,
+          sessionAccountId: accountId ?? null,
+        });
+        this.setHostedLoginTransactionCookie(
+          response,
+          transaction.id,
+          transaction.browserNonce,
+        );
+        this.setHostedPageSecurityHeaders(response);
         return response
           .status(200)
           .type('html')
-          .send(this.authorizeFlow.renderHostedLoginPage(validated.request));
+          .send(
+            this.authorizeFlow.renderAccountSelectionPage(
+              validated.request,
+              transaction.id,
+              currentAccount,
+            ),
+          );
+      }
+      if (!accountId) {
+        const transaction = await this.hostedLoginTransactions.create({
+          request: validated.request,
+          sessionAccountId: null,
+        });
+        this.setHostedLoginTransactionCookie(
+          response,
+          transaction.id,
+          transaction.browserNonce,
+        );
+        this.setHostedPageSecurityHeaders(response);
+        return response
+          .status(200)
+          .type('html')
+          .send(
+            this.authorizeFlow.renderHostedLoginPage(
+              validated.request,
+              transaction.id,
+            ),
+          );
       }
       const authorizeResult = await this.authorizeFlow.authorizeWithAccount(
         validated,
@@ -118,6 +163,35 @@ export class OidcController {
       }
       throw error;
     }
+  }
+
+  private setHostedLoginTransactionCookie(
+    response: Response,
+    transactionId: string,
+    browserNonce: string,
+  ) {
+    response.cookie(
+      this.hostedLoginTransactions.cookieName(transactionId),
+      browserNonce,
+      {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        signed: true,
+        maxAge: 5 * 60 * 1000,
+        path: '/oauth/login',
+      },
+    );
+  }
+
+  private setHostedPageSecurityHeaders(response: Response) {
+    response.set({
+      'Cache-Control': 'no-store',
+      'Content-Security-Policy':
+        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+      'Referrer-Policy': 'no-referrer',
+      'X-Frame-Options': 'DENY',
+    });
   }
 
   @Post('oauth/token')

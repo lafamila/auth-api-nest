@@ -14,6 +14,7 @@ import { AuthorizeFlowService } from './authorize-flow.service';
 import { OidcProviderAdapterService } from './oidc-provider-adapter.service';
 import { SigningKeyService } from './signing-key.service';
 import { TokenService } from './token.service';
+import { HostedLoginTransactionService } from './hosted-login-transaction.service';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { TokenService } from './token.service';
     AesGcmService,
     SigningKeyService,
     TokenService,
+    HostedLoginTransactionService,
   ],
   exports: [TokenService, SigningKeyService],
 })

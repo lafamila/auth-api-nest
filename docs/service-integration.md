@@ -197,6 +197,50 @@ An authenticated non-visitor may use the same endpoint to request a strictly hig
 
 On the first successful login to an active service, if the user has no row at all for that service, auth lazily creates `visitor` and issues the token with that claim. If a row already exists in a non-active state, auth denies access instead of auto-restoring it.
 
+## Request-Scoped OIDC Account Selection
+
+Services that need a second account without replacing the browser's central
+SSO account may add `prompt=select_account` to an otherwise normal
+Authorization Code + S256 PKCE request. Discovery advertises only
+`select_account`; `prompt=login` and prompt combinations are not supported.
+
+The auth-hosted selection page offers the current `tas_session` account and an
+auth-origin-only credential form for another account. The resulting code and
+tokens belong to the selected account, but auth does not write or clear
+`tas_session` in either selection path. A later authorize request without
+`prompt` therefore continues to use the original SSO account.
+
+Hosted login and account selection use an internal five-minute, server-side,
+single-use transaction bound to a signed HttpOnly browser cookie. The form
+does not round-trip `client_id`, redirect URI, state, scope, prompt, or PKCE to
+the login POST; auth reloads those canonical values from the transaction.
+Transactions are distinct per authorize page so concurrent tabs can finish in
+either order. This transaction and cookie are provider internals and require
+no service callback or API changes.
+
+Consumer contract:
+
+1. Add only `prompt=select_account`; keep `client_id`, exact registered
+   `redirect_uri`, `response_type=code`, scopes, `state`, and S256 PKCE as
+   usual.
+2. Keep the existing callback URI and code exchange. No new client secret,
+   redirect URI, token field, or claim is introduced.
+3. Treat token `sub` as the selected account. Never send or trust an arbitrary
+   account ID to choose the subject.
+4. Apply the service's normal permission branching to the selected token. A
+   first-time account receives the existing lazy `visitor` claim; auth does not
+   promote it for account selection.
+5. If the service requires distinct primary/secondary users, compare the two
+   server-validated subjects and reject equality in the service.
+6. End or revoke only the service's secondary session and refresh token. Do
+   not call auth `/logout`, which clears the browser's primary `tas_session`.
+
+For `gbc-porting-web`, Play starts its player-2 popup authorization with
+`prompt=select_account` and its existing callback URI. Auth redirects that
+callback with the normal `code` and `state` only; the Play callback owns its
+same-origin completion signal and player-2 app cookie. Auth does not send
+tokens, passwords, or account IDs through `postMessage`.
+
 ## Example Token Validation Checklist
 
 1. Fetch discovery metadata.

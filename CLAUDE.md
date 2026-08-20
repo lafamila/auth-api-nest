@@ -179,6 +179,19 @@ Phase 1 게임 플랫폼 세션 안정화 작업으로 확정된 토큰/서명�
 - **Revocation 정합성** — 계정 disable / 비밀번호 reset 시 해당 계정 refresh family 전체를 revoke 한다. refresh grant 는 token 소비 전에 `account.status` 를 검사해 비활성 계정을 `403 access_denied` 로 거절한다.
 - **Authorization code 영속화** — auth code 는 in-memory 가 아니라 `token_records`(type=`authorization_code`)에 저장하고 consume 시 DELETE(단일 사용). 재시작 순간에 진행 중이던 로그인도 완료된다. 만료된 `token_records` row 는 기동 시 + refresh 시(throttled) best-effort 로 정리한다.
 
+## OIDC Request-Scoped Account Selection
+
+- Discovery 의 `prompt_values_supported` 는 `select_account` 만 광고한다. `prompt=login`, unknown value, repeated value, space-delimited combination 은 지원하지 않으며 valid client/exact redirect URI 확인 후 `invalid_request` 로 거절한다.
+- `prompt=select_account` 는 기존 Authorization Code + S256 PKCE 요청에만 추가한다. callback URI, code exchange, token/claim 형식은 바뀌지 않는다.
+- ordinary hosted login 과 `select_account` 모두 5분 유효 server-side `authorization_login` transaction 을 `token_records` 에 생성한다. raw transaction/browser nonce 는 저장하지 않고 hash 만 저장하며, transaction 별 signed HttpOnly SameSite=Strict cookie 로 browser 를 bind 한다. 서로 다른 transaction/cookie 를 사용하므로 concurrent tab 이 서로 덮어쓰지 않는다.
+- `/oauth/login` form 은 `login_transaction`, credential, 선택 action 만 POST 한다. client/redirect/state/scope/prompt/PKCE 는 browser 에서 다시 받지 않고 transaction 의 canonical validated request 를 load/revalidate 한다. browser binding, expiry, 최초 `tas_session` snapshot 을 확인하고 성공 경로에서 atomic delete-on-consume 한 요청만 code/session 을 발급한다. wrong credential 은 transaction 을 consume 하지 않으며 replay/expiry/browser mismatch/session change 는 local 400 으로 거절한다.
+- signed `tas_session` 이 있으면 hosted page 가 현재 계정과 `다른 계정 사용`을 제공한다. credential 은 auth origin form 에서만 받으며 CSP `frame-ancestors 'none'`, `X-Frame-Options: DENY`, `Cache-Control: no-store` 로 보호한다.
+- 현재 계정 선택은 `tas_session` subject, 다른 credential 성공은 해당 account subject 로 code 를 발급한다. 두 경로 모두 `tas_session` 을 생성·삭제·교체하지 않는다. `setSessionCookie` 는 prompt 없는 일반 hosted login 에서만 호출한다.
+- account status/password reset, active service/client, exact redirect URI, PKCE, lazy visitor, service permission 검사는 일반 authorize 와 같은 경로를 사용한다.
+- 소비 서비스는 token `sub` 를 요청별 선택 결과로 사용하고 browser 가 보낸 account ID 를 신뢰하지 않는다. secondary app session 종료 시 auth `/logout` 을 호출하면 P1 SSO 가 지워지므로 secondary refresh revoke/app cookie 삭제만 수행한다.
+- `gbc-porting-web` P2 계약은 기존 callback 을 유지하고 authorize query 에 `prompt=select_account` 만 추가한다. Auth callback 은 일반 `code`/`state` 만 전달하며 popup 완료 signal 과 P2 cookie 는 Play 가 소유한다.
+- 배포 시 `AllowPreAuthTokenRecords20260820000000` migration 을 실행해 pre-auth transaction 용 `token_records.account_id` nullable 변경을 적용한다. authorization code/refresh token 경로는 계속 non-null account ID 만 기록하고 읽을 때도 non-null 을 검증한다.
+
 신규 env 키(배포 env 반영 필요): `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`, `REFRESH_ROTATION_GRACE_SECONDS`. 모두 기본값이 현행 동작과 동일하므로 미설정 시 무변경. 서명키 암호화는 기존 `ADMIN_OTP_ENCRYPTION_KEY` 를 재사용한다.
 
 ## Security & Configuration Tips

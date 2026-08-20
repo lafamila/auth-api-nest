@@ -1,19 +1,33 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   Post,
   Query,
+  Req,
   Res,
   UnauthorizedException,
 } from '@nestjs/common';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { AppConfigService } from '../config/app-config.service';
 import { AccountsService } from '../domain/accounts/accounts.service';
 import { CompletePasswordResetDto } from '../domain/accounts/dto/account.dto';
-import { AuthorizeFlowService } from './authorize-flow.service';
+import {
+  AuthorizeFlowService,
+  SELECT_ACCOUNT_PROMPT,
+  ValidatedAuthorizeRequest,
+} from './authorize-flow.service';
 import { HostedLoginDto } from './dto/hosted-login.dto';
+import {
+  HostedLoginTransaction,
+  HostedLoginTransactionService,
+} from './hosted-login-transaction.service';
 import { OAuthError } from './oauth-error';
+
+type SignedCookieRequest = Request & {
+  signedCookies?: Record<string, string | undefined>;
+};
 
 @Controller()
 export class LoginController {
@@ -21,25 +35,58 @@ export class LoginController {
     private readonly accounts: AccountsService,
     private readonly authorizeFlow: AuthorizeFlowService,
     private readonly config: AppConfigService,
+    private readonly hostedLoginTransactions: HostedLoginTransactionService,
   ) {}
 
   @Post('oauth/login')
-  async hostedLogin(@Body() body: HostedLoginDto, @Res() response: Response) {
+  async hostedLogin(
+    @Body() body: HostedLoginDto,
+    @Req()
+    request: SignedCookieRequest,
+    @Res() response: Response,
+  ) {
     try {
-      const validated = await this.authorizeFlow.validateRequest({
-        clientId: body.client_id,
-        redirectUri: body.redirect_uri,
-        responseType: body.response_type,
-        scope: body.scope,
-        state: body.state,
-        codeChallenge: body.code_challenge,
-        codeChallengeMethod: body.code_challenge_method,
-      });
+      const loaded = await this.loadHostedLoginTransaction(
+        body.login_transaction,
+        request,
+      );
+      const validated = await this.authorizeFlow.validateRequest(
+        loaded.transaction.request,
+      );
       if (validated.kind === 'redirect') {
         return response.redirect(validated.redirectUrl);
       }
+      const currentSession = request.signedCookies?.tas_session ?? null;
+      if (loaded.transaction.sessionAccountId !== currentSession) {
+        throw new BadRequestException(
+          'Login session changed during authorization',
+        );
+      }
+      if (validated.request.prompt === SELECT_ACCOUNT_PROMPT) {
+        return this.completeAccountSelection(
+          body,
+          validated,
+          loaded.transaction,
+          body.login_transaction,
+          loaded.browserNonce,
+          response,
+        );
+      }
       try {
-        const account = await this.accounts.authenticate(body.loginId, body.password);
+        if (!body.loginId || !body.password || body.account_selection) {
+          throw new BadRequestException(
+            'Hosted login credentials are required',
+          );
+        }
+        const account = await this.accounts.authenticate(
+          body.loginId,
+          body.password,
+        );
+        await this.consumeHostedLoginTransaction(
+          body.login_transaction,
+          loaded.browserNonce,
+          response,
+        );
         this.setSessionCookie(response, account.id);
         const authorizeResult = await this.authorizeFlow.authorizeWithAccount(
           validated,
@@ -48,11 +95,16 @@ export class LoginController {
         return response.redirect(authorizeResult.redirectUrl);
       } catch (error) {
         if (error instanceof UnauthorizedException) {
+          this.setHostedPageSecurityHeaders(response);
           return response
             .status(200)
             .type('html')
             .send(
-              this.authorizeFlow.renderHostedLoginPage(validated.request, error.message),
+              this.authorizeFlow.renderHostedLoginPage(
+                validated.request,
+                body.login_transaction,
+                error.message,
+              ),
             );
         }
         throw error;
@@ -66,6 +118,98 @@ export class LoginController {
       }
       throw error;
     }
+  }
+
+  private async completeAccountSelection(
+    body: HostedLoginDto,
+    validated: ValidatedAuthorizeRequest,
+    transaction: HostedLoginTransaction,
+    transactionId: string,
+    browserNonce: string,
+    response: Response,
+  ) {
+    if (!body.account_selection) {
+      throw new BadRequestException('Account selection is required');
+    }
+
+    try {
+      const account =
+        body.account_selection === 'current'
+          ? transaction.sessionAccountId
+            ? await this.accounts.findById(transaction.sessionAccountId)
+            : (() => {
+                throw new UnauthorizedException(
+                  'Current session is unavailable',
+                );
+              })()
+          : await this.accounts.authenticate(body.loginId!, body.password!);
+      await this.consumeHostedLoginTransaction(
+        transactionId,
+        browserNonce,
+        response,
+      );
+      const authorizeResult = await this.authorizeFlow.authorizeWithAccount(
+        validated,
+        account.id,
+      );
+      return response.redirect(authorizeResult.redirectUrl);
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        const currentAccount = transaction.sessionAccountId
+          ? await this.accounts.findById(transaction.sessionAccountId)
+          : undefined;
+        this.setHostedPageSecurityHeaders(response);
+        return response
+          .status(200)
+          .type('html')
+          .send(
+            this.authorizeFlow.renderAccountSelectionPage(
+              validated.request,
+              transactionId,
+              currentAccount,
+              error.message,
+            ),
+          );
+      }
+      throw error;
+    }
+  }
+
+  private async loadHostedLoginTransaction(
+    transactionId: string,
+    request: SignedCookieRequest,
+  ): Promise<{
+    transaction: HostedLoginTransaction;
+    browserNonce: string;
+  }> {
+    const cookieName = this.hostedLoginTransactions.cookieName(transactionId);
+    const browserNonce = request.signedCookies?.[cookieName];
+    if (typeof browserNonce !== 'string') {
+      throw new BadRequestException('Invalid or expired login transaction');
+    }
+    const transaction = await this.hostedLoginTransactions.find(
+      transactionId,
+      browserNonce,
+    );
+    if (!transaction) {
+      throw new BadRequestException('Invalid or expired login transaction');
+    }
+    return { transaction, browserNonce };
+  }
+
+  private async consumeHostedLoginTransaction(
+    transactionId: string,
+    browserNonce: string,
+    response: Response,
+  ): Promise<void> {
+    const consumed = await this.hostedLoginTransactions.consume(
+      transactionId,
+      browserNonce,
+    );
+    if (!consumed) {
+      throw new BadRequestException('Invalid or expired login transaction');
+    }
+    this.clearHostedLoginTransactionCookie(response, transactionId);
   }
 
   @Post('logout')
@@ -84,10 +228,7 @@ export class LoginController {
     if (safeReturnTo) {
       return response.redirect(safeReturnTo);
     }
-    return response
-      .status(200)
-      .type('html')
-      .send(`<!doctype html>
+    return response.status(200).type('html').send(`<!doctype html>
 <html lang="ko">
   <head>
     <meta charset="utf-8" />
@@ -151,6 +292,31 @@ export class LoginController {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
+    });
+  }
+
+  private clearHostedLoginTransactionCookie(
+    response: Response,
+    transactionId: string,
+  ) {
+    response.clearCookie(
+      this.hostedLoginTransactions.cookieName(transactionId),
+      {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        path: '/oauth/login',
+      },
+    );
+  }
+
+  private setHostedPageSecurityHeaders(response: Response) {
+    response.set({
+      'Cache-Control': 'no-store',
+      'Content-Security-Policy':
+        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+      'Referrer-Policy': 'no-referrer',
+      'X-Frame-Options': 'DENY',
     });
   }
 

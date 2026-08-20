@@ -1,32 +1,25 @@
-import { IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  IsIn,
+  IsOptional,
+  IsString,
+  MinLength,
+  ValidateIf,
+} from 'class-validator';
 
 export class HostedLoginDto {
+  @ValidateIf((body: HostedLoginDto) => body.account_selection !== 'current')
   @IsString()
-  loginId!: string;
+  loginId?: string;
 
+  @ValidateIf((body: HostedLoginDto) => body.account_selection !== 'current')
   @IsString()
   @MinLength(1)
-  password!: string;
-
-  @IsString()
-  client_id!: string;
-
-  @IsString()
-  redirect_uri!: string;
-
-  @IsString()
-  response_type!: string;
-
-  @IsString()
-  scope!: string;
+  password?: string;
 
   @IsOptional()
-  @IsString()
-  state?: string;
+  @IsIn(['current', 'other'])
+  account_selection?: 'current' | 'other';
 
   @IsString()
-  code_challenge!: string;
-
-  @IsString()
-  code_challenge_method!: string;
+  login_transaction!: string;
 }
