@@ -251,6 +251,10 @@ export class AuthorizeFlowService {
         font-weight: 700;
         padding: 9px 12px;
       }
+      button:disabled {
+        cursor: wait;
+        opacity: 0.72;
+      }
       a {
         display: block;
         width: 100%;
@@ -276,6 +280,7 @@ export class AuthorizeFlowService {
         visibility: ${failureVisibility};
       }
     </style>
+    <script src="/oauth/hosted-login.js" defer></script>
   </head>
   <body>
     <form method="post" action="/oauth/login">
@@ -402,6 +407,10 @@ export class AuthorizeFlowService {
         font-weight: 700;
         padding: 9px 12px;
       }
+      button:disabled {
+        cursor: wait;
+        opacity: 0.72;
+      }
       .current-account {
         display: grid;
         gap: 2px;
@@ -418,6 +427,7 @@ export class AuthorizeFlowService {
         visibility: ${failureVisibility};
       }
     </style>
+    <script src="/oauth/hosted-login.js" defer></script>
   </head>
   <body>
     <main>

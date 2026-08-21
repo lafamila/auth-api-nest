@@ -188,7 +188,7 @@ export class OidcController {
     response.set({
       'Cache-Control': 'no-store',
       'Content-Security-Policy':
-        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+        "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
       'Referrer-Policy': 'no-referrer',
       'X-Frame-Options': 'DENY',
     });

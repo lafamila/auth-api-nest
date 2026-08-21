@@ -405,6 +405,19 @@ describe('App bootstrap (e2e)', () => {
       .expect({ status: 'ok' });
   });
 
+  it('serves the hosted login single-submit guard', async () => {
+    await request(app.getHttpServer())
+      .get('/oauth/hosted-login.js')
+      .expect(200)
+      .expect('Content-Type', /text\/javascript/)
+      .expect('Cache-Control', 'no-store')
+      .expect((response) => {
+        expect(response.text).toContain("form.addEventListener('submit'");
+        expect(response.text).toContain('button.disabled = true');
+        expect(response.text).toContain("submitter.textContent = '처리 중'");
+      });
+  });
+
   it('renders the hosted login page for authorize requests without tas_session', async () => {
     const clientId = nextSuffix('hosted-login-page-client');
     await createApprovedService({
@@ -448,6 +461,10 @@ describe('App bootstrap (e2e)', () => {
         expect(response.text).toContain('name="password"');
         expect(response.text).toContain(
           '<button type="submit">로그인</button>',
+        );
+        expect(response.text).toContain('src="/oauth/hosted-login.js"');
+        expect(response.headers['content-security-policy']).toContain(
+          "script-src 'self'",
         );
         expect(response.text).toContain(
           `<a href="${expectedSignupHref}">sign up</a>`,
@@ -655,6 +672,7 @@ describe('App bootstrap (e2e)', () => {
     );
     expect(selectionPage.text).toContain('계정 선택');
     expect(selectionPage.text).toContain('다른 계정 사용');
+    expect(selectionPage.text).toContain('src="/oauth/hosted-login.js"');
     expect(selectionPage.text).toContain(p1.account.loginId);
     expect(selectionPage.text).not.toContain('name="prompt"');
     expect(getSetCookies(selectionPage)).not.toEqual(

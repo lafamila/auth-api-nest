@@ -41,6 +41,9 @@ attempt; expiry, replay, a browser mismatch, or a changed central session fail
 locally without redirecting to browser-submitted data. Separate transactions
 and cookies allow concurrent tabs.
 
+The hosted page disables every login action synchronously on first submit and
+shows `처리 중`, preventing a second POST from racing the successful redirect.
+
 When the browser already has a signed `tas_session`, auth shows the current
 account and a `다른 계정 사용` credential form. Both forms are hosted on the
 auth origin. Hosted pages also send a `frame-ancestors 'none'` CSP,

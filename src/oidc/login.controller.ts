@@ -29,6 +29,34 @@ type SignedCookieRequest = Request & {
   signedCookies?: Record<string, string | undefined>;
 };
 
+const HOSTED_LOGIN_SCRIPT = `(() => {
+  const forms = [...document.querySelectorAll('form[action="/oauth/login"]')];
+  let submitting = false;
+  for (const form of forms) {
+    form.addEventListener('submit', (event) => {
+      if (submitting) {
+        event.preventDefault();
+        return;
+      }
+      submitting = true;
+      document.documentElement.setAttribute('aria-busy', 'true');
+      for (const button of document.querySelectorAll('button[type="submit"]')) {
+        button.disabled = true;
+      }
+      const submitter = event.submitter instanceof HTMLButtonElement
+        ? event.submitter
+        : form.querySelector('button[type="submit"]');
+      if (submitter) {
+        submitter.textContent = '처리 중';
+        submitter.setAttribute('aria-busy', 'true');
+      }
+    });
+  }
+  window.addEventListener('pageshow', (event) => {
+    if (event.persisted) window.location.reload();
+  });
+})();`;
+
 @Controller()
 export class LoginController {
   constructor(
@@ -37,6 +65,17 @@ export class LoginController {
     private readonly config: AppConfigService,
     private readonly hostedLoginTransactions: HostedLoginTransactionService,
   ) {}
+
+  @Get('oauth/hosted-login.js')
+  hostedLoginScript(@Res() response: Response) {
+    response.set({
+      'Cache-Control': 'no-store',
+      'Content-Type': 'text/javascript; charset=utf-8',
+      'Cross-Origin-Resource-Policy': 'same-origin',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    return response.status(200).send(HOSTED_LOGIN_SCRIPT);
+  }
 
   @Post('oauth/login')
   async hostedLogin(
@@ -314,7 +353,7 @@ export class LoginController {
     response.set({
       'Cache-Control': 'no-store',
       'Content-Security-Policy':
-        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+        "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
       'Referrer-Policy': 'no-referrer',
       'X-Frame-Options': 'DENY',
     });

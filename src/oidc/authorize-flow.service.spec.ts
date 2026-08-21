@@ -97,6 +97,7 @@ describe('AuthorizeFlowService prompt handling', () => {
     expect(html).toContain(
       'name="login_transaction" value="login-transaction"',
     );
+    expect(html).toContain('src="/oauth/hosted-login.js"');
     expect(html).toContain('Player One');
     expect(html).toContain('player-one');
     expect(html).not.toContain('account_id');
