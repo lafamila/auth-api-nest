@@ -466,6 +466,9 @@ describe('App bootstrap (e2e)', () => {
         expect(response.headers['content-security-policy']).toContain(
           "script-src 'self'",
         );
+        expect(response.headers['content-security-policy']).toContain(
+          "form-action 'self' https://todo.example.com",
+        );
         expect(response.text).toContain(
           `<a href="${expectedSignupHref}">sign up</a>`,
         );
@@ -669,6 +672,9 @@ describe('App bootstrap (e2e)', () => {
       .expect('Cache-Control', 'no-store');
     expect(selectionPage.headers['content-security-policy']).toContain(
       "frame-ancestors 'none'",
+    );
+    expect(selectionPage.headers['content-security-policy']).toContain(
+      "form-action 'self' https://todo.example.com",
     );
     expect(selectionPage.text).toContain('계정 선택');
     expect(selectionPage.text).toContain('다른 계정 사용');

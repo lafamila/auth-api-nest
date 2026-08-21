@@ -187,6 +187,7 @@ Phase 1 게임 플랫폼 세션 안정화 작업으로 확정된 토큰/서명�
 - hosted page 는 첫 submit 즉시 모든 login action 을 비활성화하고 `처리 중` 상태를 표시해 성공 redirect 전에 같은 single-use transaction 이 중복 제출되지 않게 한다.
 - `/oauth/login` form 은 `login_transaction`, credential, 선택 action 만 POST 한다. client/redirect/state/scope/prompt/PKCE 는 browser 에서 다시 받지 않고 transaction 의 canonical validated request 를 load/revalidate 한다. browser binding, expiry, 최초 `tas_session` snapshot 을 확인하고 성공 경로에서 atomic delete-on-consume 한 요청만 code/session 을 발급한다. wrong credential 은 transaction 을 consume 하지 않으며 replay/expiry/browser mismatch/session change 는 local 400 으로 거절한다.
 - signed `tas_session` 이 있으면 hosted page 가 현재 계정과 `다른 계정 사용`을 제공한다. credential 은 auth origin form 에서만 받으며 CSP `frame-ancestors 'none'`, `X-Frame-Options: DENY`, `Cache-Control: no-store` 로 보호한다.
+- hosted page CSP `form-action` 은 Auth self 와 해당 요청에서 exact-match 검증된 registered `redirect_uri` 의 origin(또는 native scheme)만 동적으로 허용한다. 신규 service/callback 마다 Auth code 를 수정하지 않는다.
 - 현재 계정 선택은 `tas_session` subject, 다른 credential 성공은 해당 account subject 로 code 를 발급한다. 두 경로 모두 `tas_session` 을 생성·삭제·교체하지 않는다. `setSessionCookie` 는 prompt 없는 일반 hosted login 에서만 호출한다.
 - account status/password reset, active service/client, exact redirect URI, PKCE, lazy visitor, service permission 검사는 일반 authorize 와 같은 경로를 사용한다.
 - 소비 서비스는 token `sub` 를 요청별 선택 결과로 사용하고 browser 가 보낸 account ID 를 신뢰하지 않는다. secondary app session 종료 시 auth `/logout` 을 호출하면 P1 SSO 가 지워지므로 secondary refresh revoke/app cookie 삭제만 수행한다.

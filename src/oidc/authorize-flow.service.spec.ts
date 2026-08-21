@@ -80,6 +80,15 @@ describe('AuthorizeFlowService prompt handling', () => {
     });
   });
 
+  it('allows the validated callback destination in hosted form navigation', () => {
+    expect(service.hostedPageContentSecurityPolicy(request.redirectUri)).toContain(
+      "form-action 'self' https://play.example.com",
+    );
+    expect(service.hostedPageContentSecurityPolicy('bodylab://auth/callback')).toContain(
+      "form-action 'self' bodylab:",
+    );
+  });
+
   it('renders selection actions without exposing an account id', () => {
     const html = service.renderAccountSelectionPage(
       { ...request, prompt: SELECT_ACCOUNT_PROMPT },

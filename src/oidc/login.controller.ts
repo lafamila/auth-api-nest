@@ -134,7 +134,10 @@ export class LoginController {
         return response.redirect(authorizeResult.redirectUrl);
       } catch (error) {
         if (error instanceof UnauthorizedException) {
-          this.setHostedPageSecurityHeaders(response);
+          this.setHostedPageSecurityHeaders(
+            response,
+            validated.request.redirectUri,
+          );
           return response
             .status(200)
             .type('html')
@@ -197,7 +200,10 @@ export class LoginController {
         const currentAccount = transaction.sessionAccountId
           ? await this.accounts.findById(transaction.sessionAccountId)
           : undefined;
-        this.setHostedPageSecurityHeaders(response);
+        this.setHostedPageSecurityHeaders(
+          response,
+          validated.request.redirectUri,
+        );
         return response
           .status(200)
           .type('html')
@@ -349,11 +355,14 @@ export class LoginController {
     );
   }
 
-  private setHostedPageSecurityHeaders(response: Response) {
+  private setHostedPageSecurityHeaders(
+    response: Response,
+    redirectUri: string,
+  ) {
     response.set({
       'Cache-Control': 'no-store',
       'Content-Security-Policy':
-        "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+        this.authorizeFlow.hostedPageContentSecurityPolicy(redirectUri),
       'Referrer-Policy': 'no-referrer',
       'X-Frame-Options': 'DENY',
     });

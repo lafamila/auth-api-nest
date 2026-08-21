@@ -462,6 +462,14 @@ export class AuthorizeFlowService {
 </html>`;
   }
 
+  hostedPageContentSecurityPolicy(redirectUri: string) {
+    const redirect = new URL(redirectUri);
+    const redirectSource = redirect.origin === 'null'
+      ? redirect.protocol
+      : redirect.origin;
+    return `default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; form-action 'self' ${redirectSource}; frame-ancestors 'none'; base-uri 'none'`;
+  }
+
   buildErrorRedirectUrl(
     redirectUri: string,
     state: string | undefined,

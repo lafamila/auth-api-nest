@@ -48,6 +48,9 @@ When the browser already has a signed `tas_session`, auth shows the current
 account and a `다른 계정 사용` credential form. Both forms are hosted on the
 auth origin. Hosted pages also send a `frame-ancestors 'none'` CSP,
 `X-Frame-Options: DENY`, and `Cache-Control: no-store`.
+Their `form-action` allows only Auth itself plus the origin (or native scheme)
+of the exact registered `redirect_uri` validated for that request, so adding a
+service does not require an Auth code change.
 
 - Selecting the current account issues a code for the `tas_session` subject.
 - Valid alternate credentials issue a code for that alternate subject.
