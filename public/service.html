@@ -279,6 +279,19 @@
         transform: translateY(-1px);
       }
 
+      .paste-import {
+        display: grid;
+        gap: 10px;
+      }
+
+      .paste-import textarea {
+        min-height: 150px;
+      }
+
+      .paste-import .inline-actions {
+        justify-content: flex-end;
+      }
+
       .file-picker-input {
         display: none;
       }
@@ -411,6 +424,27 @@
               <div class="hint">
                 Unknown JSON fields are ignored and reported as warnings.
                 visitor permission is removed during import.
+              </div>
+            </div>
+            <div class="paste-import">
+              <label>
+                Paste Request JSON
+                <textarea
+                  aria-describedby="serviceRequestImportMessage"
+                  class="mono"
+                  id="serviceRequestImportText"
+                  placeholder='{"serviceKey":"example","name":"Example"}'
+                  spellcheck="false"
+                ></textarea>
+              </label>
+              <div class="inline-actions">
+                <button
+                  class="secondary"
+                  id="applyServiceRequestImportText"
+                  type="button"
+                >
+                  Import Pasted JSON
+                </button>
               </div>
             </div>
             <div class="message" id="serviceRequestImportMessage"></div>
@@ -997,6 +1031,56 @@
         renderServiceRequestPreview();
       }
 
+      async function importServiceRequestText(text, sourceLabel, source) {
+        if (!state.adminSession) {
+          setImportMessage('Admin session is required before importing.', {
+            tone: 'error',
+          });
+          return false;
+        }
+        if (!String(text ?? '').trim()) {
+          setImportMessage(
+            source === 'paste'
+              ? 'Paste request JSON before importing.'
+              : 'Choose a JSON file to import.',
+            { tone: 'error' },
+          );
+          return false;
+        }
+        try {
+          if (!state.credentialScopeOptions.length) {
+            await loadCredentialScopeOptions();
+          }
+          const helper = globalThis.ServiceRequestImport;
+          if (!helper?.parseImportedServiceRequestText) {
+            throw new Error('Import helper failed to load.');
+          }
+          const imported = helper.parseImportedServiceRequestText(
+            text,
+            state.adminSession,
+            {
+              supportedCredentialScopes: state.credentialScopeOptions,
+              source,
+            },
+          );
+          applyImportedServiceRequest(imported.draft);
+          setServiceRequestMessage('');
+          setImportMessage(
+            imported.warnings.length
+              ? `Imported ${sourceLabel} with warnings.`
+              : `Imported ${sourceLabel}.`,
+            {
+              tone: imported.warnings.length ? 'warning' : 'success',
+              details: imported.warnings,
+            },
+          );
+          return true;
+        } catch (error) {
+          setImportMessage(error.message, { tone: 'error' });
+          return false;
+        }
+      }
+
       async function importServiceRequestFile(file) {
         if (!state.adminSession) {
           setImportMessage('Admin session is required before importing.', {
@@ -1009,41 +1093,26 @@
           return;
         }
         try {
-          if (!state.credentialScopeOptions.length) {
-            await loadCredentialScopeOptions();
-          }
-          const helper = globalThis.ServiceRequestImport;
-          if (!helper?.parseImportedServiceRequestText) {
-            throw new Error('Import helper failed to load.');
-          }
-          const imported = helper.parseImportedServiceRequestText(
-            await file.text(),
-            state.adminSession,
-            { supportedCredentialScopes: state.credentialScopeOptions },
-          );
-          applyImportedServiceRequest(imported.draft);
-          setServiceRequestMessage('');
-          setImportMessage(
-            imported.warnings.length
-              ? `Imported ${file.name} with warnings.`
-              : `Imported ${file.name}.`,
-            {
-              tone: imported.warnings.length ? 'warning' : 'success',
-              details: imported.warnings,
-            },
-          );
-        } catch (error) {
-          setImportMessage(error.message, { tone: 'error' });
+          await importServiceRequestText(await file.text(), file.name, 'file');
         } finally {
           $('serviceRequestImportInput').value = '';
           $('serviceRequestImportDropZone').classList.remove('drag-over');
         }
       }
 
+      async function importPastedServiceRequest() {
+        await importServiceRequestText(
+          $('serviceRequestImportText').value,
+          'pasted JSON',
+          'paste',
+        );
+      }
+
       function resetServiceRequestForm() {
         state.serviceRequestDraft = createEmptyServiceRequestDraft();
         state.serviceRequestResult = null;
         $('serviceRequestImportInput').value = '';
+        $('serviceRequestImportText').value = '';
         $('serviceRequestResult').hidden = true;
         $('serviceRequestResult').innerHTML = '';
         setServiceRequestMessage('');
@@ -1242,6 +1311,9 @@
             ? event.target.files?.[0]
             : null;
         void importServiceRequestFile(file);
+      });
+      $('applyServiceRequestImportText').addEventListener('click', () => {
+        void importPastedServiceRequest();
       });
       ['dragenter', 'dragover'].forEach((eventName) => {
         $('serviceRequestImportDropZone').addEventListener(

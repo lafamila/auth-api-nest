@@ -246,6 +246,11 @@
     try {
       parsed = JSON.parse(text);
     } catch (error) {
+      if (options && options.source === 'paste') {
+        throw new Error(
+          'Invalid pasted JSON. Check the pasted contents and try again.',
+        );
+      }
       throw new Error(
         'Invalid JSON file. Check the file contents and try again.',
       );

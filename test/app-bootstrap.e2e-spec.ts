@@ -1523,6 +1523,15 @@ describe('App bootstrap (e2e)', () => {
     expect(serviceHtml).toContain('Import Request JSON');
     expect(serviceHtml).toContain('Drop a service request JSON file here');
     expect(serviceHtml).toContain('serviceRequestImportInput');
+    expect(serviceHtml).toContain('serviceRequestImportText');
+    expect(serviceHtml).toContain('Import Pasted JSON');
+    expect(serviceHtml).toContain('importPastedServiceRequest');
+    expect(serviceHtml).toContain(
+      "await importServiceRequestText(await file.text(), file.name, 'file')",
+    );
+    expect(serviceHtml).toContain("'pasted JSON',");
+    expect(serviceHtml).toContain("'paste',");
+    expect(serviceHtml).toContain('Paste request JSON before importing.');
     expect(serviceHtml).toContain('serviceRequestImportMessage');
     expect(serviceHtml).toContain('service-request-import.js');
     expect(serviceHtml).toContain('/api/service-credential-scopes');

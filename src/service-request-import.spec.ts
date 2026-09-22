@@ -36,12 +36,18 @@ type ServiceRequestImportModule = {
   normalizeImportedServiceRequest: (
     value: unknown,
     sessionAccount: SessionAccount,
-    options?: { supportedCredentialScopes: Array<{ key: string }> },
+    options?: {
+      supportedCredentialScopes: Array<{ key: string }>;
+      source?: 'file' | 'paste';
+    },
   ) => ImportResult;
   parseImportedServiceRequestText: (
     text: string,
     sessionAccount: SessionAccount,
-    options?: { supportedCredentialScopes: Array<{ key: string }> },
+    options?: {
+      supportedCredentialScopes: Array<{ key: string }>;
+      source?: 'file' | 'paste';
+    },
   ) => ImportResult;
 };
 
@@ -155,6 +161,53 @@ describe('service request import helper', () => {
     expect(() =>
       parseImportedServiceRequestText('{', sessionAccount, importOptions),
     ).toThrow('Invalid JSON file. Check the file contents and try again.');
+
+    expect(() =>
+      parseImportedServiceRequestText('{', sessionAccount, {
+        ...importOptions,
+        source: 'paste',
+      }),
+    ).toThrow('Invalid pasted JSON. Check the pasted contents and try again.');
+  });
+
+  it('normalizes pasted JSON with the same result as file import', () => {
+    const text = JSON.stringify({
+      serviceKey: 'todo',
+      name: 'Todo',
+      description: 'Task tracker',
+      requesterName: 'Ignored Requester',
+      requesterEmail: 'ignored@example.com',
+      permissions: [
+        { key: 'visitor', label: 'Visitor' },
+        { key: 'member', label: 'Member', description: 'Standard access' },
+      ],
+      oidcClients: [
+        {
+          clientId: 'todo-web',
+          clientType: 'public',
+          redirectUris: ['https://todo.example.com/callback'],
+          allowedScopes: ['openid', 'service.permission'],
+          requirePkce: true,
+        },
+      ],
+      serviceCredentials: [
+        {
+          name: 'todo backend',
+          scopes: ['account.search'],
+        },
+      ],
+    });
+
+    const fileResult = parseImportedServiceRequestText(text, sessionAccount, {
+      ...importOptions,
+      source: 'file',
+    });
+    const pasteResult = parseImportedServiceRequestText(text, sessionAccount, {
+      ...importOptions,
+      source: 'paste',
+    });
+
+    expect(pasteResult).toEqual(fileResult);
   });
 
   it('rejects invalid field types without returning a draft', () => {

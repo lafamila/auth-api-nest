@@ -12,6 +12,7 @@ npm run start:dev   # watch mode, http://localhost:3032
 - 환경변수는 `.env.example` 을 복사해 `.env` 로 만든 뒤 채운다 (`DATABASE_URL`, `ISSUER_URL`, `COOKIE_SECRET`, `ADMIN_OTP_ENCRYPTION_KEY` 등).
 - PostgreSQL 이 필요하다. 로컬은 워크스페이스 공유 infra PostgreSQL 을 auth 전용 DB 로 사용하는 것을 권장한다.
 - DB 마이그레이션은 별도 스크립트 없이 `RUN_MIGRATIONS=true` 일 때 기동 시 자동 실행된다 (TypeORM `migrationsRun`).
+- `/service` onboarding form 은 같은 validation 경로로 JSON 파일, drag-and-drop, 붙여넣기 import 를 지원한다.
 
 ## 빌드 / 테스트 / 린트
 
