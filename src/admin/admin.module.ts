@@ -26,6 +26,8 @@ import { AdminServiceCredentialsController } from './controllers/admin-service-c
 import { AdminServicesController } from './controllers/admin-services.controller';
 import { AdminServiceOnboardingController } from './controllers/admin-service-onboarding.controller';
 import { AdminGuard } from './admin.guard';
+import { PermissionWebhooksModule } from '../domain/permission-webhooks/permission-webhooks.module';
+import { AdminPermissionWebhooksController } from './controllers/admin-permission-webhooks.controller';
 
 @Module({
   imports: [
@@ -43,6 +45,7 @@ import { AdminGuard } from './admin.guard';
     AuditLogsModule,
     ServiceCredentialsModule,
     ServiceOnboardingModule,
+    PermissionWebhooksModule,
   ],
   controllers: [
     AdminAuthController,
@@ -55,6 +58,7 @@ import { AdminGuard } from './admin.guard';
     AdminPermissionDashboardController,
     AdminPermissionsController,
     AdminAuditLogsController,
+    AdminPermissionWebhooksController,
   ],
   providers: [AdminGuard, AdminAuthService, AesGcmService, TotpService],
   exports: [AdminGuard, AdminAuthService],

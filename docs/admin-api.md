@@ -86,6 +86,7 @@ Submitted specs can include:
 - permission definitions
 - OIDC clients, redirect URIs, scopes, client type, PKCE
 - service credential names and scopes
+- optional permission webhook URL, secret source, and event types
 
 Approved core spec fields are owned by the service request. Do not silently edit
 `serviceKey`, permission keys, redirect URIs, scopes, client type, or PKCE in the
@@ -100,6 +101,23 @@ values. Overlay clicks, copy clicks, and ordinary modal-body clicks do not close
 the modal. Only the top close button or bottom confirmation button closes it,
 and closing clears the raw values from browser state. There is no fixed panel or
 later UI/API path to retrieve them.
+
+## Permission Webhooks
+
+Webhook endpoint and event-type registration belongs to the approved onboarding
+spec. Admin APIs provide only operational status, one-time generated-secret
+rotation, delivery inspection, and manual retry:
+
+- `GET /api/admin/services/{serviceId}/webhook`
+- `PATCH /api/admin/services/{serviceId}/webhook`: body `status=active|disabled`
+- `POST /api/admin/services/{serviceId}/webhook/rotate`
+- `GET /api/admin/services/{serviceId}/webhook/deliveries`
+- `POST /api/admin/services/{serviceId}/webhook/deliveries/{eventId}/retry`
+
+See [permission-webhooks.md](./permission-webhooks.md) for safe response shapes,
+wire signatures, retry policy, SSRF controls, and rollout requirements. The
+service-account exact directory extension is documented separately in
+[account-directory.md](./account-directory.md).
 
 ## Permission Definitions
 

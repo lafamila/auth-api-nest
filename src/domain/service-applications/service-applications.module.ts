@@ -11,6 +11,7 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 import { OidcModule } from '../../oidc/oidc.module';
 import { ServiceApplicationsController } from './service-applications.controller';
 import { ServiceApplicationsService } from './service-applications.service';
+import { PermissionWebhooksModule } from '../permission-webhooks/permission-webhooks.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { ServiceApplicationsService } from './service-applications.service';
     AdminModule,
     AuditLogsModule,
     OidcModule,
+    PermissionWebhooksModule,
   ],
   controllers: [ServiceApplicationsController],
   providers: [ServiceApplicationsService],

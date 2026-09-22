@@ -18,6 +18,7 @@ import { OidcClientsService } from '../oidc-clients/oidc-clients.service';
 import { PermissionsService } from '../permissions/permissions.service';
 import { ServiceCredentialsService } from '../service-credentials/service-credentials.service';
 import { ServiceRegistryService } from '../service-registry/service-registry.service';
+import { PermissionWebhooksService } from '../permission-webhooks/permission-webhooks.service';
 import {
   CreateServiceOnboardingRequestDto,
   RejectServiceOnboardingRequestDto,
@@ -42,13 +43,20 @@ export class ServiceOnboardingService {
     private readonly credentialsService: ServiceCredentialsService,
     private readonly passwordService: PasswordService,
     private readonly auditLogs: AuditLogsService,
+    private readonly webhooks: PermissionWebhooksService,
   ) {}
 
-  async create(input: CreateServiceOnboardingRequestDto, requestIp: string | null) {
+  async create(
+    input: CreateServiceOnboardingRequestDto,
+    requestIp: string | null,
+  ) {
+    this.webhooks.validateRequestedSpec(input.permissionWebhook);
     await this.assertPublicRateLimit(requestIp);
     await this.assertNoPendingForService(input.serviceKey);
     if (await this.serviceRegistry.findByKey(input.serviceKey)) {
-      throw new ConflictException('Service key already exists; submit an update request');
+      throw new ConflictException(
+        'Service key already exists; submit an update request',
+      );
     }
     const requestSecret = this.generateSecret();
     const saved = await this.requests.save(
@@ -76,14 +84,20 @@ export class ServiceOnboardingService {
     requestIp: string | null,
     headerSecret?: string,
   ) {
+    this.webhooks.validateRequestedSpec(input.permissionWebhook);
     await this.assertPublicRateLimit(requestIp);
     const prior = await this.findById(requestId);
     const requestSecret = headerSecret || input.requestSecret;
-    if (!requestSecret || !verifySecretHash(prior.requestSecretHash, requestSecret)) {
+    if (
+      !requestSecret ||
+      !verifySecretHash(prior.requestSecretHash, requestSecret)
+    ) {
       throw new ForbiddenException('Valid request secret is required');
     }
     if (prior.serviceKey !== input.serviceKey) {
-      throw new BadRequestException('serviceKey cannot change for an update request');
+      throw new BadRequestException(
+        'serviceKey cannot change for an update request',
+      );
     }
     await this.assertNoPendingForService(input.serviceKey, prior.id);
     if (prior.status === 'pending') {
@@ -121,7 +135,9 @@ export class ServiceOnboardingService {
   async assertManualCoreSpecEditAllowed(serviceId: string): Promise<void> {
     const approved = await this.requests.findBy({ status: 'approved' });
     const hasApprovedSpec = approved.some((request) => {
-      const snapshot = request.approvedSnapshotJson as { serviceId?: string } | null;
+      const snapshot = request.approvedSnapshotJson as {
+        serviceId?: string;
+      } | null;
       return snapshot?.serviceId === serviceId;
     });
     if (hasApprovedSpec) {
@@ -133,7 +149,8 @@ export class ServiceOnboardingService {
 
   async approve(id: string, actorAccountId: string) {
     const request = await this.findPending(id);
-    const spec = request.requestedSpecJson as unknown as CreateServiceOnboardingRequestDto;
+    const spec =
+      request.requestedSpecJson as unknown as CreateServiceOnboardingRequestDto;
     const service = await this.upsertService(spec);
     const createdSecrets: Record<string, unknown>[] = [];
 
@@ -153,9 +170,13 @@ export class ServiceOnboardingService {
     }
 
     for (const clientSpec of spec.oidcClients ?? []) {
-      const existing = await this.clients.findOneBy({ clientId: clientSpec.clientId });
+      const existing = await this.clients.findOneBy({
+        clientId: clientSpec.clientId,
+      });
       const clientSecret =
-        clientSpec.clientType === 'confidential' ? this.generateSecret() : undefined;
+        clientSpec.clientType === 'confidential'
+          ? this.generateSecret()
+          : undefined;
       const input = {
         clientId: clientSpec.clientId,
         clientType: clientSpec.clientType,
@@ -178,7 +199,9 @@ export class ServiceOnboardingService {
       } else if (!existing) {
         await this.clientsService.create(service.id, input);
       } else {
-        throw new ConflictException(`OIDC client ${clientSpec.clientId} is owned by another service`);
+        throw new ConflictException(
+          `OIDC client ${clientSpec.clientId} is owned by another service`,
+        );
       }
       if (clientSecret) {
         createdSecrets.push({
@@ -201,6 +224,14 @@ export class ServiceOnboardingService {
         name: credential.name,
         secret: credential.secret,
       });
+    }
+
+    const webhookSecret = await this.webhooks.configureFromApprovedOnboarding(
+      service,
+      spec.permissionWebhook,
+    );
+    if (webhookSecret) {
+      createdSecrets.push({ ...webhookSecret });
     }
 
     request.status = 'approved';
@@ -269,9 +300,14 @@ export class ServiceOnboardingService {
     serviceKey: string,
     excludeRequestId?: string,
   ): Promise<void> {
-    const pending = await this.requests.findOneBy({ serviceKey, status: 'pending' });
+    const pending = await this.requests.findOneBy({
+      serviceKey,
+      status: 'pending',
+    });
     if (pending && pending.id !== excludeRequestId) {
-      throw new ConflictException('A pending onboarding request already exists for this service');
+      throw new ConflictException(
+        'A pending onboarding request already exists for this service',
+      );
     }
   }
 
@@ -284,7 +320,9 @@ export class ServiceOnboardingService {
       createdAt: MoreThan(new Date(Date.now() - PUBLIC_REQUEST_WINDOW_MS)),
     });
     if (recent >= PUBLIC_REQUEST_IP_LIMIT) {
-      throw new BadRequestException('Too many onboarding requests from this IP');
+      throw new BadRequestException(
+        'Too many onboarding requests from this IP',
+      );
     }
   }
 
@@ -296,7 +334,9 @@ export class ServiceOnboardingService {
     return request;
   }
 
-  private async findPending(id: string): Promise<ServiceOnboardingRequestEntity> {
+  private async findPending(
+    id: string,
+  ): Promise<ServiceOnboardingRequestEntity> {
     const request = await this.findById(id);
     if (request.status !== 'pending') {
       throw new ConflictException('Service onboarding request is not pending');
@@ -304,7 +344,9 @@ export class ServiceOnboardingService {
     return request;
   }
 
-  private spec(input: CreateServiceOnboardingRequestDto): Record<string, unknown> {
+  private spec(
+    input: CreateServiceOnboardingRequestDto,
+  ): Record<string, unknown> {
     return {
       serviceKey: input.serviceKey,
       name: input.name,
@@ -314,10 +356,15 @@ export class ServiceOnboardingService {
       permissions: input.permissions ?? [],
       oidcClients: input.oidcClients ?? [],
       serviceCredentials: input.serviceCredentials ?? [],
+      ...(input.permissionWebhook !== undefined
+        ? { permissionWebhook: input.permissionWebhook }
+        : {}),
     };
   }
 
-  private safeRequest(request: ServiceOnboardingRequestEntity): Record<string, unknown> {
+  private safeRequest(
+    request: ServiceOnboardingRequestEntity,
+  ): Record<string, unknown> {
     return {
       id: request.id,
       serviceKey: request.serviceKey,

@@ -189,6 +189,10 @@
         gap: 14px;
       }
 
+      .request-builder {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
       .request-builder button {
         font-size: 12px;
         font-weight: 650;
@@ -237,6 +241,7 @@
       .scope-option strong,
       .scope-option span {
         display: block;
+        overflow-wrap: anywhere;
       }
 
       label {
@@ -245,6 +250,17 @@
         font-size: 13px;
         font-weight: 700;
         gap: 6px;
+      }
+
+      .field-group {
+        display: grid;
+        gap: 6px;
+      }
+
+      .field-label {
+        color: #31425c;
+        font-size: 13px;
+        font-weight: 700;
       }
 
       .repeatable-row,
@@ -342,7 +358,7 @@
 
       @media (max-width: 760px) {
         .form-grid {
-          grid-template-columns: 1fr;
+          grid-template-columns: minmax(0, 1fr);
         }
 
         .admin-access-float {
@@ -512,6 +528,58 @@
           </div>
 
           <div>
+            <div class="toolbar">
+              <h3>Permission Webhook</h3>
+              <label>
+                Webhook Change
+                <select id="permissionWebhookMode">
+                  <option value="omit">No change</option>
+                  <option value="configure">Configure</option>
+                  <option value="remove">Remove</option>
+                </select>
+              </label>
+            </div>
+            <div class="repeatable-row" hidden id="permissionWebhookFields">
+              <div class="form-grid">
+                <label class="span-2">
+                  Endpoint URL
+                  <input
+                    autocomplete="url"
+                    id="permissionWebhookUrl"
+                    type="url"
+                  />
+                </label>
+                <label>
+                  Signing Secret Source
+                  <select id="permissionWebhookSecretSource">
+                    <option value="generated">generated</option>
+                    <option value="environment">environment</option>
+                  </select>
+                </label>
+                <div class="field-group">
+                  <div class="field-label">Event Types</div>
+                  <div class="scope-option-list">
+                    <label class="scope-option">
+                      <input
+                        data-permission-webhook-event="permission.updated"
+                        type="checkbox"
+                      />
+                      <span><strong>permission.updated</strong></span>
+                    </label>
+                    <label class="scope-option">
+                      <input
+                        data-permission-webhook-event="service_application.rejected"
+                        type="checkbox"
+                      />
+                      <span><strong>service_application.rejected</strong></span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div>
             <h3>JSON Preview</h3>
             <pre class="json-preview" id="serviceRequestPreview"></pre>
           </div>
@@ -609,11 +677,16 @@
           permissions: [],
           oidcClients: [],
           serviceCredentials: [],
+          permissionWebhook: undefined,
         },
         serviceRequestResult: null,
       };
 
       const $ = (id) => document.getElementById(id);
+      const PERMISSION_WEBHOOK_EVENT_TYPES = [
+        'permission.updated',
+        'service_application.rejected',
+      ];
 
       function escapeHtml(value) {
         return String(value ?? '')
@@ -696,6 +769,14 @@
 
       function defaultCredentialScope() {
         return state.credentialScopeOptions[0]?.key || '';
+      }
+
+      function defaultPermissionWebhookDraft() {
+        return {
+          url: '',
+          signingSecretSource: 'generated',
+          eventTypes: [...PERMISSION_WEBHOOK_EVENT_TYPES],
+        };
       }
 
       function showServiceMain(isVisible) {
@@ -834,6 +915,18 @@
           });
         if (serviceCredentials.length)
           payload.serviceCredentials = serviceCredentials;
+        if (state.serviceRequestDraft.permissionWebhook === null) {
+          payload.permissionWebhook = null;
+        } else if (state.serviceRequestDraft.permissionWebhook) {
+          payload.permissionWebhook = {
+            url: state.serviceRequestDraft.permissionWebhook.url.trim(),
+            signingSecretSource:
+              state.serviceRequestDraft.permissionWebhook.signingSecretSource,
+            eventTypes: [
+              ...state.serviceRequestDraft.permissionWebhook.eventTypes,
+            ],
+          };
+        }
         return payload;
       }
 
@@ -870,6 +963,25 @@
             }
           });
         });
+        if (payload.permissionWebhook) {
+          if (!payload.permissionWebhook.url) {
+            errors.push('Permission webhook endpoint URL is required.');
+          } else {
+            try {
+              const endpoint = new URL(payload.permissionWebhook.url);
+              if (!['http:', 'https:'].includes(endpoint.protocol)) {
+                errors.push(
+                  'Permission webhook endpoint URL must use HTTP or HTTPS.',
+                );
+              }
+            } catch {
+              errors.push('Permission webhook endpoint URL is invalid.');
+            }
+          }
+          if (!payload.permissionWebhook.eventTypes.length) {
+            errors.push('Permission webhook needs at least one event type.');
+          }
+        }
         return errors;
       }
 
@@ -987,6 +1099,28 @@
           : '<div class="hint">No service credentials. Add one for backend-to-auth internal API access.</div>';
       }
 
+      function renderPermissionWebhook() {
+        const webhook = state.serviceRequestDraft.permissionWebhook;
+        const isConfigured = Boolean(webhook);
+        const values = isConfigured ? webhook : defaultPermissionWebhookDraft();
+        $('permissionWebhookMode').value =
+          webhook === undefined
+            ? 'omit'
+            : webhook === null
+              ? 'remove'
+              : 'configure';
+        $('permissionWebhookFields').hidden = !isConfigured;
+        $('permissionWebhookUrl').value = values.url;
+        $('permissionWebhookSecretSource').value = values.signingSecretSource;
+        document
+          .querySelectorAll('[data-permission-webhook-event]')
+          .forEach((input) => {
+            input.checked = values.eventTypes.includes(
+              input.dataset.permissionWebhookEvent,
+            );
+          });
+      }
+
       function updateRequestDraftField(path, value) {
         const [collection, indexText, key] = String(path || '').split('.');
         const row = state.serviceRequestDraft[collection]?.[Number(indexText)];
@@ -1006,6 +1140,7 @@
           permissions: [],
           oidcClients: [],
           serviceCredentials: [],
+          permissionWebhook: undefined,
         };
       }
 
@@ -1025,9 +1160,26 @@
           serviceCredentials: Array.isArray(draft.serviceCredentials)
             ? draft.serviceCredentials
             : [],
+          permissionWebhook:
+            draft.permissionWebhook === null
+              ? null
+              : draft.permissionWebhook
+                ? {
+                    url: draft.permissionWebhook.url ?? '',
+                    signingSecretSource:
+                      draft.permissionWebhook.signingSecretSource ??
+                      'generated',
+                    eventTypes: Array.isArray(
+                      draft.permissionWebhook.eventTypes,
+                    )
+                      ? [...draft.permissionWebhook.eventTypes]
+                      : [...PERMISSION_WEBHOOK_EVENT_TYPES],
+                  }
+                : undefined,
         };
         renderServiceRequestBasics();
         renderServiceRequestRows();
+        renderPermissionWebhook();
         renderServiceRequestPreview();
       }
 
@@ -1101,11 +1253,14 @@
       }
 
       async function importPastedServiceRequest() {
-        await importServiceRequestText(
+        const imported = await importServiceRequestText(
           $('serviceRequestImportText').value,
           'pasted JSON',
           'paste',
         );
+        if (imported) {
+          $('serviceRequestImportText').value = '';
+        }
       }
 
       function resetServiceRequestForm() {
@@ -1119,6 +1274,7 @@
         setImportMessage('');
         renderServiceRequestBasics();
         renderServiceRequestRows();
+        renderPermissionWebhook();
         renderServiceRequestPreview();
       }
 
@@ -1368,6 +1524,40 @@
         renderServiceRequestRows();
         renderServiceRequestPreview();
       });
+      $('permissionWebhookMode').addEventListener('change', (event) => {
+        state.serviceRequestDraft.permissionWebhook =
+          event.target.value === 'configure'
+            ? defaultPermissionWebhookDraft()
+            : event.target.value === 'remove'
+              ? null
+              : undefined;
+        renderPermissionWebhook();
+        renderServiceRequestPreview();
+      });
+      $('permissionWebhookUrl').addEventListener('input', (event) => {
+        if (!state.serviceRequestDraft.permissionWebhook) return;
+        state.serviceRequestDraft.permissionWebhook.url = event.target.value;
+        renderServiceRequestPreview();
+      });
+      $('permissionWebhookSecretSource').addEventListener('change', (event) => {
+        if (!state.serviceRequestDraft.permissionWebhook) return;
+        state.serviceRequestDraft.permissionWebhook.signingSecretSource =
+          event.target.value;
+        renderServiceRequestPreview();
+      });
+      document
+        .querySelectorAll('[data-permission-webhook-event]')
+        .forEach((input) => {
+          input.addEventListener('change', () => {
+            if (!state.serviceRequestDraft.permissionWebhook) return;
+            state.serviceRequestDraft.permissionWebhook.eventTypes = Array.from(
+              document.querySelectorAll(
+                '[data-permission-webhook-event]:checked',
+              ),
+            ).map((selected) => selected.dataset.permissionWebhookEvent);
+            renderServiceRequestPreview();
+          });
+        });
       $('resetServiceRequestForm').addEventListener(
         'click',
         resetServiceRequestForm,
@@ -1454,6 +1644,7 @@
       });
 
       renderServiceRequestRows();
+      renderPermissionWebhook();
       renderServiceRequestPreview();
       updateAdminAccessButton();
       void initializeAdminSession();

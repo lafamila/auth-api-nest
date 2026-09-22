@@ -6,10 +6,24 @@
     'permissions',
     'oidcClients',
     'serviceCredentials',
+    'permissionWebhook',
     'requesterName',
     'requesterEmail',
   ]);
   const SUPPORTED_CLIENT_TYPES = new Set(['public', 'confidential']);
+  const PERMISSION_WEBHOOK_SECRET_SOURCES = new Set([
+    'generated',
+    'environment',
+  ]);
+  const PERMISSION_WEBHOOK_EVENT_TYPES = [
+    'permission.updated',
+    'service_application.rejected',
+  ];
+  const KNOWN_PERMISSION_WEBHOOK_FIELDS = new Set([
+    'url',
+    'signingSecretSource',
+    'eventTypes',
+  ]);
 
   function isPlainObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -202,6 +216,63 @@
     });
   }
 
+  function normalizePermissionWebhook(value, warnings) {
+    if (value === undefined) {
+      return undefined;
+    }
+    if (value === null) {
+      return null;
+    }
+    const row = ensurePlainObject(value, 'permissionWebhook');
+    const unknownFields = Object.keys(row).filter(function isUnknown(field) {
+      return !KNOWN_PERMISSION_WEBHOOK_FIELDS.has(field);
+    });
+    if (unknownFields.length) {
+      warnings.push(
+        'Ignored unknown permissionWebhook fields: ' +
+          unknownFields.join(', ') +
+          '.',
+      );
+    }
+    const url = ensureOptionalString(row.url, 'permissionWebhook.url');
+    const signingSecretSource =
+      row.signingSecretSource === undefined || row.signingSecretSource === null
+        ? 'generated'
+        : ensureOptionalString(
+            row.signingSecretSource,
+            'permissionWebhook.signingSecretSource',
+          );
+    if (!PERMISSION_WEBHOOK_SECRET_SOURCES.has(signingSecretSource)) {
+      throw new Error(
+        'permissionWebhook.signingSecretSource must be generated or environment.',
+      );
+    }
+    const eventTypes =
+      row.eventTypes === undefined || row.eventTypes === null
+        ? PERMISSION_WEBHOOK_EVENT_TYPES.slice()
+        : ensureOptionalStringArray(
+            row.eventTypes,
+            'permissionWebhook.eventTypes',
+          );
+    if (!eventTypes.length) {
+      throw new Error('permissionWebhook.eventTypes must not be empty.');
+    }
+    eventTypes.forEach(function validateEventType(eventType) {
+      if (!PERMISSION_WEBHOOK_EVENT_TYPES.includes(eventType)) {
+        throw new Error(
+          'permissionWebhook.eventTypes contains unsupported event type ' +
+            eventType +
+            '.',
+        );
+      }
+    });
+    return {
+      url: url,
+      signingSecretSource: signingSecretSource,
+      eventTypes: eventTypes,
+    };
+  }
+
   function normalizeImportedServiceRequest(value, sessionAccount, options) {
     const root = ensurePlainObject(value, 'Imported JSON root');
     const warnings = [];
@@ -235,6 +306,10 @@
         serviceCredentials: normalizeServiceCredentialRows(
           root.serviceCredentials,
           options,
+        ),
+        permissionWebhook: normalizePermissionWebhook(
+          root.permissionWebhook,
+          warnings,
         ),
       },
       warnings: warnings,

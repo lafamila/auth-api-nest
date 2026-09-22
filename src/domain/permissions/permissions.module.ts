@@ -6,6 +6,7 @@ import { ServiceEntity } from '../../database/entities/service.entity';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 import { ServiceRegistryModule } from '../service-registry/service-registry.module';
 import { PermissionsService } from './permissions.service';
+import { PermissionWebhooksModule } from '../permission-webhooks/permission-webhooks.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { PermissionsService } from './permissions.service';
     ]),
     ServiceRegistryModule,
     AuditLogsModule,
+    PermissionWebhooksModule,
   ],
   providers: [PermissionsService],
   exports: [PermissionsService],

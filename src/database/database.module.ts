@@ -16,6 +16,8 @@ import { ServiceOnboardingRequestEntity } from './entities/service-onboarding-re
 import { ServiceEntity } from './entities/service.entity';
 import { SigningKeyEntity } from './entities/signing-key.entity';
 import { TokenRecordEntity } from './entities/token-record.entity';
+import { PermissionWebhookSubscriptionEntity } from './entities/permission-webhook-subscription.entity';
+import { PermissionWebhookOutboxEntity } from './entities/permission-webhook-outbox.entity';
 import { AppConfigModule } from '../config/app-config.module';
 import { AppConfigService } from '../config/app-config.service';
 
@@ -35,6 +37,8 @@ export const AUTH_ENTITIES = [
   AuditLogEntity,
   TokenRecordEntity,
   SigningKeyEntity,
+  PermissionWebhookSubscriptionEntity,
+  PermissionWebhookOutboxEntity,
 ];
 
 @Module({

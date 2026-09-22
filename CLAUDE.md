@@ -40,7 +40,7 @@
 - `src/` for NestJS modules, controllers, services, guards, adapters (`oidc/`, `admin/`, `signup/`, `database/`, `config/`, `domain/`, `internal/`, `common/`, `health.controller.ts` 등).
 - `src/database/` for PostgreSQL persistence and migrations (`RUN_MIGRATIONS=true` 시 기동 시 실행).
 - `test/` for e2e tests; colocate unit tests as `*.spec.ts`.
-- `docs/` for integration docs (`auth-flows.md`, `admin-api.md`, `service-integration.md`).
+- `docs/` for integration docs (`auth-flows.md`, `admin-api.md`, `service-integration.md`, `permission-webhooks.md`, `account-directory.md`).
 - `.idea/` for design/decision documents (최초 blueprint 는 `.idea/completed/oauth-blueprint.md`).
 - `.omx/` is local agent/runtime state and must remain untracked.
 
@@ -195,6 +195,28 @@ Phase 1 게임 플랫폼 세션 안정화 작업으로 확정된 토큰/서명�
 - 배포 시 `AllowPreAuthTokenRecords20260820000000` migration 을 실행해 pre-auth transaction 용 `token_records.account_id` nullable 변경을 적용한다. authorization code/refresh token 경로는 계속 non-null account ID 만 기록하고 읽을 때도 non-null 을 검증한다.
 
 신규 env 키(배포 env 반영 필요): `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`, `REFRESH_ROTATION_GRACE_SECONDS`. 모두 기본값이 현행 동작과 동일하므로 미설정 시 무변경. 서명키 암호화는 기존 `ADMIN_OTP_ENCRYPTION_KEY` 를 재사용한다.
+
+## Durable Permission Webhooks
+
+- 서비스별 endpoint/event types 는 approved onboarding spec 의 optional
+  `permissionWebhook` 이 소유한다. Update 에서 omission 은 현행 유지,
+  explicit `null` 은 disable, object 는 approved config upsert+activate 다.
+- `permission.updated` 와 `service_application.rejected` 는 permission 변경
+  transaction 안에서 outbox 로 저장되고 API process worker 가 HMAC-SHA256
+  signed POST 로 전달한다. Payload 에 profile/credential/token/secret 을 넣지
+  않는다.
+- Admin 은 `/api/admin/services/:serviceId/webhook` 아래에서 safe config 조회,
+  enable/disable, generated secret one-time rotate, delivery 조회/재시도만 한다.
+  URL/event types 직접 수정은 금지하며 onboarding update 를 사용한다.
+- Migration `AddPermissionWebhooks20260922000000` 적용 후에만
+  `PERMISSION_WEBHOOKS_ENABLED=true` 로 전환한다. Default false 에서는 worker 와
+  outbox write 가 모두 비활성이다. 내부 HTTP/private endpoint 는 wildcard 없는
+  exact `PERMISSION_WEBHOOK_TRUSTED_INTERNAL_ORIGINS` 등록이 필요하다.
+- Refresh grant 는 현재 active service permission 을 다시 조회하므로 receiver 는
+  기존 stored refresh token 으로 logout 없이 새 role access token 을 받을 수 있다.
+- Canonical wire, retry, SSRF, env, admin API 계약은
+  `docs/permission-webhooks.md`; chat exact directory 확장은
+  `docs/account-directory.md` 를 따른다.
 
 ## Security & Configuration Tips
 

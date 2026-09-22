@@ -25,6 +25,11 @@ type ImportedDraft = {
     description: string;
     scopes: string;
   }>;
+  permissionWebhook?: {
+    url: string;
+    signingSecretSource: 'generated' | 'environment';
+    eventTypes: Array<'permission.updated' | 'service_application.rejected'>;
+  } | null;
 };
 
 type ImportResult = {
@@ -196,6 +201,11 @@ describe('service request import helper', () => {
           scopes: ['account.search'],
         },
       ],
+      permissionWebhook: {
+        url: 'https://todo.example.com/auth/events',
+        signingSecretSource: 'environment',
+        eventTypes: ['permission.updated'],
+      },
     });
 
     const fileResult = parseImportedServiceRequestText(text, sessionAccount, {
@@ -208,6 +218,103 @@ describe('service request import helper', () => {
     });
 
     expect(pasteResult).toEqual(fileResult);
+  });
+
+  it('normalizes permission webhook defaults and omits imported secret fields', () => {
+    const result = normalizeImportedServiceRequest(
+      {
+        serviceKey: 'todo',
+        name: 'Todo',
+        permissions: [],
+        permissionWebhook: {
+          url: 'https://todo.example.com/auth/events',
+          secret: 'must-not-enter-form-state',
+          encryptedSecret: 'ciphertext-must-not-enter-form-state',
+        },
+      },
+      sessionAccount,
+      importOptions,
+    );
+
+    expect(result.draft.permissionWebhook).toEqual({
+      url: 'https://todo.example.com/auth/events',
+      signingSecretSource: 'generated',
+      eventTypes: ['permission.updated', 'service_application.rejected'],
+    });
+    expect(JSON.stringify(result.draft)).not.toContain(
+      'must-not-enter-form-state',
+    );
+    expect(JSON.stringify(result.draft)).not.toContain(
+      'ciphertext-must-not-enter-form-state',
+    );
+    expect(result.warnings).toEqual([
+      'Ignored unknown permissionWebhook fields: secret, encryptedSecret.',
+    ]);
+  });
+
+  it('preserves webhook omission and explicit null removal', () => {
+    const omitted = normalizeImportedServiceRequest(
+      {
+        serviceKey: 'todo',
+        name: 'Todo',
+        permissions: [],
+      },
+      sessionAccount,
+      importOptions,
+    );
+
+    expect(omitted.draft.permissionWebhook).toBeUndefined();
+    expect(JSON.stringify(omitted.draft)).not.toContain('permissionWebhook');
+
+    const removed = normalizeImportedServiceRequest(
+      {
+        serviceKey: 'todo',
+        name: 'Todo',
+        permissions: [],
+        permissionWebhook: null,
+      },
+      sessionAccount,
+      importOptions,
+    );
+
+    expect(removed.draft.permissionWebhook).toBeNull();
+    expect(JSON.stringify(removed.draft)).toContain('"permissionWebhook":null');
+  });
+
+  it('rejects unsupported webhook values', () => {
+    expect(() =>
+      normalizeImportedServiceRequest(
+        {
+          serviceKey: 'todo',
+          name: 'Todo',
+          permissions: [],
+          permissionWebhook: {
+            url: 'https://todo.example.com/auth/events',
+            signingSecretSource: 'stored',
+          },
+        },
+        sessionAccount,
+        importOptions,
+      ),
+    ).toThrow(
+      'permissionWebhook.signingSecretSource must be generated or environment.',
+    );
+
+    expect(() =>
+      normalizeImportedServiceRequest(
+        {
+          serviceKey: 'todo',
+          name: 'Todo',
+          permissions: [],
+          permissionWebhook: {
+            url: 'https://todo.example.com/auth/events',
+            eventTypes: [],
+          },
+        },
+        sessionAccount,
+        importOptions,
+      ),
+    ).toThrow('permissionWebhook.eventTypes must not be empty.');
   });
 
   it('rejects invalid field types without returning a draft', () => {

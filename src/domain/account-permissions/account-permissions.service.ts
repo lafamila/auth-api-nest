@@ -1,7 +1,17 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, FindOptionsWhere, QueryFailedError, Repository } from 'typeorm';
+import {
+  DataSource,
+  FindOptionsWhere,
+  QueryFailedError,
+  Repository,
+} from 'typeorm';
 import { AccountServicePermissionEntity } from '../../database/entities/account-service-permission.entity';
+import { AuditLogEntity } from '../../database/entities/audit-log.entity';
 import { AccountsService } from '../accounts/accounts.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { PermissionsService } from '../permissions/permissions.service';
@@ -10,6 +20,11 @@ import {
   VISITOR_PERMISSION,
 } from '../permissions/managed-permissions';
 import { ServiceRegistryService } from '../service-registry/service-registry.service';
+import {
+  PermissionUpdatedWebhookEvent,
+  createPermissionWebhookEvent,
+} from '../permission-webhooks/permission-webhook.contract';
+import { PermissionWebhooksService } from '../permission-webhooks/permission-webhooks.service';
 import {
   PermissionDashboardPageDto,
   PermissionDashboardQueryDto,
@@ -26,6 +41,7 @@ export class AccountPermissionsService {
     private readonly services: ServiceRegistryService,
     private readonly permissions: PermissionsService,
     private readonly auditLogs: AuditLogsService,
+    private readonly webhooks: PermissionWebhooksService,
   ) {}
 
   async put(
@@ -38,50 +54,113 @@ export class AccountPermissionsService {
     const service = await this.services.findById(serviceId);
     const permission = await this.permissions.findById(permissionDefinitionId);
     if (permission.serviceId !== serviceId || permission.status !== 'active') {
-      throw new BadRequestException('Permission must be active and belong to service');
+      throw new BadRequestException(
+        'Permission must be active and belong to service',
+      );
     }
-    const existing = await this.accountPermissions.findOneBy({ accountId, serviceId });
-    const entity =
-      existing ??
-      this.accountPermissions.create({
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query(
+        `SELECT id FROM account_service_permissions
+         WHERE account_id = $1 AND service_id = $2 FOR UPDATE`,
+        [accountId, serviceId],
+      );
+      const existing = await manager.findOne(AccountServicePermissionEntity, {
+        where: { accountId, serviceId },
+        relations: { permissionDefinition: true },
+      });
+      const previousPermission =
+        existing?.status === 'active'
+          ? existing.permissionDefinition.key
+          : null;
+      const entity = manager.create(AccountServicePermissionEntity, {
+        id: existing?.id,
         account,
         accountId,
         service,
         serviceId,
-        grantedAt: new Date(),
+        permissionDefinition: permission,
+        permissionDefinitionId: permission.id,
+        status: 'active',
+        revokedAt: null,
+        grantedAt: existing?.grantedAt ?? new Date(),
+        grantedByAccountId: grantedByAccountId ?? null,
       });
-    entity.permissionDefinition = permission;
-    entity.permissionDefinitionId = permission.id;
-    entity.status = 'active';
-    entity.revokedAt = null;
-    entity.grantedByAccountId = grantedByAccountId ?? null;
-    const saved = await this.accountPermissions.save(entity);
-    await this.auditLogs.record({
-      actorAccountId: grantedByAccountId,
-      action: 'account_permission.put',
-      targetType: 'account_service_permission',
-      targetId: saved.id,
-      afterJson: {
-        accountId,
-        serviceId,
-        permissionDefinitionId,
-      },
+      const saved = await manager.save(entity);
+      await manager.save(
+        manager.create(AuditLogEntity, {
+          actorAccountId: grantedByAccountId ?? null,
+          action: 'account_permission.put',
+          targetType: 'account_service_permission',
+          targetId: saved.id,
+          afterJson: { accountId, serviceId, permissionDefinitionId },
+        }),
+      );
+      if (
+        previousPermission !== permission.key ||
+        existing?.status !== 'active'
+      ) {
+        await this.webhooks.enqueue(
+          manager,
+          serviceId,
+          createPermissionWebhookEvent<PermissionUpdatedWebhookEvent>({
+            type: 'permission.updated',
+            serviceKey: service.serviceKey,
+            accountId,
+            data: {
+              permission: permission.key,
+              previousPermission,
+              status: 'active',
+              reason: 'changed',
+            },
+          }),
+        );
+      }
+      return saved;
     });
-    return saved;
   }
 
   async revoke(accountId: string, serviceId: string): Promise<void> {
-    const permission = await this.accountPermissions.findOneBy({ accountId, serviceId });
-    if (!permission) {
-      throw new NotFoundException('Account service permission not found');
-    }
-    permission.status = 'revoked';
-    permission.revokedAt = new Date();
-    await this.accountPermissions.save(permission);
-    await this.auditLogs.record({
-      action: 'account_permission.revoke',
-      targetType: 'account_service_permission',
-      targetId: permission.id,
+    await this.dataSource.transaction(async (manager) => {
+      await manager.query(
+        `SELECT id FROM account_service_permissions
+         WHERE account_id = $1 AND service_id = $2 FOR UPDATE`,
+        [accountId, serviceId],
+      );
+      const permission = await manager.findOne(AccountServicePermissionEntity, {
+        where: { accountId, serviceId },
+        relations: { permissionDefinition: true, service: true },
+      });
+      if (!permission) {
+        throw new NotFoundException('Account service permission not found');
+      }
+      if (permission.status === 'revoked') {
+        return;
+      }
+      permission.status = 'revoked';
+      permission.revokedAt = new Date();
+      await manager.save(permission);
+      await manager.save(
+        manager.create(AuditLogEntity, {
+          action: 'account_permission.revoke',
+          targetType: 'account_service_permission',
+          targetId: permission.id,
+        }),
+      );
+      await this.webhooks.enqueue(
+        manager,
+        serviceId,
+        createPermissionWebhookEvent<PermissionUpdatedWebhookEvent>({
+          type: 'permission.updated',
+          serviceKey: permission.service.serviceKey,
+          accountId,
+          data: {
+            permission: null,
+            previousPermission: permission.permissionDefinition.key,
+            status: 'revoked',
+            reason: 'revoked',
+          },
+        }),
+      );
     });
   }
 
@@ -162,15 +241,14 @@ export class AccountPermissionsService {
   async listDashboardRows(
     query: PermissionDashboardQueryDto,
   ): Promise<PermissionDashboardPageDto> {
-    const pageSize = Math.min(
-      Math.max(Number(query.pageSize) || 25, 1),
-      100,
-    );
+    const pageSize = Math.min(Math.max(Number(query.pageSize) || 25, 1), 100);
     const requestedPage = Math.max(Number(query.page) || 1, 1);
     const where: FindOptionsWhere<AccountServicePermissionEntity> = {
       status: 'active',
       account: { status: 'active' },
-      ...(query.serviceKey ? { service: { serviceKey: query.serviceKey } } : {}),
+      ...(query.serviceKey
+        ? { service: { serviceKey: query.serviceKey } }
+        : {}),
     };
     const total = await this.accountPermissions.count({ where });
     const totalPages = total === 0 ? 0 : Math.ceil(total / pageSize);

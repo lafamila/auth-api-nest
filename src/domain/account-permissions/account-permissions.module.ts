@@ -6,6 +6,7 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 import { PermissionsModule } from '../permissions/permissions.module';
 import { ServiceRegistryModule } from '../service-registry/service-registry.module';
 import { AccountPermissionsService } from './account-permissions.service';
+import { PermissionWebhooksModule } from '../permission-webhooks/permission-webhooks.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { AccountPermissionsService } from './account-permissions.service';
     ServiceRegistryModule,
     PermissionsModule,
     AuditLogsModule,
+    PermissionWebhooksModule,
   ],
   providers: [AccountPermissionsService],
   exports: [AccountPermissionsService],

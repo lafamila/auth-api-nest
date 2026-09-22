@@ -71,7 +71,19 @@
 
       .stack {
         display: grid;
+        grid-template-columns: minmax(0, 1fr);
         gap: 18px;
+      }
+
+      .content-stack > section {
+        min-width: 0;
+        overflow-x: auto;
+      }
+
+      #webhookSummary {
+        overflow-wrap: anywhere;
+        font-size: 13px;
+        margin-bottom: 10px;
       }
 
       .form {
@@ -768,6 +780,31 @@
           <div class="list-pagination" id="servicesPagination"></div>
         </section>
 
+        <section id="webhookSection">
+          <div class="toolbar">
+            <h2>Permission Webhooks</h2>
+            <label>Service <select id="webhookService"></select></label>
+            <button class="secondary" id="loadWebhook" type="button">Refresh</button>
+          </div>
+          <div class="message" id="webhookMessage" role="status" aria-live="polite"></div>
+          <div id="webhookSummary"></div>
+          <div class="inline-actions">
+            <button class="secondary" id="toggleWebhook" type="button" disabled>Disable</button>
+            <button class="secondary" id="rotateWebhook" type="button" disabled>Rotate Secret</button>
+          </div>
+          <div class="wide-table">
+            <table>
+              <thead><tr><th>Event</th><th>Status</th><th>Attempts</th><th>Created</th><th>Result</th><th>Actions</th></tr></thead>
+              <tbody id="webhookDeliveries"></tbody>
+            </table>
+          </div>
+          <div class="list-pagination">
+            <span id="webhookRange">0 of 0</span>
+            <button class="secondary" id="webhookPrev" type="button" disabled>Previous</button>
+            <button class="secondary" id="webhookNext" type="button" disabled>Next</button>
+          </div>
+        </section>
+
         <section>
           <div class="toolbar">
             <h2>Account-Service Permission Dashboard</h2>
@@ -1035,6 +1072,7 @@
         adminSession: null,
         bootstrapChallengeId: null,
         requiresBootstrap: false,
+        webhook: { subscription: null, items: [], page: 1, total: 0, loading: false, sequence: 0 },
         permissionDashboard: {
           items: [],
           page: 1,
@@ -1255,6 +1293,7 @@
         setServiceSelectOptions('permissionListService', state.services, permissionValue);
         setServiceSelectOptions('clientListService', state.services, clientValue);
         setServiceSelectOptions('credentialListService', state.services, credentialValue);
+        setServiceSelectOptions('webhookService', state.services, $('webhookService').value);
         $('dashboardServiceFilter').innerHTML = `<option value="">All services</option>${state.services
           .map(
             (service) =>
@@ -1541,6 +1580,11 @@
         const entries = [];
         const envLines = [`# ${serviceKey} secrets issued by onboarding approval`];
         (result.secrets || []).forEach((secret) => {
+          if (secret.kind === 'permission_webhook') {
+            entries.push({ label: 'Webhook signing secret', value: secret.secret });
+            envLines.push(`AUTH_WEBHOOK_SECRET=${secret.secret}`);
+            return;
+          }
           if (secret.kind === 'service_credential') {
             entries.push({
               label: `${secret.name || 'Service credential'} key ID`,
@@ -1727,6 +1771,100 @@
         if (key === 'applications') renderApplications();
       }
 
+      function webhookPath(serviceId = $('webhookService').value) {
+        return `/api/admin/services/${encodeURIComponent(serviceId)}/webhook`;
+      }
+
+      function renderWebhook() {
+        const { subscription, items, page, total, loading } = state.webhook;
+        $('webhookSection').setAttribute('aria-busy', String(loading));
+        $('loadWebhook').disabled = loading || !state.services.length;
+        $('loadWebhook').textContent = loading ? 'Loading...' : 'Refresh';
+        $('webhookService').disabled = loading;
+        $('toggleWebhook').disabled = loading || !subscription;
+        $('rotateWebhook').disabled = loading || !subscription || subscription.secretSource === 'environment';
+        $('toggleWebhook').textContent = subscription?.status === 'active' ? 'Disable' : 'Enable';
+        $('webhookSummary').innerHTML = subscription
+          ? `<div class="cell-stack"><div class="mono">${escapeHtml(subscription.endpointUrl)}</div><div>${escapeHtml(subscription.status)} · ${escapeHtml((subscription.eventTypes || []).join(', '))}</div>${subscription.deliveryEnabled === false ? '<div class="message error">Dispatch disabled: PERMISSION_WEBHOOKS_ENABLED=false</div>' : ''}</div>`
+          : '<div class="empty-state">No webhook registered.</div>';
+        $('webhookDeliveries').innerHTML = items.length ? items.map((item) => `
+          <tr>
+            <td>${escapeHtml(item.eventType)}<br /><span class="mono">${escapeHtml(item.id)}</span></td>
+            <td>${escapeHtml(item.status)}</td>
+            <td>${escapeHtml(item.attempts)}</td>
+            <td>${escapeHtml(formatDate(item.createdAt))}</td>
+            <td>${escapeHtml(item.lastResponseStatus ?? item.lastError ?? '-')}</td>
+            <td><button class="secondary" data-retry-webhook="${escapeHtml(item.id)}" type="button" ${loading || item.status !== 'exhausted' ? 'disabled' : ''}>Retry</button></td>
+          </tr>`).join('') : '<tr><td class="empty-state" colspan="6">No deliveries.</td></tr>';
+        const start = total ? (page - 1) * LIST_PAGE_SIZE + 1 : 0;
+        $('webhookRange').textContent = `${start}-${Math.min(page * LIST_PAGE_SIZE, total)} of ${total}`;
+        $('webhookPrev').disabled = loading || page <= 1;
+        $('webhookNext').disabled = loading || page * LIST_PAGE_SIZE >= total;
+      }
+
+      async function loadWebhook() {
+        const serviceId = $('webhookService').value;
+        const sequence = ++state.webhook.sequence;
+        state.webhook.loading = Boolean(serviceId);
+        state.webhook.subscription = null;
+        state.webhook.items = [];
+        state.webhook.total = 0;
+        $('webhookMessage').textContent = '';
+        $('webhookMessage').classList.remove('error');
+        renderWebhook();
+        if (!serviceId) return;
+        try {
+          const subscription = await api(webhookPath(serviceId));
+          const deliveries = subscription
+            ? await api(`${webhookPath(serviceId)}/deliveries?page=${state.webhook.page}&pageSize=${LIST_PAGE_SIZE}`)
+            : { items: [], total: 0, page: 1 };
+          if (sequence !== state.webhook.sequence || serviceId !== $('webhookService').value) return;
+          state.webhook.subscription = subscription;
+          state.webhook.items = deliveries.items || [];
+          state.webhook.total = deliveries.total || 0;
+          state.webhook.page = deliveries.page || 1;
+        } catch (error) {
+          if (sequence === state.webhook.sequence) {
+            $('webhookMessage').textContent = error.message;
+            $('webhookMessage').classList.add('error');
+          }
+        } finally {
+          if (sequence === state.webhook.sequence) {
+            state.webhook.loading = false;
+            renderWebhook();
+          }
+        }
+      }
+
+      async function updateWebhook(action, eventId) {
+        if (state.webhook.loading || !state.webhook.subscription) return;
+        const path = webhookPath();
+        const status = state.webhook.subscription.status === 'active' ? 'disabled' : 'active';
+        state.webhook.loading = true;
+        $('webhookMessage').textContent = '';
+        $('webhookMessage').classList.remove('error');
+        renderWebhook();
+        try {
+          if (action === 'rotate') {
+            const result = await api(`${path}/rotate`, { method: 'POST' });
+            openSecretModal('Webhook Signing Secret', 'Store this value in the receiving service.',
+              [{ label: 'Signing secret', value: result.secret }],
+              [`AUTH_WEBHOOK_SECRET=${result.secret}`], { requiresStorageConfirmation: true });
+          } else if (action === 'retry') {
+            await api(`${path}/deliveries/${encodeURIComponent(eventId)}/retry`, { method: 'POST' });
+          } else {
+            await api(path, { method: 'PATCH', body: JSON.stringify({ status }) });
+          }
+          await loadWebhook();
+        } catch (error) {
+          $('webhookMessage').textContent = error.message;
+          $('webhookMessage').classList.add('error');
+        } finally {
+          state.webhook.loading = false;
+          renderWebhook();
+        }
+      }
+
       async function loadPermissions(serviceId = $('permissionListService').value) {
         if (!serviceId) {
           renderPermissions([]);
@@ -1820,12 +1958,14 @@
               loadPermissions($('permissionListService').value),
               loadClients($('clientListService').value),
               loadCredentials($('credentialListService').value),
+              loadWebhook(),
               loadPermissionDashboard(),
             ]);
           } else {
             renderPermissions([]);
             renderClients([]);
             renderCredentials('');
+            await loadWebhook();
             state.permissionDashboard = {
               ...state.permissionDashboard,
               items: [],
@@ -1873,6 +2013,26 @@
           setStatus(error.message, true);
         }
       }
+
+      $('loadWebhook').addEventListener('click', () => { void loadWebhook(); });
+      $('webhookService').addEventListener('change', () => {
+        state.webhook.page = 1;
+        void loadWebhook();
+      });
+      $('webhookPrev').addEventListener('click', () => {
+        state.webhook.page = Math.max(1, state.webhook.page - 1);
+        void loadWebhook();
+      });
+      $('webhookNext').addEventListener('click', () => {
+        state.webhook.page += 1;
+        void loadWebhook();
+      });
+      $('toggleWebhook').addEventListener('click', () => { void updateWebhook('status'); });
+      $('rotateWebhook').addEventListener('click', () => { void updateWebhook('rotate'); });
+      $('webhookDeliveries').addEventListener('click', (event) => {
+        const button = event.target.closest('[data-retry-webhook]');
+        if (button && !button.disabled) void updateWebhook('retry', button.dataset.retryWebhook);
+      });
 
       $('startBootstrap').addEventListener('click', async () => {
         if (!state.requiresBootstrap) {

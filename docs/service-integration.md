@@ -103,6 +103,11 @@ and copy clicks do not close the modal; only the top close button or bottom
 confirmation button clears raw secret values from browser state.
 Frontend/browser code must never receive those secrets.
 
+Services that need immediate permission-change notification may include an
+approved `permissionWebhook` spec. The signed payload, one-time/environment
+secret modes, retry behavior, admin operations, and refresh-with-current-role
+flow are defined in [permission-webhooks.md](./permission-webhooks.md).
+
 ## Permission Claim
 
 Access tokens include a namespaced service permission claim:
@@ -129,6 +134,11 @@ Phase 1 internal endpoint:
 ```http
 GET /api/internal/service-accounts/search?serviceKey={serviceKey}&q={query}
 ```
+
+Chat and other directory consumers can request case-insensitive exact login ID
+or name matching without hiding unassigned auth accounts behind substring
+limits. See [account-directory.md](./account-directory.md) for the
+`exactMatch=loginId|name` contract and data-minimization rules.
 
 Rules:
 

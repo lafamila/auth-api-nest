@@ -22,6 +22,12 @@ import {
   VISITOR_PERMISSION,
 } from '../permissions/managed-permissions';
 import { CreateServiceApplicationDto } from './dto/service-application.dto';
+import {
+  PermissionUpdatedWebhookEvent,
+  ServiceApplicationRejectedWebhookEvent,
+  createPermissionWebhookEvent,
+} from '../permission-webhooks/permission-webhook.contract';
+import { PermissionWebhooksService } from '../permission-webhooks/permission-webhooks.service';
 
 export interface ServiceAccessTokenClaims {
   sub?: string;
@@ -66,6 +72,7 @@ export class ServiceApplicationsService {
     private readonly applications: Repository<ServiceApplicationEntity>,
     private readonly dataSource: DataSource,
     private readonly auditLogs: AuditLogsService,
+    private readonly webhooks: PermissionWebhooksService,
   ) {}
 
   list(status?: ServiceApplicationStatus): Promise<ServiceApplicationEntity[]> {
@@ -243,6 +250,10 @@ export class ServiceApplicationsService {
     reviewerAccountId?: string | null,
   ): Promise<ServiceApplicationEntity> {
     return this.dataSource.transaction(async (manager) => {
+      await manager.query(
+        'SELECT id FROM service_applications WHERE id = $1 FOR UPDATE',
+        [applicationId],
+      );
       const application = await manager.findOne(ServiceApplicationEntity, {
         where: { id: applicationId },
         relations: { account: true, service: true },
@@ -285,6 +296,11 @@ export class ServiceApplicationsService {
         );
       }
 
+      await manager.query(
+        `SELECT id FROM account_service_permissions
+         WHERE account_id = $1 AND service_id = $2 FOR UPDATE`,
+        [application.accountId, application.serviceId],
+      );
       const existingPermission = await manager.findOne(
         AccountServicePermissionEntity,
         {
@@ -342,6 +358,21 @@ export class ServiceApplicationsService {
           },
         }),
       );
+      await this.webhooks.enqueue(
+        manager,
+        saved.serviceId,
+        createPermissionWebhookEvent<PermissionUpdatedWebhookEvent>({
+          type: 'permission.updated',
+          serviceKey: application.service.serviceKey,
+          accountId: saved.accountId,
+          data: {
+            permission: targetPermission.key,
+            previousPermission: existingPermission.permissionDefinition.key,
+            status: 'active',
+            reason: 'approved',
+          },
+        }),
+      );
       return saved;
     });
   }
@@ -350,28 +381,52 @@ export class ServiceApplicationsService {
     applicationId: string,
     reviewerAccountId?: string | null,
   ): Promise<ServiceApplicationEntity> {
-    const application = await this.applications.findOneBy({
-      id: applicationId,
-    });
-    if (!application) {
-      throw new NotFoundException('Service application not found');
-    }
-    if (application.status !== 'pending') {
-      throw new BadRequestException(
-        'Only pending applications can be rejected',
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query(
+        'SELECT id FROM service_applications WHERE id = $1 FOR UPDATE',
+        [applicationId],
       );
-    }
-    application.status = 'rejected';
-    application.reviewedByAccountId = reviewerAccountId ?? null;
-    application.reviewedAt = new Date();
-    const saved = await this.applications.save(application);
-    await this.auditLogs.record({
-      actorAccountId: reviewerAccountId ?? null,
-      action: 'service_application.reject',
-      targetType: 'service_application',
-      targetId: saved.id,
+      const application = await manager.findOne(ServiceApplicationEntity, {
+        where: { id: applicationId },
+        relations: { service: true, targetPermissionDefinition: true },
+      });
+      if (!application) {
+        throw new NotFoundException('Service application not found');
+      }
+      if (application.status !== 'pending') {
+        throw new BadRequestException(
+          'Only pending applications can be rejected',
+        );
+      }
+      application.status = 'rejected';
+      application.reviewedByAccountId = reviewerAccountId ?? null;
+      application.reviewedAt = new Date();
+      const saved = await manager.save(application);
+      await manager.save(
+        manager.create(AuditLogEntity, {
+          actorAccountId: reviewerAccountId ?? null,
+          action: 'service_application.reject',
+          targetType: 'service_application',
+          targetId: saved.id,
+        }),
+      );
+      await this.webhooks.enqueue(
+        manager,
+        saved.serviceId,
+        createPermissionWebhookEvent<ServiceApplicationRejectedWebhookEvent>({
+          type: 'service_application.rejected',
+          serviceKey: application.service.serviceKey,
+          accountId: saved.accountId,
+          data: {
+            applicationId: saved.id,
+            status: 'rejected',
+            requestedPermission:
+              application.targetPermissionDefinition?.key ?? null,
+          },
+        }),
+      );
+      return saved;
     });
-    return saved;
   }
 
   private async findRequestedPermission(

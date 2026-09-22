@@ -48,6 +48,49 @@ export class AppConfigService {
     );
   }
 
+  get permissionWebhooksEnabled(): boolean {
+    return (
+      this.config.get<string>('PERMISSION_WEBHOOKS_ENABLED', 'false') ===
+      'true'
+    );
+  }
+
+  get permissionWebhookRequestTimeoutMs(): number {
+    return this.positiveNumber('PERMISSION_WEBHOOK_REQUEST_TIMEOUT_MS', 5000);
+  }
+
+  get permissionWebhookPollIntervalMs(): number {
+    return this.positiveNumber('PERMISSION_WEBHOOK_POLL_INTERVAL_MS', 1000);
+  }
+
+  get permissionWebhookMaxAttempts(): number {
+    return this.positiveNumber('PERMISSION_WEBHOOK_MAX_ATTEMPTS', 6);
+  }
+
+  get permissionWebhookTrustedInternalOrigins(): string[] {
+    const raw = this.config.get<string>(
+      'PERMISSION_WEBHOOK_TRUSTED_INTERNAL_ORIGINS',
+      '',
+    );
+    return raw
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean);
+  }
+
+  permissionWebhookEnvironmentSecret(serviceKey: string): {
+    envName: string;
+    secret: string;
+  } {
+    const envName = `PERMISSION_WEBHOOK_SECRET_${serviceKey
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '_')}`;
+    return {
+      envName,
+      secret: this.config.get<string>(envName, ''),
+    };
+  }
+
   get adminSessionCookieName(): string {
     return this.config.get<string>('ADMIN_SESSION_COOKIE_NAME', 'tas_admin_session');
   }
@@ -82,5 +125,10 @@ export class AppConfigService {
       return [this.issuerUrl, 'http://localhost:3030', 'http://localhost:3031'];
     }
     return raw.split(',').map((origin) => origin.trim());
+  }
+
+  private positiveNumber(key: string, fallback: number): number {
+    const value = Number(this.config.get<string>(key, String(fallback)));
+    return Number.isFinite(value) && value > 0 ? value : fallback;
   }
 }

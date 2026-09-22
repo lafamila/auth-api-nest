@@ -7,6 +7,7 @@ import { ServicePermissionDefinitionEntity } from '../../database/entities/servi
 import { ServiceEntity } from '../../database/entities/service.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { ServiceApplicationsService } from './service-applications.service';
+import { PermissionWebhooksService } from '../permission-webhooks/permission-webhooks.service';
 
 describe('ServiceApplicationsService', () => {
   const account = { id: 'account-1', status: 'active' } as AccountEntity;
@@ -89,6 +90,9 @@ describe('ServiceApplicationsService', () => {
     const auditLogs = {
       record: jest.fn().mockResolvedValue(undefined),
     } as unknown as AuditLogsService;
+    const webhooks = {
+      enqueue: jest.fn().mockResolvedValue(undefined),
+    } as unknown as PermissionWebhooksService;
     return {
       applications,
       createApplication,
@@ -100,6 +104,7 @@ describe('ServiceApplicationsService', () => {
         applications,
         {} as DataSource,
         auditLogs,
+        webhooks,
       ),
     };
   }

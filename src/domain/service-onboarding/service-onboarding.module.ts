@@ -11,6 +11,7 @@ import { ServiceCredentialsModule } from '../service-credentials/service-credent
 import { ServiceRegistryModule } from '../service-registry/service-registry.module';
 import { ServiceOnboardingController } from './service-onboarding.controller';
 import { ServiceOnboardingService } from './service-onboarding.service';
+import { PermissionWebhooksModule } from '../permission-webhooks/permission-webhooks.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { ServiceOnboardingService } from './service-onboarding.service';
     OidcClientsModule,
     ServiceCredentialsModule,
     AuditLogsModule,
+    PermissionWebhooksModule,
   ],
   controllers: [ServiceOnboardingController],
   providers: [ServiceOnboardingService, PasswordService],

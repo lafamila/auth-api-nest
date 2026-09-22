@@ -17,6 +17,11 @@ import {
   ServiceCredentialScope,
 } from '../../../database/entities/service-credential.entity';
 import { ServiceOnboardingRequestStatus } from '../../../database/entities/service-onboarding-request.entity';
+import {
+  PERMISSION_WEBHOOK_EVENT_TYPES,
+  PermissionWebhookEventType,
+  PermissionWebhookSecretSource,
+} from '../../../database/entities/permission-webhook-subscription.entity';
 
 export class OnboardingPermissionDto {
   @IsString()
@@ -80,6 +85,21 @@ export class OnboardingCredentialDto {
   scopes!: ServiceCredentialScope[];
 }
 
+export class OnboardingPermissionWebhookDto {
+  @IsString()
+  url!: string;
+
+  @IsOptional()
+  @IsIn(['generated', 'environment'])
+  signingSecretSource?: PermissionWebhookSecretSource;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsIn(PERMISSION_WEBHOOK_EVENT_TYPES, { each: true })
+  eventTypes?: PermissionWebhookEventType[];
+}
+
 export class CreateServiceOnboardingRequestDto {
   @IsString()
   serviceKey!: string;
@@ -115,6 +135,11 @@ export class CreateServiceOnboardingRequestDto {
   @ValidateNested({ each: true })
   @Type(() => OnboardingCredentialDto)
   serviceCredentials?: OnboardingCredentialDto[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => OnboardingPermissionWebhookDto)
+  permissionWebhook?: OnboardingPermissionWebhookDto | null;
 }
 
 export class UpdateServiceOnboardingRequestDto extends CreateServiceOnboardingRequestDto {

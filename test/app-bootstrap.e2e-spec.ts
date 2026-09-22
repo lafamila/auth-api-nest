@@ -10,14 +10,17 @@ import { AppModule } from '../src/app.module';
 import { TotpService } from '../src/common/crypto/totp.service';
 import { AccountServicePermissionEntity } from '../src/database/entities/account-service-permission.entity';
 import { AccountEntity } from '../src/database/entities/account.entity';
+import { PermissionWebhookOutboxEntity } from '../src/database/entities/permission-webhook-outbox.entity';
 import { OidcClientEntity } from '../src/database/entities/oidc-client.entity';
 import { ServiceCredentialEntity } from '../src/database/entities/service-credential.entity';
 import { ServiceOnboardingRequestEntity } from '../src/database/entities/service-onboarding-request.entity';
 import { ServicePermissionDefinitionEntity } from '../src/database/entities/service-permission-definition.entity';
 import { ServiceEntity } from '../src/database/entities/service.entity';
 import { AccountsService } from '../src/domain/accounts/accounts.service';
+import { AccountPermissionsService } from '../src/domain/account-permissions/account-permissions.service';
 import { ServiceApplicationsService } from '../src/domain/service-applications/service-applications.service';
 import { ServiceOnboardingService } from '../src/domain/service-onboarding/service-onboarding.service';
+import { PermissionWebhookDispatcherService } from '../src/domain/permission-webhooks/permission-webhook-dispatcher.service';
 import { TokenService } from '../src/oidc/token.service';
 import { hashToken } from '../src/common/crypto/token-hash';
 
@@ -73,6 +76,14 @@ describe('App bootstrap (e2e)', () => {
   function nextSuffix(label: string) {
     uniqueCounter += 1;
     return `${label}-${Date.now()}-${uniqueCounter}`;
+  }
+
+  function restoreEnv(key: string, value: string | undefined) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
   }
 
   async function createAdminSessionCookie(): Promise<string[]> {
@@ -160,6 +171,11 @@ describe('App bootstrap (e2e)', () => {
       description?: string;
       scopes: Array<'account.search' | 'permission.read' | 'sync'>;
     }>;
+    permissionWebhook?: {
+      url: string;
+      signingSecretSource?: 'generated' | 'environment';
+      eventTypes?: Array<'permission.updated' | 'service_application.rejected'>;
+    };
   }): Promise<ApprovedServiceResult> {
     const suffix = nextSuffix('service');
     const serviceKey = options?.serviceKey ?? suffix;
@@ -172,6 +188,9 @@ describe('App bootstrap (e2e)', () => {
       permissions: options?.permissions ?? [],
       oidcClients: options?.oidcClients ?? [],
       serviceCredentials: options?.serviceCredentials ?? [],
+      ...(options?.permissionWebhook
+        ? { permissionWebhook: options.permissionWebhook }
+        : {}),
     };
     const onboarding = app.get(ServiceOnboardingService);
     const createResponse = (await onboarding.create(
@@ -2597,6 +2616,118 @@ describe('App bootstrap (e2e)', () => {
       .findOneByOrFail({ clientId });
     expect(storedClient.accessTokenTtlSeconds).toBe(1800);
     expect(storedClient.refreshTokenTtlSeconds).toBeNull();
+  });
+
+  it('refreshes a stored token with the current role and records the service-scoped outbox event', async () => {
+    const previousEnabled = process.env.PERMISSION_WEBHOOKS_ENABLED;
+    const previousTrustedOrigins =
+      process.env.PERMISSION_WEBHOOK_TRUSTED_INTERNAL_ORIGINS;
+    process.env.PERMISSION_WEBHOOKS_ENABLED = 'true';
+    process.env.PERMISSION_WEBHOOK_TRUSTED_INTERNAL_ORIGINS =
+      'http://127.0.0.1:65530';
+    try {
+      const clientId = nextSuffix('webhook-refresh-client');
+      const approved = await createApprovedService({
+        permissions: [{ key: 'user', label: 'User' }],
+        oidcClients: [
+          {
+            clientId,
+            clientType: 'public',
+            redirectUris: ['game-platform://auth/callback'],
+          },
+        ],
+        permissionWebhook: {
+          url: 'http://127.0.0.1:65530/api/auth/webhooks',
+          signingSecretSource: 'generated',
+          eventTypes: ['permission.updated'],
+        },
+      });
+      expect(approved.approval.secrets).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'permission_webhook',
+            secret: expect.any(String),
+          }),
+        ]),
+      );
+      const { account, password } = await createAccount();
+      const tokens = await authorizeAndExchange(
+        request.agent(app.getHttpServer()),
+        {
+          clientId,
+          redirectUri: 'game-platform://auth/callback',
+          expectedServiceKey: approved.service.serviceKey,
+          expectedPermission: 'visitor',
+          loginId: account.loginId,
+          password,
+        },
+      );
+      const userPermission = approved.permissionsByKey.get('user');
+      expect(userPermission).toBeDefined();
+      await app
+        .get(AccountPermissionsService)
+        .put(account.id, approved.service.id, userPermission!.id);
+
+      const refreshed = await request(app.getHttpServer())
+        .post('/oauth/token')
+        .send({
+          grant_type: 'refresh_token',
+          client_id: clientId,
+          refresh_token: tokens.refresh_token,
+        })
+        .expect(200);
+      const payload = app
+        .get(TokenService)
+        .verifyAccessToken(refreshed.body.access_token);
+      expect(payload['https://lafamila.xyz/claims/service']).toEqual(
+        expect.objectContaining({
+          key: approved.service.serviceKey,
+          permission: 'user',
+        }),
+      );
+
+      const deliveries = await dataSource
+        .getRepository(PermissionWebhookOutboxEntity)
+        .findBy({ serviceId: approved.service.id });
+      expect(deliveries).toHaveLength(1);
+      expect(deliveries[0].eventJson).toEqual(
+        expect.objectContaining({
+          id: deliveries[0].id,
+          type: 'permission.updated',
+          serviceKey: approved.service.serviceKey,
+          accountId: account.id,
+          data: expect.objectContaining({
+            permission: 'user',
+            previousPermission: 'visitor',
+            status: 'active',
+            reason: 'changed',
+          }),
+        }),
+      );
+
+      await dataSource.query(
+        `UPDATE permission_webhook_outbox
+         SET status = 'delivered', next_attempt_at = NULL
+         WHERE id <> $1 AND status = 'pending'`,
+        [deliveries[0].id],
+      );
+      await expect(
+        app.get(PermissionWebhookDispatcherService).dispatchOnce(),
+      ).resolves.toBe(true);
+      const attemptedDelivery = await dataSource
+        .getRepository(PermissionWebhookOutboxEntity)
+        .findOneByOrFail({ id: deliveries[0].id });
+      expect(attemptedDelivery.attempts).toBe(1);
+      expect(attemptedDelivery.status).toBe('pending');
+      expect(attemptedDelivery.claimToken).toBeNull();
+      expect(attemptedDelivery.lastError).toBeTruthy();
+    } finally {
+      restoreEnv('PERMISSION_WEBHOOKS_ENABLED', previousEnabled);
+      restoreEnv(
+        'PERMISSION_WEBHOOK_TRUSTED_INTERNAL_ORIGINS',
+        previousTrustedOrigins,
+      );
+    }
   });
 
   it('denies refresh and revokes the family after the account is disabled', async () => {

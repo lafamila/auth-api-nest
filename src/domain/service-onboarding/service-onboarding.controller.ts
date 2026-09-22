@@ -11,7 +11,10 @@ export class ServiceOnboardingController {
   constructor(private readonly onboarding: ServiceOnboardingService) {}
 
   @Post()
-  create(@Body() body: CreateServiceOnboardingRequestDto, @Req() request: Request) {
+  create(
+    @Body() body: CreateServiceOnboardingRequestDto,
+    @Req() request: Request,
+  ) {
     return this.onboarding.create(body, this.ipAddress(request));
   }
 

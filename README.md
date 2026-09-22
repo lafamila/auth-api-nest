@@ -38,4 +38,4 @@ docker compose -f docker-compose.dev.yml up --build
 
 ## 상세
 
-아키텍처, 통합 계약, admin/bootstrap 정책, 토큰/서명키 정책 등 상세 가이드는 [`CLAUDE.md`](./CLAUDE.md) 와 `docs/` (auth-flows, admin-api, service-integration) 를 참조.
+아키텍처, 통합 계약, admin/bootstrap 정책, 토큰/서명키 정책 등 상세 가이드는 [`CLAUDE.md`](./CLAUDE.md) 와 `docs/` (auth-flows, admin-api, service-integration, permission-webhooks, account-directory) 를 참조.

@@ -17,7 +17,15 @@ import {
   MigratePermissionDto,
   UpdatePermissionDto,
 } from './dto/permission.dto';
-import { SUPERADMIN_PERMISSION, VISITOR_PERMISSION } from './managed-permissions';
+import {
+  SUPERADMIN_PERMISSION,
+  VISITOR_PERMISSION,
+} from './managed-permissions';
+import {
+  PermissionUpdatedWebhookEvent,
+  createPermissionWebhookEvent,
+} from '../permission-webhooks/permission-webhook.contract';
+import { PermissionWebhooksService } from '../permission-webhooks/permission-webhooks.service';
 
 @Injectable()
 export class PermissionsService {
@@ -29,11 +37,14 @@ export class PermissionsService {
     private readonly dataSource: DataSource,
     private readonly services: ServiceRegistryService,
     private readonly auditLogs: AuditLogsService,
+    private readonly webhooks: PermissionWebhooksService,
   ) {}
 
   async list(
     serviceId: string,
-  ): Promise<Array<ServicePermissionDefinitionEntity & { activeAssignmentCount: number }>> {
+  ): Promise<
+    Array<ServicePermissionDefinitionEntity & { activeAssignmentCount: number }>
+  > {
     const [permissions, assignmentCounts] = await Promise.all([
       this.permissions.find({
         where: { serviceId },
@@ -189,9 +200,14 @@ export class PermissionsService {
   ): Promise<{ moved: number }> {
     const source = await this.findOwnedPermission(serviceId, permissionId);
     if (source.key === VISITOR_PERMISSION.key) {
-      throw new BadRequestException('Visitor permission cannot be migrated or removed');
+      throw new BadRequestException(
+        'Visitor permission cannot be migrated or removed',
+      );
     }
-    const target = await this.findOwnedPermission(serviceId, input.targetPermissionId);
+    const target = await this.findOwnedPermission(
+      serviceId,
+      input.targetPermissionId,
+    );
     if (target.status !== 'active') {
       throw new BadRequestException('Migration target must be active');
     }
@@ -200,6 +216,20 @@ export class PermissionsService {
     }
 
     return this.dataSource.transaction(async (manager) => {
+      await manager.query(
+        `SELECT id FROM account_service_permissions
+         WHERE service_id = $1 AND permission_definition_id = $2
+           AND status = 'active'
+         FOR UPDATE`,
+        [serviceId, source.id],
+      );
+      const assignments = await manager.find(AccountServicePermissionEntity, {
+        where: {
+          serviceId,
+          permissionDefinitionId: source.id,
+          status: 'active',
+        },
+      });
       const result = await manager.update(
         AccountServicePermissionEntity,
         { serviceId, permissionDefinitionId: source.id },
@@ -210,15 +240,40 @@ export class PermissionsService {
         { id: source.id },
         { status: 'removed', removedAt: new Date() },
       );
-      await manager.increment(ServiceEntity, { id: serviceId }, 'permissionSchemaVersion', 1);
+      await manager.increment(
+        ServiceEntity,
+        { id: serviceId },
+        'permissionSchemaVersion',
+        1,
+      );
       await manager.save(
         manager.create(AuditLogEntity, {
           action: 'permission.migrate',
           targetType: 'service_permission',
           targetId: source.id,
           beforeJson: { sourcePermissionId: source.id },
-          afterJson: { targetPermissionId: target.id, moved: result.affected ?? 0 },
+          afterJson: {
+            targetPermissionId: target.id,
+            moved: result.affected ?? 0,
+          },
         }),
+      );
+      await this.webhooks.enqueueMany(
+        manager,
+        serviceId,
+        assignments.map((assignment) =>
+          createPermissionWebhookEvent<PermissionUpdatedWebhookEvent>({
+            type: 'permission.updated',
+            serviceKey: source.service.serviceKey,
+            accountId: assignment.accountId,
+            data: {
+              permission: target.key,
+              previousPermission: source.key,
+              status: 'active',
+              reason: 'changed',
+            },
+          }),
+        ),
       );
       return { moved: result.affected ?? 0 };
     });
@@ -240,7 +295,9 @@ export class PermissionsService {
     }
     if (assigned > 0) {
       if (!input?.targetPermissionId) {
-        throw new BadRequestException('Assigned permission requires migration target');
+        throw new BadRequestException(
+          'Assigned permission requires migration target',
+        );
       }
       const migrated = await this.migrate(serviceId, permissionId, input);
       return { removed: true, moved: migrated.moved };
@@ -261,7 +318,10 @@ export class PermissionsService {
     serviceId: string,
     permissionId: string,
   ): Promise<ServicePermissionDefinitionEntity> {
-    const permission = await this.permissions.findOneBy({ id: permissionId, serviceId });
+    const permission = await this.permissions.findOneBy({
+      id: permissionId,
+      serviceId,
+    });
     if (!permission) {
       throw new NotFoundException('Permission not found');
     }
