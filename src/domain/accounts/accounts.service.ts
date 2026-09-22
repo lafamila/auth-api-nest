@@ -49,6 +49,7 @@ export class AccountsService {
   async searchForService(
     serviceKey: string,
     query: string,
+    exactMatch?: 'loginId' | 'name',
   ): Promise<ServiceAccountSearchResult[]> {
     const service = await this.dataSource
       .getRepository(ServiceEntity)
@@ -62,6 +63,13 @@ export class AccountsService {
       await this.accounts.find({ order: { createdAt: 'DESC' } })
     )
       .filter((account) => {
+        if (exactMatch) {
+          return (
+            Boolean(normalizedQuery) &&
+            account.status === 'active' &&
+            account[exactMatch]?.trim().toLowerCase() === normalizedQuery
+          );
+        }
         if (!normalizedQuery) return true;
         return [account.loginId, account.name, account.email]
           .filter(Boolean)

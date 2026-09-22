@@ -31,11 +31,19 @@ export class InternalServiceAccountsController {
       throw new UnauthorizedException('Service credential context is required');
     }
     if (!this.credentials.hasScope(credential, 'account.search')) {
-      throw new ForbiddenException('Service credential is missing account.search');
+      throw new ForbiddenException(
+        'Service credential is missing account.search',
+      );
     }
     if (credential.serviceKey !== query.serviceKey) {
-      throw new ForbiddenException('Service credential does not match serviceKey');
+      throw new ForbiddenException(
+        'Service credential does not match serviceKey',
+      );
     }
-    return this.accounts.searchForService(query.serviceKey, query.q ?? '');
+    return this.accounts.searchForService(
+      query.serviceKey,
+      query.q ?? '',
+      query.exactMatch,
+    );
   }
 }
