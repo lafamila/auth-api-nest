@@ -1,5 +1,5 @@
 ---
-status: PREPARED
+status: IN_PROGRESS
 summary: "Auth에 중앙 Notification 도메인, FCM delivery, service scope, OIDC app API, admin 관리와 통합 문서를 구현한다."
 ---
 
@@ -65,4 +65,3 @@ Canonical orchestration plan:
 ## Decision Escalation
 
 사용자가 결정해야 하는 주요 사안은 임의로 판단하지 않는다. 작업을 중단하고 현재 orchestrator에게 전달해 결정받은 뒤 진행한다. orchestrator에 보고할 수 없으면 workspace root `.idea/`에 handoff 문서를 남긴다.
-
