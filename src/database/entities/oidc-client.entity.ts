@@ -38,7 +38,12 @@ export class OidcClientEntity {
   @Column({ name: 'redirect_uris', type: 'text', array: true })
   redirectUris!: string[];
 
-  @Column({ name: 'post_logout_redirect_uris', type: 'text', array: true, default: [] })
+  @Column({
+    name: 'post_logout_redirect_uris',
+    type: 'text',
+    array: true,
+    default: [],
+  })
   postLogoutRedirectUris!: string[];
 
   @Column({ name: 'allowed_grant_types', type: 'text', array: true })

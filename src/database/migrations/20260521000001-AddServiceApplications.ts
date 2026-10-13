@@ -30,8 +30,12 @@ export class AddServiceApplications20260521000001 implements MigrationInterface 
   }
 
   async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX IF EXISTS idx_service_applications_one_pending`);
-    await queryRunner.query(`DROP INDEX IF EXISTS idx_service_applications_pending`);
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS idx_service_applications_one_pending`,
+    );
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS idx_service_applications_pending`,
+    );
     await queryRunner.query(`DROP TABLE IF EXISTS service_applications`);
   }
 }

@@ -50,8 +50,7 @@ export class AppConfigService {
 
   get permissionWebhooksEnabled(): boolean {
     return (
-      this.config.get<string>('PERMISSION_WEBHOOKS_ENABLED', 'false') ===
-      'true'
+      this.config.get<string>('PERMISSION_WEBHOOKS_ENABLED', 'false') === 'true'
     );
   }
 
@@ -78,6 +77,39 @@ export class AppConfigService {
       .filter(Boolean);
   }
 
+  get notificationsEnabled(): boolean {
+    return this.config.get<string>('NOTIFICATIONS_ENABLED', 'false') === 'true';
+  }
+
+  get notificationTokenEncryptionKey(): string {
+    return this.config.get<string>('NOTIFICATION_TOKEN_ENCRYPTION_KEY', '');
+  }
+
+  get notificationPollIntervalMs(): number {
+    return this.positiveNumber('NOTIFICATION_POLL_INTERVAL_MS', 1000);
+  }
+
+  get notificationRetentionIntervalMs(): number {
+    return this.positiveNumber(
+      'NOTIFICATION_RETENTION_INTERVAL_MS',
+      60 * 60 * 1000,
+    );
+  }
+
+  get firebaseProjectId(): string {
+    return this.config.get<string>('FIREBASE_PROJECT_ID', '');
+  }
+
+  get firebaseClientEmail(): string {
+    return this.config.get<string>('FIREBASE_CLIENT_EMAIL', '');
+  }
+
+  get firebasePrivateKey(): string {
+    return this.config
+      .get<string>('FIREBASE_PRIVATE_KEY', '')
+      .replace(/\\n/g, '\n');
+  }
+
   permissionWebhookEnvironmentSecret(serviceKey: string): {
     envName: string;
     secret: string;
@@ -92,7 +124,10 @@ export class AppConfigService {
   }
 
   get adminSessionCookieName(): string {
-    return this.config.get<string>('ADMIN_SESSION_COOKIE_NAME', 'tas_admin_session');
+    return this.config.get<string>(
+      'ADMIN_SESSION_COOKIE_NAME',
+      'tas_admin_session',
+    );
   }
 
   get adminOtpEncryptionKey(): string {

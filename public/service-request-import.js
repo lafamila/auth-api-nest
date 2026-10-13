@@ -7,6 +7,7 @@
     'oidcClients',
     'serviceCredentials',
     'permissionWebhook',
+    'notificationActionTargets',
     'requesterName',
     'requesterEmail',
   ]);
@@ -273,6 +274,45 @@
     };
   }
 
+  function normalizeNotificationActionTargets(value) {
+    if (value === undefined) return undefined;
+    if (!Array.isArray(value)) {
+      throw new Error('notificationActionTargets must be an array.');
+    }
+    return value.map(function mapActionTarget(target, index) {
+      const row = ensurePlainObject(
+        target,
+        'notificationActionTargets[' + index + ']',
+      );
+      return {
+        targetKey: ensureOptionalString(
+          row.targetKey,
+          'notificationActionTargets[' + index + '].targetKey',
+        ),
+        baseUrl: ensureOptionalString(
+          row.baseUrl,
+          'notificationActionTargets[' + index + '].baseUrl',
+        ),
+        fallbackUrl: ensureOptionalString(
+          row.fallbackUrl,
+          'notificationActionTargets[' + index + '].fallbackUrl',
+        ),
+        allowedPaths: normalizeJoin(
+          ensureOptionalStringArray(
+            row.allowedPaths,
+            'notificationActionTargets[' + index + '].allowedPaths',
+          ),
+        ),
+        allowedCustomSchemes: normalizeJoin(
+          ensureOptionalStringArray(
+            row.allowedCustomSchemes,
+            'notificationActionTargets[' + index + '].allowedCustomSchemes',
+          ),
+        ),
+      };
+    });
+  }
+
   function normalizeImportedServiceRequest(value, sessionAccount, options) {
     const root = ensurePlainObject(value, 'Imported JSON root');
     const warnings = [];
@@ -310,6 +350,9 @@
         permissionWebhook: normalizePermissionWebhook(
           root.permissionWebhook,
           warnings,
+        ),
+        notificationActionTargets: normalizeNotificationActionTargets(
+          root.notificationActionTargets,
         ),
       },
       warnings: warnings,

@@ -20,6 +20,13 @@ import { PermissionWebhookSubscriptionEntity } from './entities/permission-webho
 import { PermissionWebhookOutboxEntity } from './entities/permission-webhook-outbox.entity';
 import { AppConfigModule } from '../config/app-config.module';
 import { AppConfigService } from '../config/app-config.service';
+import { NotificationActionTargetEntity } from './entities/notification-action-target.entity';
+import { NotificationDeliveryAttemptEntity } from './entities/notification-delivery-attempt.entity';
+import { NotificationDeliveryEntity } from './entities/notification-delivery.entity';
+import { NotificationDeviceEntity } from './entities/notification-device.entity';
+import { NotificationIdempotencyEntity } from './entities/notification-idempotency.entity';
+import { NotificationSubscriptionEntity } from './entities/notification-subscription.entity';
+import { NotificationEntity } from './entities/notification.entity';
 
 export const AUTH_ENTITIES = [
   AccountEntity,
@@ -39,6 +46,13 @@ export const AUTH_ENTITIES = [
   SigningKeyEntity,
   PermissionWebhookSubscriptionEntity,
   PermissionWebhookOutboxEntity,
+  NotificationDeviceEntity,
+  NotificationSubscriptionEntity,
+  NotificationActionTargetEntity,
+  NotificationEntity,
+  NotificationDeliveryEntity,
+  NotificationDeliveryAttemptEntity,
+  NotificationIdempotencyEntity,
 ];
 
 @Module({

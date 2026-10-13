@@ -24,6 +24,8 @@ import {
   RejectServiceOnboardingRequestDto,
   UpdateServiceOnboardingRequestDto,
 } from './dto/service-onboarding.dto';
+import { NotificationActionTargetsService } from '../../notifications/notification-action-targets.service';
+import { assertPublicClientPkce } from '../oidc-clients/public-client-pkce';
 
 const PUBLIC_REQUEST_WINDOW_MS = 60 * 60 * 1000;
 const PUBLIC_REQUEST_IP_LIMIT = 10;
@@ -44,13 +46,18 @@ export class ServiceOnboardingService {
     private readonly passwordService: PasswordService,
     private readonly auditLogs: AuditLogsService,
     private readonly webhooks: PermissionWebhooksService,
+    private readonly notificationActions: NotificationActionTargetsService,
   ) {}
 
   async create(
     input: CreateServiceOnboardingRequestDto,
     requestIp: string | null,
   ) {
+    this.assertOidcClientSecurity(input);
     this.webhooks.validateRequestedSpec(input.permissionWebhook);
+    this.notificationActions.validateRequestedSpec(
+      input.notificationActionTargets,
+    );
     await this.assertPublicRateLimit(requestIp);
     await this.assertNoPendingForService(input.serviceKey);
     if (await this.serviceRegistry.findByKey(input.serviceKey)) {
@@ -84,7 +91,11 @@ export class ServiceOnboardingService {
     requestIp: string | null,
     headerSecret?: string,
   ) {
+    this.assertOidcClientSecurity(input);
     this.webhooks.validateRequestedSpec(input.permissionWebhook);
+    this.notificationActions.validateRequestedSpec(
+      input.notificationActionTargets,
+    );
     await this.assertPublicRateLimit(requestIp);
     const prior = await this.findById(requestId);
     const requestSecret = headerSecret || input.requestSecret;
@@ -151,6 +162,7 @@ export class ServiceOnboardingService {
     const request = await this.findPending(id);
     const spec =
       request.requestedSpecJson as unknown as CreateServiceOnboardingRequestDto;
+    this.assertOidcClientSecurity(spec);
     const service = await this.upsertService(spec);
     const createdSecrets: Record<string, unknown>[] = [];
 
@@ -233,6 +245,10 @@ export class ServiceOnboardingService {
     if (webhookSecret) {
       createdSecrets.push({ ...webhookSecret });
     }
+    await this.notificationActions.configureFromApprovedOnboarding(
+      service,
+      spec.notificationActionTargets,
+    );
 
     request.status = 'approved';
     request.approvedSnapshotJson = {
@@ -359,7 +375,18 @@ export class ServiceOnboardingService {
       ...(input.permissionWebhook !== undefined
         ? { permissionWebhook: input.permissionWebhook }
         : {}),
+      ...(input.notificationActionTargets !== undefined
+        ? { notificationActionTargets: input.notificationActionTargets }
+        : {}),
     };
+  }
+
+  private assertOidcClientSecurity(
+    input: CreateServiceOnboardingRequestDto,
+  ): void {
+    for (const client of input.oidcClients ?? []) {
+      assertPublicClientPkce(client.clientType, client.requirePkce ?? true);
+    }
   }
 
   private safeRequest(

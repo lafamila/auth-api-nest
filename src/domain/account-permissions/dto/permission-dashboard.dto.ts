@@ -1,11 +1,5 @@
 import { Type } from 'class-transformer';
-import {
-  IsInt,
-  IsOptional,
-  IsString,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { PermissionStatus } from '../../../database/entities/service-permission-definition.entity';
 
 export interface PermissionDashboardRowDto {

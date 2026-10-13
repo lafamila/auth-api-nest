@@ -1,0 +1,28 @@
+{
+  "serviceKey": "notification",
+  "name": "Noti",
+  "description": "Central iOS and Android notification inbox",
+  "permissions": [],
+  "oidcClients": [
+    {
+      "clientId": "notification-app",
+      "clientType": "public",
+      "redirectUris": [
+        "xyz.lafamila.noti.dev:/oauth/callback",
+        "xyz.lafamila.noti:/oauth/callback"
+      ],
+      "postLogoutRedirectUris": [
+        "xyz.lafamila.noti.dev:/oauth/callback",
+        "xyz.lafamila.noti:/oauth/callback"
+      ],
+      "allowedScopes": [
+        "openid",
+        "profile",
+        "email",
+        "service.permission"
+      ],
+      "requirePkce": true
+    }
+  ],
+  "serviceCredentials": []
+}

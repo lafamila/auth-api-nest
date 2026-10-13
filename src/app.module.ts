@@ -17,6 +17,7 @@ import { ServiceOnboardingModule } from './domain/service-onboarding/service-onb
 import { SignupModule } from './signup/signup.module';
 import { InternalModule } from './internal/internal.module';
 import { ServicePageController } from './service-page.controller';
+import { NotificationModule } from './notifications/notification.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { ServicePageController } from './service-page.controller';
     ServiceApplicationsModule,
     ServiceOnboardingModule,
     SignupModule,
+    NotificationModule,
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'public'),
       serveRoot: '/admin',

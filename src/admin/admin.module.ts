@@ -28,6 +28,8 @@ import { AdminServiceOnboardingController } from './controllers/admin-service-on
 import { AdminGuard } from './admin.guard';
 import { PermissionWebhooksModule } from '../domain/permission-webhooks/permission-webhooks.module';
 import { AdminPermissionWebhooksController } from './controllers/admin-permission-webhooks.controller';
+import { NotificationModule } from '../notifications/notification.module';
+import { AdminNotificationsController } from '../notifications/admin-notifications.controller';
 
 @Module({
   imports: [
@@ -46,6 +48,7 @@ import { AdminPermissionWebhooksController } from './controllers/admin-permissio
     ServiceCredentialsModule,
     ServiceOnboardingModule,
     PermissionWebhooksModule,
+    NotificationModule,
   ],
   controllers: [
     AdminAuthController,
@@ -59,6 +62,7 @@ import { AdminPermissionWebhooksController } from './controllers/admin-permissio
     AdminPermissionsController,
     AdminAuditLogsController,
     AdminPermissionWebhooksController,
+    AdminNotificationsController,
   ],
   providers: [AdminGuard, AdminAuthService, AesGcmService, TotpService],
   exports: [AdminGuard, AdminAuthService],

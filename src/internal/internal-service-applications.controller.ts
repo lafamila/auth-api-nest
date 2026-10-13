@@ -31,13 +31,17 @@ export class InternalServiceApplicationsController {
       throw new UnauthorizedException('Service credential context is required');
     }
     if (!this.credentials.hasScope(credential, 'permission.read')) {
-      throw new ForbiddenException('Service credential is missing permission.read');
+      throw new ForbiddenException(
+        'Service credential is missing permission.read',
+      );
     }
     if (!serviceKey || !accountId) {
       throw new ForbiddenException('serviceKey and accountId are required');
     }
     if (credential.serviceKey !== serviceKey) {
-      throw new ForbiddenException('Service credential does not match serviceKey');
+      throw new ForbiddenException(
+        'Service credential does not match serviceKey',
+      );
     }
     return this.applications.statusForServiceAccount(serviceKey, accountId);
   }

@@ -1,4 +1,11 @@
-import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsEmail,
+  IsIn,
+  IsOptional,
+  IsString,
+  MinLength,
+} from 'class-validator';
 import { AccountStatus } from '../../../database/entities/account.entity';
 
 export class CreateAccountDto {

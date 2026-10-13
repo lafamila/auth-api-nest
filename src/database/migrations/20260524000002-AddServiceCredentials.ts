@@ -30,7 +30,9 @@ export class AddServiceCredentials20260524000002 implements MigrationInterface {
   }
 
   async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX IF EXISTS idx_service_credentials_service_status`);
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS idx_service_credentials_service_status`,
+    );
     await queryRunner.query(`DROP TABLE IF EXISTS service_credentials`);
   }
 }

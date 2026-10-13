@@ -14,7 +14,11 @@ const BLOCKED_REDIRECT_SCHEMES = new Set([
 const APP_CALLBACK_SCHEME_PATTERN = /^[A-Za-z][A-Za-z0-9+.-]*$/;
 
 export function isRedirectUri(value: unknown): value is string {
-  if (typeof value !== 'string' || value.trim() !== value || value.length === 0) {
+  if (
+    typeof value !== 'string' ||
+    value.trim() !== value ||
+    value.length === 0
+  ) {
     return false;
   }
   if (
@@ -42,7 +46,14 @@ export function isRedirectUri(value: unknown): value is string {
   ) {
     return false;
   }
-  if (!url.hostname || url.hash) {
+  const isWebScheme = scheme === 'http' || scheme === 'https';
+  const hasNativeAbsolutePath =
+    !isWebScheme && !url.hostname && url.pathname.startsWith('/');
+  if (
+    url.hash ||
+    (isWebScheme && !url.hostname) ||
+    (!url.hostname && !hasNativeAbsolutePath)
+  ) {
     return false;
   }
 

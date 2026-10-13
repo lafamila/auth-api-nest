@@ -55,7 +55,10 @@ export class AdminAuthService {
     private readonly auditLogs: AuditLogsService,
   ) {}
 
-  async bootstrapStatus(): Promise<{ requiresBootstrap: boolean; activeSuperAdminCount: number }> {
+  async bootstrapStatus(): Promise<{
+    requiresBootstrap: boolean;
+    activeSuperAdminCount: number;
+  }> {
     const activeSuperAdminCount = await this.accounts.countActiveSuperAdmins();
     return {
       requiresBootstrap: activeSuperAdminCount === 0,
@@ -101,14 +104,20 @@ export class AdminAuthService {
     };
   }
 
-  async completeBootstrap(input: BootstrapCompleteDto, request: Request, response: Response) {
+  async completeBootstrap(
+    input: BootstrapCompleteDto,
+    request: Request,
+    response: Response,
+  ) {
     await this.assertBootstrapAvailable();
     const challenge = await this.bootstrapChallenges.findOneBy({
       id: input.challengeId,
       consumedAt: IsNull(),
     });
     if (!challenge || challenge.expiresAt.getTime() <= Date.now()) {
-      throw new BadRequestException('Bootstrap challenge is expired or invalid');
+      throw new BadRequestException(
+        'Bootstrap challenge is expired or invalid',
+      );
     }
     const otpSecret = this.aes.decrypt(challenge.encryptedOtpSecret);
     if (!this.totp.verify(otpSecret, input.otpCode)) {
@@ -199,14 +208,19 @@ export class AdminAuthService {
       throw new UnauthorizedException('Admin session is invalid or expired');
     }
     session.lastSeenAt = new Date(now);
-    session.idleExpiresAt = new Date(Math.min(now + ADMIN_IDLE_MS, session.absoluteExpiresAt.getTime()));
+    session.idleExpiresAt = new Date(
+      Math.min(now + ADMIN_IDLE_MS, session.absoluteExpiresAt.getTime()),
+    );
     await this.sessions.save(session);
     request.adminAccount = session.account;
     request.adminSession = session;
     return session.account;
   }
 
-  async logout(request: SignedCookieRequest, response: Response): Promise<void> {
+  async logout(
+    request: SignedCookieRequest,
+    response: Response,
+  ): Promise<void> {
     const token = request.signedCookies?.[this.config.adminSessionCookieName];
     if (token) {
       await this.sessions.update(

@@ -28,6 +28,18 @@ export const SERVICE_CREDENTIAL_SCOPE_DEFINITIONS = [
     description:
       'Allows a service deployment to push/pull data changes to another deployment of the same service.',
   },
+  {
+    key: 'notifications.devices.read',
+    label: 'Notification Device Read',
+    description:
+      'Allows a service backend to list safe metadata for opted-in notification devices.',
+  },
+  {
+    key: 'notifications.send',
+    label: 'Notification Send',
+    description:
+      'Allows a service backend to create notifications for explicitly opted-in devices.',
+  },
 ] as const;
 
 export type ServiceCredentialScope =

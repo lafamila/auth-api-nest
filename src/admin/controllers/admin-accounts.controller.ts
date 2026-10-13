@@ -10,7 +10,10 @@ import {
 } from '@nestjs/common';
 import { AdminGuard } from '../admin.guard';
 import { AccountsService } from '../../domain/accounts/accounts.service';
-import { ResetPasswordDto, UpdateAccountDto } from '../../domain/accounts/dto/account.dto';
+import {
+  ResetPasswordDto,
+  UpdateAccountDto,
+} from '../../domain/accounts/dto/account.dto';
 
 @UseGuards(AdminGuard)
 @Controller('api/admin/accounts')
@@ -36,7 +39,10 @@ export class AdminAccountsController {
   }
 
   @Patch(':accountId')
-  update(@Param('accountId') accountId: string, @Body() body: UpdateAccountDto) {
+  update(
+    @Param('accountId') accountId: string,
+    @Body() body: UpdateAccountDto,
+  ) {
     return this.accounts.update(accountId, body);
   }
 

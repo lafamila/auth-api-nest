@@ -6,9 +6,7 @@ import { AdminGuard } from '../admin.guard';
 @UseGuards(AdminGuard)
 @Controller('api/admin/permission-dashboard')
 export class AdminPermissionDashboardController {
-  constructor(
-    private readonly accountPermissions: AccountPermissionsService,
-  ) {}
+  constructor(private readonly accountPermissions: AccountPermissionsService) {}
 
   @Get()
   list(@Query() query: PermissionDashboardQueryDto) {

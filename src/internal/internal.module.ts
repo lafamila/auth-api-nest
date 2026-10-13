@@ -8,7 +8,11 @@ import { InternalServiceCredentialsController } from './internal-service-credent
 import { InternalServiceCredentialsGuard } from './internal-service-credentials.guard';
 
 @Module({
-  imports: [AccountsModule, ServiceApplicationsModule, ServiceCredentialsModule],
+  imports: [
+    AccountsModule,
+    ServiceApplicationsModule,
+    ServiceCredentialsModule,
+  ],
   controllers: [
     InternalServiceAccountsController,
     InternalServiceApplicationsController,

@@ -13,6 +13,11 @@ describe('redirect URI validation', () => {
     await expect(validate(dto)).resolves.toEqual([]);
   });
 
+  it('accepts reverse-domain native callbacks without an authority', () => {
+    expect(isRedirectUri('xyz.lafamila.noti:/oauth/callback')).toBe(true);
+    expect(isRedirectUri('xyz.lafamila.noti.dev:/oauth/callback')).toBe(true);
+  });
+
   it('rejects unsafe redirect URI values', () => {
     expect(isRedirectUri('javascript://auth/callback')).toBe(false);
     expect(isRedirectUri('data://auth/callback')).toBe(false);

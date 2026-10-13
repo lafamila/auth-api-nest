@@ -42,9 +42,9 @@ describe('AccountsService', () => {
       { update: jest.fn() } as unknown as Repository<TokenRecordEntity>,
     );
 
-    await expect(service.update(account.id, { status: 'disabled' })).rejects.toBeInstanceOf(
-      ConflictException,
-    );
+    await expect(
+      service.update(account.id, { status: 'disabled' }),
+    ).rejects.toBeInstanceOf(ConflictException);
     expect(accountRepository.save).not.toHaveBeenCalled();
   });
 });

@@ -909,6 +909,35 @@
           <div class="list-pagination" id="credentialsPagination"></div>
         </section>
 
+        <section>
+          <div class="toolbar">
+            <h2>Notifications</h2>
+            <label>
+              View
+              <select id="notificationAdminView">
+                <option value="devices">Devices</option>
+                <option value="subscriptions">Subscriptions</option>
+                <option value="messages">Messages</option>
+                <option value="deliveries">Deliveries</option>
+                <option value="action-targets">Action Targets</option>
+              </select>
+            </label>
+            <button class="secondary" id="loadNotificationAdmin" type="button">Refresh</button>
+          </div>
+          <div class="message" id="notificationAdminMessage"></div>
+          <div class="wide-table">
+            <table>
+              <thead><tr id="notificationAdminHead"></tr></thead>
+              <tbody id="notificationAdminBody"></tbody>
+            </table>
+          </div>
+          <div class="list-pagination">
+            <span class="hint" id="notificationAdminRange">0 of 0</span>
+            <button class="secondary" id="notificationAdminPrev" type="button">Previous</button>
+            <button class="secondary" id="notificationAdminNext" type="button">Next</button>
+          </div>
+        </section>
+
       </div>
     </main>
 
@@ -1073,6 +1102,13 @@
         bootstrapChallengeId: null,
         requiresBootstrap: false,
         webhook: { subscription: null, items: [], page: 1, total: 0, loading: false, sequence: 0 },
+        notificationAdmin: {
+          view: 'devices',
+          items: [],
+          page: 1,
+          pageSize: 10,
+          total: 0,
+        },
         permissionDashboard: {
           items: [],
           page: 1,
@@ -1895,6 +1931,67 @@
         renderCredentials(serviceId);
       }
 
+      function renderNotificationAdmin() {
+        const view = state.notificationAdmin.view;
+        const items = state.notificationAdmin.items;
+        const headers = {
+          devices: ['Account', 'Device', 'Platform', 'Status', 'Last Seen', 'Actions'],
+          subscriptions: ['Account', 'Device', 'Service', 'Enabled', 'Changed', 'Actions'],
+          messages: ['Account', 'Service', 'Status', 'Action', 'Created'],
+          deliveries: ['Notification', 'Device', 'Status', 'Attempts', 'Result', 'Created'],
+          'action-targets': ['Service', 'Target', 'Base URL', 'Paths', 'Status', 'Actions'],
+        };
+        $('notificationAdminHead').innerHTML = headers[view]
+          .map((header) => `<th>${escapeHtml(header)}</th>`)
+          .join('');
+        const row = (item) => {
+          if (view === 'devices') {
+            return `<tr><td>${escapeHtml(item.accountLoginId || item.accountId)}</td><td>${escapeHtml(item.displayName)}<br /><span class="mono">${escapeHtml(item.id)}</span></td><td>${escapeHtml(item.platform)}</td><td>${escapeHtml(item.status)}${item.available ? ' · available' : ''}</td><td>${escapeHtml(formatDate(item.lastSeenAt))}</td><td><button class="secondary" data-disable-notification-device="${escapeHtml(item.id)}" type="button" ${item.status !== 'active' ? 'disabled' : ''}>Disable</button></td></tr>`;
+          }
+          if (view === 'subscriptions') {
+            return `<tr><td>${escapeHtml(item.accountLoginId || item.accountId)}</td><td>${escapeHtml(item.deviceName || item.deviceId)}</td><td>${escapeHtml(item.serviceKey)}</td><td>${item.enabled ? 'yes' : 'no'}</td><td>${escapeHtml(formatDate(item.enabled ? item.consentedAt : item.revokedAt))}</td><td><button class="secondary" data-revoke-notification-subscription="${escapeHtml(item.id)}" type="button" ${item.enabled ? '' : 'disabled'}>Revoke</button></td></tr>`;
+          }
+          if (view === 'messages') {
+            return `<tr><td>${escapeHtml(item.accountLoginId || item.accountId)}</td><td>${escapeHtml(item.serviceKey)}</td><td>${escapeHtml(item.status)}</td><td>${item.hasAction ? 'yes' : 'no'}</td><td>${escapeHtml(formatDate(item.createdAt))}</td></tr>`;
+          }
+          if (view === 'deliveries') {
+            return `<tr><td class="mono">${escapeHtml(item.notificationId)}</td><td>${escapeHtml(item.deviceName || item.deviceId)}</td><td>${escapeHtml(item.status)}</td><td>${escapeHtml(item.attempts)}</td><td>${escapeHtml(item.terminalReason || formatDate(item.deliveredAt))}</td><td>${escapeHtml(formatDate(item.createdAt))}</td></tr>`;
+          }
+          return `<tr><td>${escapeHtml(item.service?.serviceKey)}</td><td>${escapeHtml(item.targetKey)}</td><td class="mono">${escapeHtml(item.baseUrl)}</td><td>${escapeHtml((item.allowedPaths || []).join(', '))}</td><td>${escapeHtml(item.status)}</td><td><button class="secondary" data-toggle-notification-target="${escapeHtml(item.id)}" data-next-status="${item.status === 'active' ? 'disabled' : 'active'}" type="button">${item.status === 'active' ? 'Disable' : 'Enable'}</button></td></tr>`;
+        };
+        $('notificationAdminBody').innerHTML = items.length
+          ? items.map(row).join('')
+          : `<tr><td class="empty-state" colspan="${headers[view].length}">No notification records.</td></tr>`;
+        const total = state.notificationAdmin.total;
+        const page = state.notificationAdmin.page;
+        const pageSize = state.notificationAdmin.pageSize;
+        const start = total ? (page - 1) * pageSize + 1 : 0;
+        $('notificationAdminRange').textContent = `${start}-${Math.min(page * pageSize, total)} of ${total}`;
+        $('notificationAdminPrev').disabled = page <= 1;
+        $('notificationAdminNext').disabled = page * pageSize >= total;
+      }
+
+      async function loadNotificationAdmin() {
+        const admin = state.notificationAdmin;
+        $('notificationAdminMessage').textContent = '';
+        try {
+          const suffix =
+            admin.view === 'action-targets'
+              ? ''
+              : `?page=${admin.page}&pageSize=${admin.pageSize}`;
+          const result = await api(
+            `/api/admin/notifications/${admin.view}${suffix}`,
+          );
+          admin.items = Array.isArray(result) ? result : result.items || [];
+          admin.total = Array.isArray(result) ? result.length : result.total || 0;
+          if (Array.isArray(result)) admin.page = 1;
+          renderNotificationAdmin();
+        } catch (error) {
+          $('notificationAdminMessage').textContent = error.message;
+          $('notificationAdminMessage').classList.add('error');
+        }
+      }
+
       async function loadCredentialScopeOptions() {
         state.credentialScopeOptions = await api('/api/admin/service-credential-scopes');
       }
@@ -1952,7 +2049,11 @@
           state.services = services;
           renderAccounts();
           renderServices();
-          await Promise.all([loadOnboardingRequests(), loadApplications()]);
+          await Promise.all([
+            loadOnboardingRequests(),
+            loadApplications(),
+            loadNotificationAdmin(),
+          ]);
           if (state.services.length) {
             await Promise.all([
               loadPermissions($('permissionListService').value),
@@ -2185,6 +2286,42 @@
       $('credentialListService').addEventListener('change', (event) => {
         state.listPages.credentials = 1;
         void loadCredentials(event.currentTarget.value);
+      });
+      $('loadNotificationAdmin').addEventListener('click', () => {
+        void loadNotificationAdmin();
+      });
+      $('notificationAdminView').addEventListener('change', (event) => {
+        state.notificationAdmin.view = event.currentTarget.value;
+        state.notificationAdmin.page = 1;
+        void loadNotificationAdmin();
+      });
+      $('notificationAdminPrev').addEventListener('click', () => {
+        state.notificationAdmin.page = Math.max(1, state.notificationAdmin.page - 1);
+        void loadNotificationAdmin();
+      });
+      $('notificationAdminNext').addEventListener('click', () => {
+        state.notificationAdmin.page += 1;
+        void loadNotificationAdmin();
+      });
+      $('notificationAdminBody').addEventListener('click', async (event) => {
+        const button = event.target.closest('button');
+        if (!button || button.disabled) return;
+        try {
+          if (button.dataset.disableNotificationDevice) {
+            await api(`/api/admin/notifications/devices/${button.dataset.disableNotificationDevice}/disable`, { method: 'POST', body: '{}' });
+          } else if (button.dataset.revokeNotificationSubscription) {
+            await api(`/api/admin/notifications/subscriptions/${button.dataset.revokeNotificationSubscription}/revoke`, { method: 'POST', body: '{}' });
+          } else if (button.dataset.toggleNotificationTarget) {
+            await api(`/api/admin/notifications/action-targets/${button.dataset.toggleNotificationTarget}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ status: button.dataset.nextStatus }),
+            });
+          }
+          await loadNotificationAdmin();
+        } catch (error) {
+          $('notificationAdminMessage').textContent = error.message;
+          $('notificationAdminMessage').classList.add('error');
+        }
       });
       $('loadOnboarding').addEventListener('click', () => {
         state.listPages.onboarding = 1;

@@ -1,0 +1,21 @@
+{
+  "serviceKey": "location-todo",
+  "name": "Location Todo",
+  "description": "Location-aware todo service",
+  "permissions": [],
+  "serviceCredentials": [
+    {
+      "name": "location-todo notification sender",
+      "description": "Auth Notification API handoff worker",
+      "scopes": ["notifications.send"]
+    }
+  ],
+  "notificationActionTargets": [
+    {
+      "targetKey": "location-todo",
+      "baseUrl": "https://loc.lafamila.xyz/",
+      "fallbackUrl": "https://loc.lafamila.xyz/",
+      "allowedPaths": ["/notifications/**"]
+    }
+  ]
+}

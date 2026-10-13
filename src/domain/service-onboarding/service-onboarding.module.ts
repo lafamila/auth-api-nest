@@ -12,6 +12,7 @@ import { ServiceRegistryModule } from '../service-registry/service-registry.modu
 import { ServiceOnboardingController } from './service-onboarding.controller';
 import { ServiceOnboardingService } from './service-onboarding.service';
 import { PermissionWebhooksModule } from '../permission-webhooks/permission-webhooks.module';
+import { NotificationModule } from '../../notifications/notification.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { PermissionWebhooksModule } from '../permission-webhooks/permission-webh
     ServiceCredentialsModule,
     AuditLogsModule,
     PermissionWebhooksModule,
+    NotificationModule,
   ],
   controllers: [ServiceOnboardingController],
   providers: [ServiceOnboardingService, PasswordService],

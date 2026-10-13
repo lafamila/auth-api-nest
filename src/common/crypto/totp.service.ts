@@ -21,7 +21,11 @@ export class TotpService {
     return output;
   }
 
-  otpauthUri(input: { secret: string; loginId: string; issuer?: string }): string {
+  otpauthUri(input: {
+    secret: string;
+    loginId: string;
+    issuer?: string;
+  }): string {
     const issuer = input.issuer ?? 'Teddy Auth Admin';
     const label = `${issuer}:${input.loginId}`;
     const params = new URLSearchParams({
@@ -42,7 +46,9 @@ export class TotpService {
     const expectedCodes = [-1, 0, 1].map((window) =>
       this.generateCode(secret, now + window * 30_000),
     );
-    return expectedCodes.some((expected) => this.safeEqual(expected, normalized));
+    return expectedCodes.some((expected) =>
+      this.safeEqual(expected, normalized),
+    );
   }
 
   private generateCode(secret: string, now: number): string {
@@ -50,7 +56,9 @@ export class TotpService {
     const buffer = Buffer.alloc(8);
     buffer.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
     buffer.writeUInt32BE(counter & 0xffffffff, 4);
-    const hmac = createHmac('sha1', this.decodeBase32(secret)).update(buffer).digest();
+    const hmac = createHmac('sha1', this.decodeBase32(secret))
+      .update(buffer)
+      .digest();
     const offset = hmac[hmac.length - 1] & 0x0f;
     const value =
       ((hmac[offset] & 0x7f) << 24) |

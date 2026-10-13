@@ -81,7 +81,11 @@ export class AuthorizeFlowService {
         ),
       };
     }
-    if (client.requirePkce && request.codeChallengeMethod !== 'S256') {
+    const requiresPkce = client.clientType === 'public' || client.requirePkce;
+    if (
+      requiresPkce &&
+      (!request.codeChallenge || request.codeChallengeMethod !== 'S256')
+    ) {
       return {
         kind: 'redirect',
         redirectUrl: this.buildErrorRedirectUrl(
@@ -464,9 +468,8 @@ export class AuthorizeFlowService {
 
   hostedPageContentSecurityPolicy(redirectUri: string) {
     const redirect = new URL(redirectUri);
-    const redirectSource = redirect.origin === 'null'
-      ? redirect.protocol
-      : redirect.origin;
+    const redirectSource =
+      redirect.origin === 'null' ? redirect.protocol : redirect.origin;
     return `default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; form-action 'self' ${redirectSource}; frame-ancestors 'none'; base-uri 'none'`;
   }
 

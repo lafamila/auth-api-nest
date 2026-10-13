@@ -7,7 +7,9 @@ export function validateNormalPassword(password: string): void {
     throw new BadRequestException('Password must be at least 8 characters');
   }
   if (!/[^A-Za-z0-9]/.test(password)) {
-    throw new BadRequestException('Password must include at least one special character');
+    throw new BadRequestException(
+      'Password must include at least one special character',
+    );
   }
 }
 

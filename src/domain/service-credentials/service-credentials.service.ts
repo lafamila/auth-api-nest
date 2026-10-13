@@ -101,7 +101,9 @@ export class ServiceCredentialsService {
     if (input.status !== undefined) {
       credential.status = input.status;
       credential.disabledAt =
-        input.status === 'disabled' ? credential.disabledAt ?? new Date() : null;
+        input.status === 'disabled'
+          ? (credential.disabledAt ?? new Date())
+          : null;
     }
     const saved = await this.credentials.save(credential);
     const safeCredential = this.toView(saved);
@@ -142,7 +144,10 @@ export class ServiceCredentialsService {
     };
   }
 
-  async disable(serviceId: string, credentialId: string): Promise<ServiceCredentialView> {
+  async disable(
+    serviceId: string,
+    credentialId: string,
+  ): Promise<ServiceCredentialView> {
     const credential = await this.findOwnedCredential(serviceId, credentialId);
     if (credential.status !== 'disabled') {
       const before = this.toView(credential);
@@ -174,7 +179,10 @@ export class ServiceCredentialsService {
       throw new UnauthorizedException('Invalid service credential');
     }
     this.assertCredentialUsable(credential);
-    const isValid = await this.passwordService.verify(credential.secretHash, secret);
+    const isValid = await this.passwordService.verify(
+      credential.secretHash,
+      secret,
+    );
     if (!isValid) {
       throw new UnauthorizedException('Invalid service credential');
     }
@@ -238,7 +246,10 @@ export class ServiceCredentialsService {
     };
   }
 
-  async markUsed(credentialId: string, lastUsedFrom: string | null): Promise<void> {
+  async markUsed(
+    credentialId: string,
+    lastUsedFrom: string | null,
+  ): Promise<void> {
     await this.credentials.update(
       { id: credentialId },
       {
@@ -353,14 +364,18 @@ export class ServiceCredentialsService {
         return keyId;
       }
     }
-    throw new BadRequestException('Could not allocate a unique service credential key id');
+    throw new BadRequestException(
+      'Could not allocate a unique service credential key id',
+    );
   }
 
   private generateSecret(): string {
     return randomBytes(32).toString('base64url');
   }
 
-  private normalizeScopes(scopes: ServiceCredentialScope[]): ServiceCredentialScope[] {
+  private normalizeScopes(
+    scopes: ServiceCredentialScope[],
+  ): ServiceCredentialScope[] {
     return [...new Set(scopes)];
   }
 }

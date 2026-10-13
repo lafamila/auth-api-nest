@@ -13,11 +13,15 @@ export class InternalServiceCredentialsGuard implements CanActivate {
   constructor(private readonly credentials: ServiceCredentialsService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<ServiceCredentialRequest>();
+    const request = context
+      .switchToHttp()
+      .getRequest<ServiceCredentialRequest>();
     const keyId = request.header('x-auth-service-key-id');
     const secret = request.header('x-auth-service-secret');
     if (!keyId || !secret) {
-      throw new UnauthorizedException('Service credential headers are required');
+      throw new UnauthorizedException(
+        'Service credential headers are required',
+      );
     }
 
     const authenticated = await this.credentials.authenticate(keyId, secret);

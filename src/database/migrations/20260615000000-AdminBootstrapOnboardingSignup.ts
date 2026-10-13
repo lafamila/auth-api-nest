@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AdminBootstrapOnboardingSignup20260615000000
-  implements MigrationInterface
-{
+export class AdminBootstrapOnboardingSignup20260615000000 implements MigrationInterface {
   name = 'AdminBootstrapOnboardingSignup20260615000000';
 
   async up(queryRunner: QueryRunner): Promise<void> {

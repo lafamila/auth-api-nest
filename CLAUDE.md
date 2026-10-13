@@ -223,3 +223,38 @@ Phase 1 게임 플랫폼 세션 안정화 작업으로 확정된 토큰/서명�
 Never commit secrets, private keys, database URLs, or runtime state. Keep issuer, client secrets, cookie settings, and PostgreSQL credentials in environment variables. Auth changes require tests before merge.
 
 The RS256 signing private key is now stored in `signing_keys` encrypted at rest with `ADMIN_OTP_ENCRYPTION_KEY`. Keep that key stable across restarts and deployments: rotating it makes existing stored signing keys undecodable (a new key is generated instead), and it also invalidates admin OTP secrets.
+
+## Central Notification Module
+
+`NotificationModule` owns Noti device registration, per-device/service explicit
+consent, user inbox, scoped internal sender APIs, approved action targets, FCM
+HTTP v1 delivery/retry, retention, audit events and superadmin operations. It
+uses existing Auth accounts, active account-service assignments, OIDC access
+tokens and service credentials; it does not introduce a second auth model.
+
+- Noti access tokens must be RS256 tokens issued by this service with audience
+  `service:notification`, service claim key `notification`, an active subject,
+  and an active `notification` assignment.
+- Internal senders use `x-auth-service-key-id` and
+  `x-auth-service-secret`. `notifications.devices.read` and
+  `notifications.send` are independent scopes and are never backfilled onto
+  existing credentials.
+- New devices are opt-out for every service until a subscription row is
+  explicitly enabled. Disabling/deleting a device clears its encrypted push
+  token and revokes all subscriptions.
+- App list responses use `{ items }`; inbox service fields are flat and verified
+  actions expose `uri`/`fallbackUri`. FCM data contains only `notificationId`.
+- Push tokens use a dedicated 32-byte
+  `NOTIFICATION_TOKEN_ENCRYPTION_KEY`; only a SHA-256 fingerprint is indexed.
+  Raw tokens are absent from APIs, admin lists, audit records and provider
+  attempt rows.
+- `NOTIFICATIONS_ENABLED=false` leaves the persisted API contract available but
+  does not run the FCM worker. Production and enabled deployments fail startup
+  unless token/Firebase configuration passes validation.
+- Migration `AddNotificationPlatform20261013000000` creates all Notification
+  tables. Account/service/credential/device ownership uses database cascades;
+  retention removes attempts after 30 days and messages/disabled devices after
+  90 days. Idempotency rows expire after seven days.
+
+Canonical wire examples, action-path grammar, retry ownership, env values and
+onboarding JSON are in [`docs/notifications.md`](./docs/notifications.md).

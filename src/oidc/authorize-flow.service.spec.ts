@@ -80,13 +80,42 @@ describe('AuthorizeFlowService prompt handling', () => {
     });
   });
 
+  it('requires S256 PKCE for public clients even if legacy config disabled it', async () => {
+    const legacyPublicClient = {
+      ...client,
+      clientType: 'public',
+      requirePkce: false,
+    };
+    service = new AuthorizeFlowService(
+      {} as AccountsService,
+      {
+        findByClientId: jest.fn().mockResolvedValue(legacyPublicClient),
+      } as unknown as OidcClientsService,
+      {} as AccountPermissionsService,
+      {} as AuthorizationCodeService,
+    );
+
+    const result = await service.validateRequest({
+      ...request,
+      codeChallengeMethod: 'plain',
+    });
+
+    expect(result.kind).toBe('redirect');
+    if (result.kind !== 'redirect') {
+      throw new Error('Expected an OAuth error redirect');
+    }
+    expect(new URL(result.redirectUrl).searchParams.get('error')).toBe(
+      'invalid_request',
+    );
+  });
+
   it('allows the validated callback destination in hosted form navigation', () => {
-    expect(service.hostedPageContentSecurityPolicy(request.redirectUri)).toContain(
-      "form-action 'self' https://play.example.com",
-    );
-    expect(service.hostedPageContentSecurityPolicy('bodylab://auth/callback')).toContain(
-      "form-action 'self' bodylab:",
-    );
+    expect(
+      service.hostedPageContentSecurityPolicy(request.redirectUri),
+    ).toContain("form-action 'self' https://play.example.com");
+    expect(
+      service.hostedPageContentSecurityPolicy('bodylab://auth/callback'),
+    ).toContain("form-action 'self' bodylab:");
   });
 
   it('renders selection actions without exposing an account id', () => {

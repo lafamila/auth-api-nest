@@ -38,7 +38,10 @@ export class ServiceApplicationEntity {
   @Column({ default: 'pending' })
   status!: ServiceApplicationStatus;
 
-  @ManyToOne(() => ServicePermissionDefinitionEntity, { eager: true, nullable: true })
+  @ManyToOne(() => ServicePermissionDefinitionEntity, {
+    eager: true,
+    nullable: true,
+  })
   @JoinColumn({ name: 'target_permission_definition_id' })
   targetPermissionDefinition!: ServicePermissionDefinitionEntity | null;
 

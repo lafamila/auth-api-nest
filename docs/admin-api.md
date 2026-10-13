@@ -5,6 +5,25 @@ the first-superadmin `/api/admin/bootstrap/complete` flow.
 `x-admin-key` is no longer an admin authorization model.
 Internal service-to-service calls must use service credentials issued through the admin API.
 
+## Notification operations
+
+All routes require the normal HttpOnly superadmin session and `AdminGuard`.
+The admin console exposes the same operations in its **Notifications** section.
+
+- `GET /api/admin/notifications/devices?page=1&pageSize=30`
+- `GET /api/admin/notifications/subscriptions?page=1&pageSize=30`
+- `GET /api/admin/notifications/messages?page=1&pageSize=30`
+- `GET /api/admin/notifications/deliveries?page=1&pageSize=30`
+- `GET /api/admin/notifications/action-targets`
+- `POST /api/admin/notifications/devices/:deviceId/disable`
+- `POST /api/admin/notifications/subscriptions/:subscriptionId/revoke`
+- `PATCH /api/admin/notifications/action-targets/:targetId` with
+  `{ "status": "active" | "disabled" }`
+
+Device responses omit installation IDs, encrypted tokens and token
+fingerprints. Message lists omit title/body/metadata so the operations surface
+does not become a content export path.
+
 ## Admin Bootstrap and Login
 
 - `GET /api/admin/bootstrap/status`: returns whether the connected DB needs first-superadmin bootstrap.

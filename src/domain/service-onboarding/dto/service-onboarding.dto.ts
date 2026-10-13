@@ -22,6 +22,7 @@ import {
   PermissionWebhookEventType,
   PermissionWebhookSecretSource,
 } from '../../../database/entities/permission-webhook-subscription.entity';
+import { OnboardingNotificationActionTargetDto } from '../../../notifications/dto/notification.dto';
 
 export class OnboardingPermissionDto {
   @IsString()
@@ -140,6 +141,12 @@ export class CreateServiceOnboardingRequestDto {
   @ValidateNested()
   @Type(() => OnboardingPermissionWebhookDto)
   permissionWebhook?: OnboardingPermissionWebhookDto | null;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OnboardingNotificationActionTargetDto)
+  notificationActionTargets?: OnboardingNotificationActionTargetDto[];
 }
 
 export class UpdateServiceOnboardingRequestDto extends CreateServiceOnboardingRequestDto {

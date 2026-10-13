@@ -1,6 +1,15 @@
 # Service Integration Contract
 
+> Notification sender/device/action integration is specified in
+> [`notifications.md`](./notifications.md). Notification scopes and action
+> targets must be approved through the same onboarding create/update workflow;
+> existing credentials never receive the new scopes automatically.
+
 Services integrate with Teddy Auth as an OIDC relying party.
+
+Public OIDC clients always require Authorization Code with S256 PKCE. Auth
+rejects onboarding/direct client configurations that set `requirePkce: false`
+and enforces S256 again at authorization time, including for legacy rows.
 
 ## Required Inputs
 

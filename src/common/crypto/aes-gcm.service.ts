@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+} from 'node:crypto';
 import { AppConfigService } from '../../config/app-config.service';
 
 @Injectable()
@@ -14,11 +19,17 @@ export class AesGcmService {
       cipher.final(),
     ]);
     const tag = cipher.getAuthTag();
-    return ['v1', iv.toString('base64url'), tag.toString('base64url'), encrypted.toString('base64url')].join('.');
+    return [
+      'v1',
+      iv.toString('base64url'),
+      tag.toString('base64url'),
+      encrypted.toString('base64url'),
+    ].join('.');
   }
 
   decrypt(payload: string): string {
-    const [version, encodedIv, encodedTag, encodedCiphertext] = payload.split('.');
+    const [version, encodedIv, encodedTag, encodedCiphertext] =
+      payload.split('.');
     if (version !== 'v1' || !encodedIv || !encodedTag || !encodedCiphertext) {
       throw new Error('Invalid encrypted payload');
     }

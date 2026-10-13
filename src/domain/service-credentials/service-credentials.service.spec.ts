@@ -55,9 +55,7 @@ describe('ServiceCredentialsService.verifyPresented', () => {
       findOne: jest.fn().mockResolvedValue(credential),
       update,
     } as unknown as Repository<ServiceCredentialEntity>;
-    const verify = jest
-      .fn()
-      .mockResolvedValue(options?.secretMatches ?? true);
+    const verify = jest.fn().mockResolvedValue(options?.secretMatches ?? true);
     const record = jest.fn().mockResolvedValue(undefined);
     return {
       update,
@@ -87,7 +85,10 @@ describe('ServiceCredentialsService.verifyPresented', () => {
       scopes: ['sync'],
       status: 'active',
     });
-    expect(verify).toHaveBeenCalledWith('hashed-laptop-secret', 'laptop-secret');
+    expect(verify).toHaveBeenCalledWith(
+      'hashed-laptop-secret',
+      'laptop-secret',
+    );
     expect(update).toHaveBeenCalledWith(
       { id: 'credential-laptop' },
       expect.objectContaining({ lastUsedFrom: '10.0.0.5' }),
@@ -110,7 +111,11 @@ describe('ServiceCredentialsService.verifyPresented', () => {
   });
 
   it('rejects a wrong secret as invalid_credential without marking the target used', async () => {
-    const { service: credentials, update, record } = setup({
+    const {
+      service: credentials,
+      update,
+      record,
+    } = setup({
       secretMatches: false,
     });
 
@@ -191,7 +196,10 @@ describe('ServiceCredentialsService.verifyPresented', () => {
     });
     expect(record).toHaveBeenCalledWith(
       expect.objectContaining({
-        afterJson: expect.objectContaining({ detail: 'ok', requiredScope: null }),
+        afterJson: expect.objectContaining({
+          detail: 'ok',
+          requiredScope: null,
+        }),
       }),
     );
   });
@@ -214,7 +222,11 @@ describe('ServiceCredentialsService.verifyPresented', () => {
   });
 
   it('hides another service’s credential behind invalid_credential', async () => {
-    const { service: credentials, update, record } = setup({
+    const {
+      service: credentials,
+      update,
+      record,
+    } = setup({
       credential: target({
         service: { ...service, serviceKey: 'travel' },
       }),

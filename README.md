@@ -1,6 +1,6 @@
 # auth-api-nest
 
-Teddy 워크스페이스의 중앙 OIDC/OAuth2 인증 서버 — 계정/서비스/권한/OIDC client/service credential 관리와 내장 admin console 을 제공하며, 로그인이 필요한 모든 워크스페이스 서비스가 이 서버를 Provider 로 신뢰한다.
+Teddy 워크스페이스의 중앙 OIDC/OAuth2 인증 서버 — 계정/서비스/권한/OIDC client/service credential 관리, 중앙 Notification control/data plane, 내장 admin console 을 제공하며 로그인이 필요한 모든 워크스페이스 서비스가 이 서버를 Provider 로 신뢰한다.
 
 ## 로컬 실행
 
@@ -19,6 +19,7 @@ npm run start:dev   # watch mode, http://localhost:3032
 ```bash
 npm run build       # nest build → dist/
 npm run lint        # ESLint
+npm run format:check # Prettier verification
 npm run test        # Jest unit tests (*.spec.ts)
 npm run test:e2e    # Jest e2e (test/jest-e2e.json)
 ```
@@ -38,4 +39,4 @@ docker compose -f docker-compose.dev.yml up --build
 
 ## 상세
 
-아키텍처, 통합 계약, admin/bootstrap 정책, 토큰/서명키 정책 등 상세 가이드는 [`CLAUDE.md`](./CLAUDE.md) 와 `docs/` (auth-flows, admin-api, service-integration, permission-webhooks, account-directory) 를 참조.
+Notification API/FCM/retention/onboarding 계약은 [`docs/notifications.md`](./docs/notifications.md)를 참조한다. 전체 아키텍처, admin/bootstrap 정책, 토큰/서명키 정책 등은 [`CLAUDE.md`](./CLAUDE.md) 와 `docs/` (auth-flows, admin-api, service-integration, permission-webhooks, account-directory) 를 참조.

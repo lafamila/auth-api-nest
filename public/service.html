@@ -580,6 +580,23 @@
           </div>
 
           <div>
+            <div class="toolbar">
+              <h3>Notification Action Targets</h3>
+              <label>
+                Target Change
+                <select id="notificationActionTargetsMode">
+                  <option value="omit">No change</option>
+                  <option value="replace">Replace approved targets</option>
+                </select>
+              </label>
+              <button class="secondary" hidden id="addNotificationActionTargetRow" type="button">
+                Add Target
+              </button>
+            </div>
+            <div class="repeatable-list" id="notificationActionTargetRows"></div>
+          </div>
+
+          <div>
             <h3>JSON Preview</h3>
             <pre class="json-preview" id="serviceRequestPreview"></pre>
           </div>
@@ -678,6 +695,7 @@
           oidcClients: [],
           serviceCredentials: [],
           permissionWebhook: undefined,
+          notificationActionTargets: undefined,
         },
         serviceRequestResult: null,
       };
@@ -927,6 +945,21 @@
             ],
           };
         }
+        if (state.serviceRequestDraft.notificationActionTargets !== undefined) {
+          payload.notificationActionTargets =
+            state.serviceRequestDraft.notificationActionTargets.map((target) => {
+              const normalized = {
+                targetKey: target.targetKey.trim(),
+                baseUrl: target.baseUrl.trim(),
+                allowedPaths: splitList(target.allowedPaths),
+              };
+              if (target.fallbackUrl.trim())
+                normalized.fallbackUrl = target.fallbackUrl.trim();
+              const schemes = splitList(target.allowedCustomSchemes);
+              if (schemes.length) normalized.allowedCustomSchemes = schemes;
+              return normalized;
+            });
+        }
         return payload;
       }
 
@@ -947,6 +980,11 @@
             errors.push(
               `OIDC client ${index + 1} needs at least one redirect URI.`,
             );
+          if (client.clientType === 'public' && !client.requirePkce) {
+            errors.push(
+              `Public OIDC client ${index + 1} must require S256 PKCE.`,
+            );
+          }
         });
         (payload.serviceCredentials || []).forEach((credential, index) => {
           if (!credential.name)
@@ -982,6 +1020,16 @@
             errors.push('Permission webhook needs at least one event type.');
           }
         }
+        (payload.notificationActionTargets || []).forEach((target, index) => {
+          if (!target.targetKey)
+            errors.push(`Notification action target ${index + 1} needs targetKey.`);
+          if (!target.baseUrl)
+            errors.push(`Notification action target ${index + 1} needs baseUrl.`);
+          if (!target.allowedPaths.length)
+            errors.push(
+              `Notification action target ${index + 1} needs at least one allowed path.`,
+            );
+        });
         return errors;
       }
 
@@ -1097,6 +1145,34 @@
               )
               .join('')
           : '<div class="hint">No service credentials. Add one for backend-to-auth internal API access.</div>';
+
+        const actionTargets = state.serviceRequestDraft.notificationActionTargets;
+        $('notificationActionTargetsMode').value =
+          actionTargets === undefined ? 'omit' : 'replace';
+        $('addNotificationActionTargetRow').hidden = actionTargets === undefined;
+        $('notificationActionTargetRows').innerHTML =
+          actionTargets === undefined
+            ? '<div class="hint">No notification action target changes requested.</div>'
+            : actionTargets.length
+              ? actionTargets
+                  .map(
+                    (target, index) => `
+                      <div class="repeatable-row">
+                        <div class="form-grid">
+                          <label>Target Key <input data-request-field="notificationActionTargets.${index}.targetKey" value="${escapeHtml(target.targetKey)}" /></label>
+                          <label>HTTPS Base URL <input data-request-field="notificationActionTargets.${index}.baseUrl" type="url" value="${escapeHtml(target.baseUrl)}" /></label>
+                          <label>HTTPS Fallback URL <input data-request-field="notificationActionTargets.${index}.fallbackUrl" type="url" value="${escapeHtml(target.fallbackUrl)}" /></label>
+                          <label>Custom Schemes <textarea data-request-field="notificationActionTargets.${index}.allowedCustomSchemes">${escapeHtml(target.allowedCustomSchemes)}</textarea></label>
+                          <label class="span-2">Allowed Paths <textarea data-request-field="notificationActionTargets.${index}.allowedPaths">${escapeHtml(target.allowedPaths)}</textarea></label>
+                        </div>
+                        <div class="inline-actions">
+                          <button class="secondary" data-remove-request-row="notificationActionTargets" data-row-index="${index}" type="button">Remove Target</button>
+                        </div>
+                      </div>
+                    `,
+                  )
+                  .join('')
+              : '<div class="hint">Replacing with an empty list disables all existing notification action targets.</div>';
       }
 
       function renderPermissionWebhook() {
@@ -1141,6 +1217,7 @@
           oidcClients: [],
           serviceCredentials: [],
           permissionWebhook: undefined,
+          notificationActionTargets: undefined,
         };
       }
 
@@ -1176,6 +1253,11 @@
                       : [...PERMISSION_WEBHOOK_EVENT_TYPES],
                   }
                 : undefined,
+          notificationActionTargets: Array.isArray(
+            draft.notificationActionTargets,
+          )
+            ? draft.notificationActionTargets
+            : undefined,
         };
         renderServiceRequestBasics();
         renderServiceRequestRows();
@@ -1524,6 +1606,26 @@
         renderServiceRequestRows();
         renderServiceRequestPreview();
       });
+      $('notificationActionTargetsMode').addEventListener('change', (event) => {
+        state.serviceRequestDraft.notificationActionTargets =
+          event.target.value === 'replace' ? [] : undefined;
+        renderServiceRequestRows();
+        renderServiceRequestPreview();
+      });
+      $('addNotificationActionTargetRow').addEventListener('click', () => {
+        if (!Array.isArray(state.serviceRequestDraft.notificationActionTargets)) {
+          state.serviceRequestDraft.notificationActionTargets = [];
+        }
+        state.serviceRequestDraft.notificationActionTargets.push({
+          targetKey: '',
+          baseUrl: '',
+          fallbackUrl: '',
+          allowedPaths: '',
+          allowedCustomSchemes: '',
+        });
+        renderServiceRequestRows();
+        renderServiceRequestPreview();
+      });
       $('permissionWebhookMode').addEventListener('change', (event) => {
         state.serviceRequestDraft.permissionWebhook =
           event.target.value === 'configure'
@@ -1562,7 +1664,12 @@
         'click',
         resetServiceRequestForm,
       );
-      ['permissionRows', 'clientRows', 'credentialRows'].forEach((id) => {
+      [
+        'permissionRows',
+        'clientRows',
+        'credentialRows',
+        'notificationActionTargetRows',
+      ].forEach((id) => {
         $(id).addEventListener('input', (event) => {
           const target = event.target;
           if (

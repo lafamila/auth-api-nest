@@ -22,7 +22,10 @@ export class OidcProviderAdapterService {
     this.records.set(`${model}:${id}`, { id, payload, expiresAt });
   }
 
-  async find(model: string, id: string): Promise<Record<string, unknown> | undefined> {
+  async find(
+    model: string,
+    id: string,
+  ): Promise<Record<string, unknown> | undefined> {
     const record = this.records.get(`${model}:${id}`);
     if (!record) {
       return undefined;

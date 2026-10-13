@@ -17,6 +17,7 @@ import {
   RotateClientSecretDto,
   UpdateOidcClientDto,
 } from './dto/oidc-client.dto';
+import { assertPublicClientPkce } from './public-client-pkce';
 
 @Injectable()
 export class OidcClientsService {
@@ -44,7 +45,10 @@ export class OidcClientsService {
     return client;
   }
 
-  async create(serviceId: string, input: CreateOidcClientDto): Promise<OidcClientView> {
+  async create(
+    serviceId: string,
+    input: CreateOidcClientDto,
+  ): Promise<OidcClientView> {
     if (await this.clients.existsBy({ clientId: input.clientId })) {
       throw new ConflictException('Client id already exists');
     }
@@ -52,6 +56,8 @@ export class OidcClientsService {
     if (input.clientType === 'confidential' && !input.clientSecret) {
       throw new BadRequestException('Confidential clients require a secret');
     }
+    const requirePkce = input.requirePkce ?? true;
+    assertPublicClientPkce(input.clientType, requirePkce);
     const client = await this.clients.save(
       this.clients.create({
         serviceId,
@@ -73,7 +79,7 @@ export class OidcClientsService {
           'email',
           'service.permission',
         ],
-        requirePkce: input.requirePkce ?? true,
+        requirePkce,
         accessTokenTtlSeconds: input.accessTokenTtlSeconds ?? null,
         refreshTokenTtlSeconds: input.refreshTokenTtlSeconds ?? null,
         status: 'active',
@@ -94,9 +100,16 @@ export class OidcClientsService {
     input: UpdateOidcClientDto,
   ): Promise<OidcClientView> {
     const client = await this.findOwnedClient(serviceId, clientId);
-    if (input.clientType === 'confidential' && !input.clientSecret && !client.clientSecretHash) {
+    if (
+      input.clientType === 'confidential' &&
+      !input.clientSecret &&
+      !client.clientSecretHash
+    ) {
       throw new BadRequestException('Confidential clients require a secret');
     }
+    const nextClientType = input.clientType ?? client.clientType;
+    const nextRequirePkce = input.requirePkce ?? client.requirePkce;
+    assertPublicClientPkce(nextClientType, nextRequirePkce);
     const before = this.safeClient(client);
     if (input.clientType !== undefined) {
       client.clientType = input.clientType;
@@ -105,7 +118,9 @@ export class OidcClientsService {
       }
     }
     if (input.clientSecret !== undefined) {
-      client.clientSecretHash = await this.passwordService.hash(input.clientSecret);
+      client.clientSecretHash = await this.passwordService.hash(
+        input.clientSecret,
+      );
     }
     if (input.status !== undefined) {
       client.status = input.status;
@@ -151,7 +166,9 @@ export class OidcClientsService {
     if (client.clientType !== 'confidential') {
       throw new BadRequestException('Only confidential clients have secrets');
     }
-    client.clientSecretHash = await this.passwordService.hash(input.clientSecret);
+    client.clientSecretHash = await this.passwordService.hash(
+      input.clientSecret,
+    );
     await this.clients.save(client);
     await this.auditLogs.record({
       action: 'oidc_client.rotate_secret',
@@ -160,7 +177,10 @@ export class OidcClientsService {
     });
   }
 
-  async validateClientSecret(client: OidcClientEntity, secret?: string): Promise<void> {
+  async validateClientSecret(
+    client: OidcClientEntity,
+    secret?: string,
+  ): Promise<void> {
     if (client.clientType === 'public') {
       return;
     }
@@ -195,7 +215,9 @@ export class OidcClientsService {
     serviceId: string,
     clientId: string,
   ): Promise<OidcClientEntity> {
-    const client = await this.clients.findOne({ where: { id: clientId, serviceId } });
+    const client = await this.clients.findOne({
+      where: { id: clientId, serviceId },
+    });
     if (!client) {
       throw new NotFoundException('OIDC client not found');
     }
