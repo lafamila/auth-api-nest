@@ -16,15 +16,15 @@ export class NotificationInboxService {
     const builder = this.notifications
       .createQueryBuilder('notification')
       .innerJoinAndSelect('notification.service', 'service')
-      .where('notification.account_id = :accountId', { accountId })
-      .andWhere('notification.deleted_at IS NULL')
-      .orderBy('notification.created_at', 'DESC')
+      .where('notification.accountId = :accountId', { accountId })
+      .andWhere('notification.deletedAt IS NULL')
+      .orderBy('notification.createdAt', 'DESC')
       .addOrderBy('notification.id', 'DESC')
       .take(limit + 1);
     if (query.cursor) {
       const cursor = decodeCursor(query.cursor);
       builder.andWhere(
-        '(notification.created_at, notification.id) < (:createdAt, :id)',
+        '(notification.createdAt, notification.id) < (:createdAt, :id)',
         cursor,
       );
     }
