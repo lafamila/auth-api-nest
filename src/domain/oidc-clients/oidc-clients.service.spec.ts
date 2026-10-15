@@ -41,7 +41,7 @@ describe('OidcClientsService public client security', () => {
       service.create('service-id', {
         clientId: 'notification-app',
         clientType: 'public',
-        redirectUris: ['xyz.lafamila.noti:/oauth/callback'],
+        redirectUris: ['xyz.lafamila.not:/oauth/callback'],
         requirePkce: false,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -52,7 +52,7 @@ describe('OidcClientsService public client security', () => {
     await service.create('service-id', {
       clientId: 'notification-app',
       clientType: 'public',
-      redirectUris: ['xyz.lafamila.noti:/oauth/callback'],
+      redirectUris: ['xyz.lafamila.not:/oauth/callback'],
     });
 
     expect(create).toHaveBeenCalledWith(

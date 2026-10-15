@@ -8,12 +8,12 @@
       "clientId": "notification-app",
       "clientType": "public",
       "redirectUris": [
-        "xyz.lafamila.noti.dev:/oauth/callback",
-        "xyz.lafamila.noti:/oauth/callback"
+        "xyz.lafamila.not.dev:/oauth/callback",
+        "xyz.lafamila.not:/oauth/callback"
       ],
       "postLogoutRedirectUris": [
-        "xyz.lafamila.noti.dev:/oauth/callback",
-        "xyz.lafamila.noti:/oauth/callback"
+        "xyz.lafamila.not.dev:/oauth/callback",
+        "xyz.lafamila.not:/oauth/callback"
       ],
       "allowedScopes": [
         "openid",

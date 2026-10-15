@@ -23,7 +23,7 @@ describe('ServiceOnboardingService OIDC security', () => {
       {
         clientId: 'notification-app',
         clientType: 'public',
-        redirectUris: ['xyz.lafamila.noti:/oauth/callback'],
+        redirectUris: ['xyz.lafamila.not:/oauth/callback'],
         requirePkce: false,
       },
     ],

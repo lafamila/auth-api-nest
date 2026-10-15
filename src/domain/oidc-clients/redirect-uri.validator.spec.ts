@@ -14,8 +14,8 @@ describe('redirect URI validation', () => {
   });
 
   it('accepts reverse-domain native callbacks without an authority', () => {
-    expect(isRedirectUri('xyz.lafamila.noti:/oauth/callback')).toBe(true);
-    expect(isRedirectUri('xyz.lafamila.noti.dev:/oauth/callback')).toBe(true);
+    expect(isRedirectUri('xyz.lafamila.not:/oauth/callback')).toBe(true);
+    expect(isRedirectUri('xyz.lafamila.not.dev:/oauth/callback')).toBe(true);
   });
 
   it('rejects unsafe redirect URI values', () => {

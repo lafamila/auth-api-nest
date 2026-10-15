@@ -36,8 +36,8 @@ and audience `service:notification` on access tokens.
 
 | environment | callback URI | bundle/application ID |
 | --- | --- | --- |
-| dev | `xyz.lafamila.noti.dev:/oauth/callback` | `xyz.lafamila.noti.dev` |
-| prod | `xyz.lafamila.noti:/oauth/callback` | `xyz.lafamila.noti` |
+| dev | `xyz.lafamila.not.dev:/oauth/callback` | `xyz.lafamila.not.dev` |
+| prod | `xyz.lafamila.not:/oauth/callback` | `xyz.lafamila.not` |
 
 See
 [`examples/notification-service-onboarding-create.json`](./examples/notification-service-onboarding-create.json).
