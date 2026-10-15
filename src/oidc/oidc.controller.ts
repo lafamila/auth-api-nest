@@ -82,6 +82,7 @@ export class OidcController {
     @Query('response_type') responseType: string,
     @Query('scope') scope: string,
     @Query('state') state: string | undefined,
+    @Query('nonce') nonce: string | undefined,
     @Query('code_challenge') codeChallenge: string,
     @Query('code_challenge_method') codeChallengeMethod: string,
     @Query('prompt') prompt: string | undefined,
@@ -95,6 +96,7 @@ export class OidcController {
         responseType,
         scope,
         state,
+        nonce,
         codeChallenge,
         codeChallengeMethod,
         prompt,
@@ -250,7 +252,13 @@ export class OidcController {
         account.id,
         client.serviceId,
       );
-      return this.tokens.issueTokens(account, client, permission);
+      return this.tokens.issueTokens(
+        account,
+        client,
+        permission,
+        undefined,
+        code.nonce,
+      );
     }
 
     if (!body.refresh_token) {

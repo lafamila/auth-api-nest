@@ -10,6 +10,7 @@ describe('HostedLoginTransactionService', () => {
     responseType: 'code',
     scope: 'openid profile email service.permission',
     state: 'player-2-state',
+    nonce: 'appauth-generated-nonce',
     codeChallenge: 'pkce-challenge',
     codeChallengeMethod: 'S256',
     prompt: 'select_account',

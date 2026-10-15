@@ -13,6 +13,7 @@ export interface AuthorizeRequestInput {
   responseType: string;
   scope: string;
   state?: string;
+  nonce?: string;
   codeChallenge: string;
   codeChallengeMethod: string;
   prompt?: string;
@@ -56,6 +57,14 @@ export class AuthorizeFlowService {
         'invalid_request',
         'Missing required authorize parameters',
       );
+    }
+    if (
+      request.nonce !== undefined &&
+      (request.nonce.length === 0 ||
+        request.nonce.length > 255 ||
+        /[\u0000-\u001f\u007f]/.test(request.nonce))
+    ) {
+      throw new OAuthError('invalid_request', 'Invalid nonce');
     }
     const client = await this.clients.findByClientId(request.clientId);
     if (client.status !== 'active' || client.service.status !== 'active') {
@@ -153,6 +162,7 @@ export class AuthorizeFlowService {
       codeChallenge: validated.request.codeChallenge,
       codeChallengeMethod: 'S256',
       scope: validated.request.scope,
+      nonce: validated.request.nonce,
     });
     return {
       kind: 'redirect',
@@ -512,6 +522,9 @@ export class AuthorizeFlowService {
     });
     if (request.state !== undefined) {
       authorizeParams.set('state', request.state);
+    }
+    if (request.nonce !== undefined) {
+      authorizeParams.set('nonce', request.nonce);
     }
     if (request.prompt !== undefined) {
       authorizeParams.set('prompt', request.prompt);

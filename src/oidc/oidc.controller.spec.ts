@@ -9,6 +9,7 @@ import { OidcClientsService } from '../domain/oidc-clients/oidc-clients.service'
 import { OAuthError } from './oauth-error';
 import { OidcController } from './oidc.controller';
 import { TokenService } from './token.service';
+import { createHash } from 'node:crypto';
 
 describe('OidcController refresh grant permissions', () => {
   const account = {
@@ -26,6 +27,42 @@ describe('OidcController refresh grant permissions', () => {
       status: 'active',
     },
   } as OidcClientEntity;
+
+  it('passes the authorization nonce into the initial ID token issuance', async () => {
+    const currentPermission = {
+      permissionDefinition: {
+        key: 'superadmin',
+      } as ServicePermissionDefinitionEntity,
+    } as AccountServicePermissionEntity;
+    const { controller, codes, tokens } = setup(currentPermission);
+    const verifier = 'a'.repeat(43);
+    codes.consume.mockResolvedValue({
+      accountId: account.id,
+      clientId: client.clientId,
+      redirectUri: 'xyz.lafamila.not:/oauth/callback',
+      codeChallenge: createHash('sha256').update(verifier).digest('base64url'),
+      codeChallengeMethod: 'S256',
+      scope: 'openid profile email service.permission',
+      nonce: 'appauth-generated-nonce',
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    await controller.token({
+      grant_type: 'authorization_code',
+      client_id: client.clientId,
+      code: 'authorization-code',
+      redirect_uri: 'xyz.lafamila.not:/oauth/callback',
+      code_verifier: verifier,
+    });
+
+    expect(tokens.issueTokens).toHaveBeenCalledWith(
+      account,
+      client,
+      currentPermission,
+      undefined,
+      'appauth-generated-nonce',
+    );
+  });
 
   it('mints the refreshed access token from the current changed permission', async () => {
     const currentPermission = {
@@ -97,17 +134,20 @@ describe('OidcController refresh grant permissions', () => {
         .fn()
         .mockResolvedValue({ access_token: 'new-access-token' }),
     };
+    const codes = {
+      consume: jest.fn(),
+    };
     const controller = new OidcController(
       {} as AppConfigService,
       permissions as unknown as AccountPermissionsService,
       accounts as unknown as AccountsService,
       clients as unknown as OidcClientsService,
-      {} as never,
+      codes as never,
       {} as never,
       {} as never,
       tokens as unknown as TokenService,
       {} as never,
     );
-    return { controller, permissions, tokens };
+    return { controller, permissions, codes, tokens };
   }
 });

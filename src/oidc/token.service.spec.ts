@@ -10,6 +10,7 @@ import { ServicePermissionDefinitionEntity } from '../database/entities/service-
 import { SigningKeyEntity } from '../database/entities/signing-key.entity';
 import { TokenRecordEntity } from '../database/entities/token-record.entity';
 import { hashToken } from '../common/crypto/token-hash';
+import * as jwt from 'jsonwebtoken';
 
 const config = {
   issuerUrl: 'http://localhost:3032',
@@ -54,6 +55,26 @@ async function buildSigningKeyService(
 }
 
 describe('TokenService', () => {
+  it('returns the authorization nonce in the initial ID token', async () => {
+    const service = new TokenService(
+      config,
+      await buildSigningKeyService(),
+      new FakeTokenRecordRepository() as never,
+    );
+
+    const tokens = await service.issueTokens(
+      account,
+      client,
+      permission,
+      undefined,
+      'appauth-generated-nonce',
+    );
+
+    expect(jwt.decode(tokens.id_token)).toEqual(
+      expect.objectContaining({ nonce: 'appauth-generated-nonce' }),
+    );
+  });
+
   it('issues and rotates refresh tokens by family', async () => {
     const tokenRecords = new FakeTokenRecordRepository();
     const service = new TokenService(

@@ -48,6 +48,7 @@ export class TokenService implements OnModuleInit {
     client: OidcClientEntity,
     permission: AccountServicePermissionEntity,
     familyId: string = randomUUID(),
+    nonce?: string,
   ) {
     const key = this.signingKeys.getActiveKey();
     const nowSeconds = Math.floor(Date.now() / 1000);
@@ -70,6 +71,7 @@ export class TokenService implements OnModuleInit {
         email: account.email,
         name: account.name,
         preferred_username: account.loginId,
+        ...(nonce !== undefined ? { nonce } : {}),
       },
       key.privateKeyPem,
       {

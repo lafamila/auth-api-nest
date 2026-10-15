@@ -123,6 +123,9 @@ export class HostedLoginTransactionService {
     if (request.state !== undefined && typeof request.state !== 'string') {
       return null;
     }
+    if (request.nonce !== undefined && typeof request.nonce !== 'string') {
+      return null;
+    }
     if (request.prompt !== undefined && typeof request.prompt !== 'string') {
       return null;
     }
@@ -132,6 +135,7 @@ export class HostedLoginTransactionService {
       responseType: request.responseType as string,
       scope: request.scope as string,
       state: request.state,
+      nonce: request.nonce,
       codeChallenge: request.codeChallenge as string,
       codeChallengeMethod: request.codeChallengeMethod as string,
       prompt: request.prompt,

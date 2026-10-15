@@ -13,6 +13,7 @@ export interface AuthorizationCodeRecord {
   codeChallenge: string;
   codeChallengeMethod: 'S256';
   scope: string;
+  nonce?: string;
   expiresAt: Date;
 }
 
@@ -49,6 +50,7 @@ export class AuthorizationCodeService {
         codeChallenge: record.codeChallenge,
         codeChallengeMethod: record.codeChallengeMethod,
         scope: record.scope,
+        nonce: record.nonce,
       },
       usedAt: null,
       expiresAt: new Date(Date.now() + AUTHORIZATION_CODE_TTL_MS),
@@ -78,6 +80,7 @@ export class AuthorizationCodeService {
       redirectUri?: string;
       codeChallenge?: string;
       scope?: string;
+      nonce?: string;
     };
     return {
       accountId: row.account_id,
@@ -86,6 +89,7 @@ export class AuthorizationCodeService {
       codeChallenge: metadata.codeChallenge ?? '',
       codeChallengeMethod: 'S256',
       scope: metadata.scope ?? '',
+      nonce: metadata.nonce,
       expiresAt:
         row.expires_at instanceof Date
           ? row.expires_at

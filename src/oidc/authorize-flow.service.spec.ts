@@ -23,6 +23,7 @@ describe('AuthorizeFlowService prompt handling', () => {
     responseType: 'code',
     scope: 'openid profile email service.permission',
     state: 'player-2-state',
+    nonce: 'appauth-generated-nonce',
     codeChallenge: 'pkce-challenge',
     codeChallengeMethod: 'S256',
   };
@@ -48,9 +49,21 @@ describe('AuthorizeFlowService prompt handling', () => {
     ).resolves.toEqual(
       expect.objectContaining({
         kind: 'validated',
-        request: expect.objectContaining({ prompt: SELECT_ACCOUNT_PROMPT }),
+        request: expect.objectContaining({
+          prompt: SELECT_ACCOUNT_PROMPT,
+          nonce: 'appauth-generated-nonce',
+        }),
       }),
     );
+  });
+
+  it('rejects invalid nonce values before starting hosted login', async () => {
+    await expect(
+      service.validateRequest({ ...request, nonce: 'invalid\nnonce' }),
+    ).rejects.toMatchObject({
+      error: 'invalid_request',
+      errorDescription: 'Invalid nonce',
+    });
   });
 
   it.each([

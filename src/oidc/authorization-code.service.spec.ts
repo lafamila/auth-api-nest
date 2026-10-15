@@ -10,6 +10,7 @@ describe('AuthorizationCodeService', () => {
     codeChallenge: 'challenge',
     codeChallengeMethod: 'S256' as const,
     scope: 'openid',
+    nonce: 'appauth-generated-nonce',
   };
 
   it('consumes authorization codes only once', async () => {
@@ -21,6 +22,7 @@ describe('AuthorizationCodeService', () => {
     expect(first?.accountId).toBe('account-1');
     expect(first?.redirectUri).toBe('http://localhost/callback');
     expect(first?.codeChallenge).toBe('challenge');
+    expect(first?.nonce).toBe('appauth-generated-nonce');
     expect(await service.consume(code)).toBeNull();
   });
 
