@@ -476,6 +476,22 @@ export class AuthorizeFlowService {
 </html>`;
   }
 
+  renderAuthorizationRedirectPage(redirectUrl: string) {
+    const target = this.escapeHtml(redirectUrl);
+    return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="refresh" content="0;url=${target}" />
+    <title>Continue</title>
+  </head>
+  <body>
+    <a id="authorization-redirect" href="${target}">Continue</a>
+  </body>
+</html>`;
+  }
+
   hostedPageContentSecurityPolicy(redirectUri: string) {
     const redirect = new URL(redirectUri);
     const redirectSource =

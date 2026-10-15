@@ -153,4 +153,32 @@ describe('AuthorizeFlowService prompt handling', () => {
     expect(html).toContain('player-one');
     expect(html).not.toContain('account_id');
   });
+
+  it.each([
+    'http://localhost:20022/api/todo/session/callback',
+    'https://todo.example.com/auth/callback',
+  ])('renders independent callback navigation for %s', (callback) => {
+    const html = service.renderAuthorizationRedirectPage(
+      `${callback}?code=one-time-code&state=original-state`,
+    );
+
+    expect(html).toContain(
+      `<meta http-equiv="refresh" content="0;url=${callback}?code=one-time-code&amp;state=original-state"`,
+    );
+    expect(html).toContain(
+      `id="authorization-redirect" href="${callback}?code=one-time-code&amp;state=original-state"`,
+    );
+    expect(html).not.toContain('<form');
+    expect(html).not.toContain('<script');
+  });
+
+  it('escapes callback content in both navigation targets', () => {
+    const html = service.renderAuthorizationRedirectPage(
+      'https://todo.example.com/callback?state="/><script>alert(1)</script>&code=test',
+    );
+
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&quot;/&gt;&lt;script&gt;');
+    expect(html).toContain('&amp;code=test');
+  });
 });

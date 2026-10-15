@@ -93,7 +93,7 @@ export class LoginController {
         loaded.transaction.request,
       );
       if (validated.kind === 'redirect') {
-        return response.redirect(validated.redirectUrl);
+        return this.sendAuthorizationRedirect(response, validated.redirectUrl);
       }
       const currentSession = request.signedCookies?.tas_session ?? null;
       if (loaded.transaction.sessionAccountId !== currentSession) {
@@ -131,7 +131,10 @@ export class LoginController {
           validated,
           account.id,
         );
-        return response.redirect(authorizeResult.redirectUrl);
+        return this.sendAuthorizationRedirect(
+          response,
+          authorizeResult.redirectUrl,
+        );
       } catch (error) {
         if (error instanceof UnauthorizedException) {
           this.setHostedPageSecurityHeaders(
@@ -194,7 +197,10 @@ export class LoginController {
         validated,
         account.id,
       );
-      return response.redirect(authorizeResult.redirectUrl);
+      return this.sendAuthorizationRedirect(
+        response,
+        authorizeResult.redirectUrl,
+      );
     } catch (error) {
       if (error instanceof UnauthorizedException) {
         const currentAccount = transaction.sessionAccountId
@@ -218,6 +224,19 @@ export class LoginController {
       }
       throw error;
     }
+  }
+
+  private sendAuthorizationRedirect(response: Response, redirectUrl: string) {
+    const protocol = new URL(redirectUrl).protocol;
+    if (protocol !== 'http:' && protocol !== 'https:') {
+      return response.redirect(redirectUrl);
+    }
+    // End form navigation before a callback redirects to another service origin.
+    this.setHostedPageSecurityHeaders(response, redirectUrl);
+    return response
+      .status(200)
+      .type('html')
+      .send(this.authorizeFlow.renderAuthorizationRedirectPage(redirectUrl));
   }
 
   private async loadHostedLoginTransaction(

@@ -52,6 +52,18 @@ Their `form-action` allows only Auth itself plus the origin (or native scheme)
 of the exact registered `redirect_uri` validated for that request, so adding a
 service does not require an Auth code change.
 
+After a hosted login or account selection POST succeeds for an HTTP(S)
+callback, Auth returns a
+`200` no-store HTML page with an immediate meta refresh and a fallback link to
+the server-validated callback URL. This ends form submission before starting
+callback navigation: browsers can otherwise apply `form-action` to the entire
+HTTP redirect chain and block a callback's subsequent redirect to a different
+frontend origin (for example API `localhost:20022` to web `localhost:3030`).
+The callback retains the same code/state and works without JavaScript. Existing
+SSO `GET /oauth/authorize` requests and native custom-scheme callbacks still
+return an HTTP redirect. Do not widen
+`form-action` to arbitrary origins or accept a browser-supplied completion URL.
+
 - Selecting the current account issues a code for the `tas_session` subject.
 - Valid alternate credentials issue a code for that alternate subject.
 - Neither selection path creates, clears, or replaces `tas_session`.

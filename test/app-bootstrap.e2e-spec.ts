@@ -278,6 +278,22 @@ describe('App bootstrap (e2e)', () => {
     return match![1];
   }
 
+  function authorizationRedirect(response: request.Response): string {
+    if (response.status === 302) {
+      return response.headers.location;
+    }
+    expect(response.status).toBe(200);
+    expect(response.headers.location).toBeUndefined();
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.headers['referrer-policy']).toBe('no-referrer');
+    expect(response.text).toContain('http-equiv="refresh"');
+    const match = response.text.match(
+      /id="authorization-redirect" href="([^"]+)"/,
+    );
+    expect(match).not.toBeNull();
+    return match![1].replaceAll('&amp;', '&');
+  }
+
   async function exchangeAuthorizationCode(input: {
     clientId: string;
     redirectUri: string;
@@ -328,13 +344,13 @@ describe('App bootstrap (e2e)', () => {
         loginId: input.loginId,
         password: input.password,
       })
-      .expect(302);
+      .expect(new URL(input.redirectUri).origin === 'null' ? 302 : 200);
     return {
       payload: await exchangeAuthorizationCode({
         clientId: input.clientId,
         redirectUri: input.redirectUri,
         codeVerifier: pkce.verifier,
-        location: response.headers.location,
+        location: authorizationRedirect(response),
       }),
       sessionCookie: getCookiePair(response, 'tas_session'),
     };
@@ -383,9 +399,9 @@ describe('App bootstrap (e2e)', () => {
               loginId: input.loginId,
               password: input.password,
             })
-            .expect(302)
+            .expect(new URL(input.redirectUri).origin === 'null' ? 302 : 200)
         : initialAuthorizeResponse;
-    const redirect = new URL(authorizeResponse.headers.location);
+    const redirect = new URL(authorizationRedirect(authorizeResponse));
     expect(redirect.searchParams.get('error')).toBeNull();
     const code = redirect.searchParams.get('code');
     expect(code).toBeTruthy();
@@ -539,12 +555,12 @@ describe('App bootstrap (e2e)', () => {
         loginId: account.loginId,
         password,
       })
-      .expect(302);
+      .expect(200);
 
     const setCookie = loginResponse.headers['set-cookie'];
     const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
     expect(cookies.join(';')).toContain('tas_session=');
-    const redirect = new URL(loginResponse.headers.location);
+    const redirect = new URL(authorizationRedirect(loginResponse));
     expect(redirect.searchParams.get('state')).toBe('resume-state');
     expect(redirect.searchParams.get('error')).toBeNull();
     const code = redirect.searchParams.get('code');
@@ -607,7 +623,7 @@ describe('App bootstrap (e2e)', () => {
         loginId: account.loginId,
         password,
       })
-      .expect(302);
+      .expect(200);
 
     await agent
       .get('/logout')
@@ -735,7 +751,7 @@ describe('App bootstrap (e2e)', () => {
         loginId: p2.account.loginId,
         password: p2.password,
       })
-      .expect(302);
+      .expect(200);
     expect(getSetCookies(p2Response)).not.toEqual(
       expect.arrayContaining([expect.stringMatching(/^tas_session=/)]),
     );
@@ -743,7 +759,7 @@ describe('App bootstrap (e2e)', () => {
       clientId,
       redirectUri,
       codeVerifier: p2Pkce.verifier,
-      location: p2Response.headers.location,
+      location: authorizationRedirect(p2Response),
     });
     expect(p2Payload.sub).toBe(p2.account.id);
     expect(p2Payload['https://lafamila.xyz/claims/service']).toEqual(
@@ -789,7 +805,7 @@ describe('App bootstrap (e2e)', () => {
         login_transaction: hiddenValue(currentPage.text, 'login_transaction'),
         account_selection: 'current',
       })
-      .expect(302);
+      .expect(200);
     expect(getSetCookies(currentResponse)).not.toEqual(
       expect.arrayContaining([expect.stringMatching(/^tas_session=/)]),
     );
@@ -797,7 +813,7 @@ describe('App bootstrap (e2e)', () => {
       clientId,
       redirectUri,
       codeVerifier: currentPkce.verifier,
-      location: currentResponse.headers.location,
+      location: authorizationRedirect(currentResponse),
     });
     expect(currentPayload.sub).toBe(p1.account.id);
   });
@@ -914,9 +930,9 @@ describe('App bootstrap (e2e)', () => {
           loginId: account.account.loginId,
           password: account.password,
         })
-        .expect(302);
+        .expect(200);
       expect(
-        new URL(cleanResponse.headers.location).searchParams.get('state'),
+        new URL(authorizationRedirect(cleanResponse)).searchParams.get('state'),
       ).toBe(`original-${field}-state`);
     },
   );
@@ -1055,7 +1071,7 @@ describe('App bootstrap (e2e)', () => {
         loginId: p2.account.loginId,
         password: p2.password,
       })
-      .expect(302);
+      .expect(200);
     const firstResponse = await agent
       .post('/oauth/login')
       .type('form')
@@ -1065,27 +1081,27 @@ describe('App bootstrap (e2e)', () => {
         loginId: p2.account.loginId,
         password: p2.password,
       })
-      .expect(302);
+      .expect(200);
 
     const secondPayload = await exchangeAuthorizationCode({
       clientId,
       redirectUri,
       codeVerifier: secondPkce.verifier,
-      location: secondResponse.headers.location,
+      location: authorizationRedirect(secondResponse),
     });
     const firstPayload = await exchangeAuthorizationCode({
       clientId,
       redirectUri,
       codeVerifier: firstPkce.verifier,
-      location: firstResponse.headers.location,
+      location: authorizationRedirect(firstResponse),
     });
     expect(secondPayload.sub).toBe(p2.account.id);
     expect(firstPayload.sub).toBe(p2.account.id);
     expect(
-      new URL(secondResponse.headers.location).searchParams.get('state'),
+      new URL(authorizationRedirect(secondResponse)).searchParams.get('state'),
     ).toBe('second-tab-state');
     expect(
-      new URL(firstResponse.headers.location).searchParams.get('state'),
+      new URL(authorizationRedirect(firstResponse)).searchParams.get('state'),
     ).toBe('first-tab-state');
   });
 
@@ -1217,14 +1233,14 @@ describe('App bootstrap (e2e)', () => {
         .send(submission),
     ]);
     expect(attempts.map((response) => response.status).sort()).toEqual([
-      302, 400,
+      200, 400,
     ]);
-    const success = attempts.find((response) => response.status === 302)!;
+    const success = attempts.find((response) => response.status === 200)!;
     await exchangeAuthorizationCode({
       clientId,
       redirectUri,
       codeVerifier: pkce.verifier,
-      location: success.headers.location,
+      location: authorizationRedirect(success),
     });
 
     await request(app.getHttpServer())
