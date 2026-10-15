@@ -27,4 +27,8 @@ export class TokenRequestDto {
   @IsOptional()
   @IsString()
   refresh_token?: string;
+
+  @IsOptional()
+  @IsString()
+  scope?: string;
 }
