@@ -19,7 +19,7 @@ NOTIFICATION_POLL_INTERVAL_MS=1000
 NOTIFICATION_RETENTION_INTERVAL_MS=3600000
 FIREBASE_PROJECT_ID=<noti-dev-or-prod-project-id>
 FIREBASE_CLIENT_EMAIL=<firebase-service-account-email>
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+FIREBASE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n
 ```
 
 Use the Noti Dev Firebase service account only in local/dev Auth and Noti Prod

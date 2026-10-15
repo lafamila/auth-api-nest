@@ -30,4 +30,9 @@ if (
   process.exit(66);
 }
 
-process.stdout.write(`FIREBASE_PRIVATE_KEY=${JSON.stringify(privateKey)}\n`);
+const escapedPrivateKey = privateKey
+  .replaceAll('\r\n', '\n')
+  .replaceAll('\\', '\\\\')
+  .replaceAll('\n', '\\n');
+
+process.stdout.write(`FIREBASE_PRIVATE_KEY=${escapedPrivateKey}\n`);

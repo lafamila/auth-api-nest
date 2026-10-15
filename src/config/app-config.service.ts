@@ -105,9 +105,15 @@ export class AppConfigService {
   }
 
   get firebasePrivateKey(): string {
-    return this.config
-      .get<string>('FIREBASE_PRIVATE_KEY', '')
-      .replace(/\\n/g, '\n');
+    let value = this.config.get<string>('FIREBASE_PRIVATE_KEY', '').trim();
+    if (
+      value.length >= 2 &&
+      ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'")))
+    ) {
+      value = value.slice(1, -1);
+    }
+    return value.replace(/\\n/g, '\n');
   }
 
   permissionWebhookEnvironmentSecret(serviceKey: string): {
