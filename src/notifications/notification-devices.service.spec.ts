@@ -10,6 +10,34 @@ describe('NotificationDevicesService', () => {
   const accountId = '01900000-0000-4000-8000-000000000001';
   const now = new Date('2026-10-13T00:00:00.000Z');
 
+  it('lists only active non-deleted devices', async () => {
+    const deviceRepository = {
+      find: jest.fn(async () => []),
+    } as unknown as Repository<NotificationDeviceEntity>;
+    const subscriptionRepository = {
+      find: jest.fn(async () => []),
+    } as unknown as Repository<NotificationSubscriptionEntity>;
+    const assignmentBuilder = queryBuilder({ many: [] });
+    const dataSource = {
+      getRepository: jest.fn(() => ({
+        createQueryBuilder: jest.fn(() => assignmentBuilder),
+      })),
+    } as unknown as DataSource;
+    const service = new NotificationDevicesService(
+      dataSource,
+      deviceRepository,
+      subscriptionRepository,
+      {} as NotificationTokenCryptoService,
+      {} as AuditLogsService,
+    );
+
+    await expect(service.list(accountId)).resolves.toEqual({ items: [] });
+    expect(deviceRepository.find).toHaveBeenCalledWith({
+      where: { accountId, status: 'active', deletedAt: expect.anything() },
+      order: { createdAt: 'DESC' },
+    });
+  });
+
   it('transfers a reused token by disabling and persisting its prior owner', async () => {
     const prior = device({
       id: '01900000-0000-4000-8000-000000000010',

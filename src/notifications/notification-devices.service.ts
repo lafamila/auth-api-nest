@@ -86,7 +86,10 @@ export class NotificationDevicesService {
 
   async list(accountId: string) {
     const [devices, services, subscriptions] = await Promise.all([
-      this.devices.find({ where: { accountId }, order: { createdAt: 'DESC' } }),
+      this.devices.find({
+        where: { accountId, status: 'active', deletedAt: IsNull() },
+        order: { createdAt: 'DESC' },
+      }),
       this.assignedServices(accountId),
       this.subscriptions.find({
         where: { accountId },
