@@ -15,14 +15,15 @@
         "xyz.lafamila.not.dev:/oauth/callback",
         "xyz.lafamila.not:/oauth/callback"
       ],
-      "allowedScopes": [
-        "openid",
-        "profile",
-        "email",
-        "service.permission"
-      ],
+      "allowedScopes": ["openid", "profile", "email", "service.permission"],
       "requirePkce": true
     }
   ],
-  "serviceCredentials": []
+  "serviceCredentials": [
+    {
+      "name": "noti dev smoke sender",
+      "description": "Credential for FCM end-to-end testing",
+      "scopes": ["notifications.send"]
+    }
+  ]
 }
