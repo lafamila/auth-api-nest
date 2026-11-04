@@ -1,4 +1,5 @@
 import {
+  Check,
   Column,
   CreateDateColumn,
   Entity,
@@ -10,13 +11,21 @@ import {
 export type AccountStatus = 'active' | 'locked' | 'disabled';
 
 @Entity('accounts')
+@Check(
+  'chk_accounts_local_credentials_pair',
+  '(login_id IS NULL) = (password_hash IS NULL)',
+)
+@Check(
+  'chk_accounts_password_reset_local_credentials',
+  'password_hash IS NOT NULL OR NOT password_reset_required',
+)
 export class AccountEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
   @Index({ unique: true })
-  @Column({ name: 'login_id' })
-  loginId!: string;
+  @Column({ name: 'login_id', type: 'varchar', nullable: true })
+  loginId!: string | null;
 
   @Column()
   name!: string;
@@ -25,8 +34,8 @@ export class AccountEntity {
   @Column()
   email!: string;
 
-  @Column({ name: 'password_hash' })
-  passwordHash!: string;
+  @Column({ name: 'password_hash', type: 'varchar', nullable: true })
+  passwordHash!: string | null;
 
   @Column({ default: 'active' })
   status!: AccountStatus;

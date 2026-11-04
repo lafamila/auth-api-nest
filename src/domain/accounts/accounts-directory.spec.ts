@@ -86,6 +86,36 @@ describe('Exact account directory search', () => {
     expect(result[0].id).toBe('decoy-0');
   });
 
+  it('searches social-only accounts by name or email while keeping a null login ID', async () => {
+    const { subject, accounts } = setup();
+    accounts.find.mockResolvedValue([
+      Object.assign(new AccountEntity(), {
+        id: 'social-only',
+        loginId: null,
+        name: 'Social User',
+        email: 'social@example.test',
+        status: 'active',
+        isSuperAdmin: false,
+      }),
+    ]);
+    for (const query of ['social user', 'SOCIAL@example.test']) {
+      const result = await subject.searchForService('chat', query);
+      expect(result).toEqual([
+        expect.objectContaining({
+          id: 'social-only',
+          loginId: null,
+          permissionKey: 'visitor',
+        }),
+      ]);
+    }
+    expect(
+      await subject.searchForService('chat', 'social user', 'loginId'),
+    ).toEqual([]);
+    expect(
+      await subject.searchForService('chat', 'Social User', 'name'),
+    ).toEqual([expect.objectContaining({ id: 'social-only', loginId: null })]);
+  });
+
   it('requires an active registered calling service even in exact mode', async () => {
     const { subject, service, accounts } = setup();
     service.findOneBy.mockResolvedValue(null);

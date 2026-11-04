@@ -24,6 +24,26 @@ export class AppConfigService {
     );
   }
 
+  socialProviderCredentials(provider: string): {
+    clientId: string;
+    clientSecret: string;
+  } {
+    const prefix = `SOCIAL_${provider.toUpperCase()}`;
+    return {
+      clientId: this.config.get<string>(`${prefix}_CLIENT_ID`, '').trim(),
+      clientSecret: this.config
+        .get<string>(`${prefix}_CLIENT_SECRET`, '')
+        .trim(),
+    };
+  }
+
+  socialCallbackUrl(provider: string): string {
+    return new URL(
+      `/oauth/social/${provider}/callback`,
+      this.issuerUrl,
+    ).toString();
+  }
+
   get runMigrations(): boolean {
     return this.config.get<string>('RUN_MIGRATIONS', 'false') === 'true';
   }

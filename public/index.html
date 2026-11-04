@@ -1276,7 +1276,7 @@
               activeSuperAdminCount <= 1;
             return `
               <tr>
-                <td>${escapeHtml(account.loginId)}</td>
+                <td>${escapeHtml(account.loginId || '-')}</td>
                 <td>${escapeHtml(account.name)}</td>
                 <td>${escapeHtml(account.email)}</td>
                 <td><span class="badge">${escapeHtml(account.status)}</span></td>
@@ -1293,7 +1293,7 @@
                     <button
                       class="secondary"
                       data-reset-account="${account.id}"
-                      ${account.status !== 'active' ? 'disabled' : ''}
+                      ${account.status !== 'active' || !account.hasLocalCredentials ? 'disabled' : ''}
                     >
                       Reset Password
                     </button>

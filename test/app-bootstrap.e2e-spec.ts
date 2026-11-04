@@ -46,9 +46,13 @@ describe('App bootstrap (e2e)', () => {
 
   beforeAll(async () => {
     process.env.NODE_ENV = 'test';
-    process.env.DATABASE_URL =
-      process.env.TEST_DATABASE_URL ??
-      'postgres://postgres:postgres@localhost:35432/teddy_auth';
+    const testUrl = process.env.TEST_DATABASE_URL;
+    if (!testUrl || !/(?:test|e2e|scratch)/i.test(new URL(testUrl).pathname)) {
+      throw new Error(
+        'TEST_DATABASE_URL must explicitly target an isolated test/e2e/scratch database',
+      );
+    }
+    process.env.DATABASE_URL = testUrl;
     process.env.COOKIE_SECRET = 'test-cookie-secret';
 
     const moduleRef = await Test.createTestingModule({
@@ -64,7 +68,8 @@ describe('App bootstrap (e2e)', () => {
         forbidNonWhitelisted: true,
       }),
     );
-    await app.init();
+    // Keep one listener for cookie-bound and concurrent authorization requests.
+    await app.listen(0, '127.0.0.1');
     dataSource = app.get(DataSource);
     adminCookie = await createAdminSessionCookie();
   });
@@ -149,7 +154,17 @@ describe('App bootstrap (e2e)', () => {
       null,
       { emailVerifiedAt: new Date(), passwordResetRequired: false },
     );
-    return { account, password };
+    if (account.loginId === null || account.passwordHash === null) {
+      throw new Error('Local account fixture requires ID/password credentials');
+    }
+    return {
+      account: {
+        ...account,
+        loginId: account.loginId,
+        passwordHash: account.passwordHash,
+      },
+      password,
+    };
   }
 
   async function createApprovedService(options?: {
@@ -1057,7 +1072,13 @@ describe('App bootstrap (e2e)', () => {
     const secondPage = await agent
       .get('/oauth/authorize')
       .query(secondQuery)
-      .expect(200);
+      .expect((response) => {
+        if (response.status !== 200) {
+          throw new Error(
+            `Unexpected account-selection response: ${JSON.stringify({ status: response.status, body: response.body, location: response.headers.location })}`,
+          );
+        }
+      });
     const firstTransaction = hiddenValue(firstPage.text, 'login_transaction');
     const secondTransaction = hiddenValue(secondPage.text, 'login_transaction');
     expect(firstTransaction).not.toBe(secondTransaction);
@@ -2254,7 +2275,7 @@ describe('App bootstrap (e2e)', () => {
       redirectUri: 'bodylab-mac://auth/callback',
       expectedServiceKey: approved.service.serviceKey,
       expectedPermission: 'superadmin',
-      loginId: account.loginId,
+      loginId: suffix,
       password,
     });
 

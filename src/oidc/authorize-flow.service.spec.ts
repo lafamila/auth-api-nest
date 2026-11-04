@@ -2,6 +2,7 @@ import { AccountPermissionsService } from '../domain/account-permissions/account
 import { AccountsService } from '../domain/accounts/accounts.service';
 import { OidcClientsService } from '../domain/oidc-clients/oidc-clients.service';
 import { AuthorizationCodeService } from './authorization-code.service';
+import { SocialProvidersService } from '../social/social-providers.service';
 import {
   AuthorizeFlowService,
   AuthorizeRequestInput,
@@ -180,5 +181,49 @@ describe('AuthorizeFlowService prompt handling', () => {
     expect(html).not.toContain('<script>');
     expect(html).toContain('&quot;/&gt;&lt;script&gt;');
     expect(html).toContain('&amp;code=test');
+  });
+
+  it('binds configured social buttons to separate credential-free forms', () => {
+    const providers = {
+      list: () => [
+        { key: 'google', label: 'Google' },
+        { key: 'kakao', label: 'Kakao' },
+        { key: 'naver', label: 'Naver' },
+      ],
+    };
+    service = new AuthorizeFlowService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      providers as SocialProvidersService,
+    );
+    const html = service.renderHostedLoginPage(
+      request,
+      'browser-bound-transaction',
+    );
+    for (const key of ['google', 'kakao', 'naver']) {
+      expect(html).toContain(`form="social-login-${key}"`);
+      expect(html).toContain(`action="/oauth/login/social/${key}"`);
+      expect(html).toContain(`/oauth/social/assets/${key}.`);
+    }
+    const socialForms = html.match(/<form id="social-login-[\s\S]+?<\/form>/g)!;
+    expect(socialForms).toHaveLength(3);
+    for (const form of socialForms) {
+      expect(form).toContain(
+        'name="login_transaction" value="browser-bound-transaction"',
+      );
+      expect(form).not.toContain('name="password"');
+      expect(form).not.toContain('name="loginId"');
+    }
+  });
+
+  it('renders account selection for a social-only SSO account', () => {
+    const html = service.renderAccountSelectionPage(request, 'transaction', {
+      loginId: null,
+      name: 'Social User',
+    });
+    expect(html).toContain('Social User');
+    expect(html).not.toContain('<small>null</small>');
   });
 });

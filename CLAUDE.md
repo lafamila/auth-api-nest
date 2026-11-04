@@ -219,6 +219,49 @@ Phase 1 게임 플랫폼 세션 안정화 작업으로 확정된 토큰/서명�
   `docs/permission-webhooks.md`; chat exact directory 확장은
   `docs/account-directory.md` 를 따른다.
 
+## Social Login
+
+- Hosted login and account selection support Google, Kakao and Naver through
+  central server-side code exchange. Configure each `SOCIAL_{GOOGLE,KAKAO,NAVER}_CLIENT_ID`
+  and matching `_CLIENT_SECRET` pair; absent pairs hide the provider. Provider
+  callback is `${ISSUER_URL}/oauth/social/{provider}/callback`, not a service or
+  native app callback. All adapters use S256 PKCE and server-fetched user profiles;
+  unvalidated provider ID tokens and browser profile fields never supply identity.
+- Apply `AllowSocialOnlyAccounts20261104000000` and
+  `AddSocialLogin20261104000001` before serving this version. Existing local
+  accounts remain unchanged. Social-only accounts have **both** `login_id` and
+  `password_hash` NULL; optional local ID requires a matching password pair.
+  Existing normal signup remains email-verified ID/PW signup. Password reset
+  cannot silently create credentials for a social-only account.
+- First-link email policy approved by the user: Google requires verified Gmail
+  or Workspace `hd`; Kakao requires valid+verified booleans. Other emails,
+  including Naver, require current email OTP. Missing/masked email prompts for
+  an email and OTP. Matching proven email attaches another provider to the same
+  account UUID, without changing existing credentials/permissions. Subsequent
+  logins use `(provider, provider_client_id, subject)`, never mutable email.
+- Social states and browser bindings are stored hashed; PKCE verifiers are
+  encrypted with the existing `ADMIN_OTP_ENCRYPTION_KEY`. Authorization and
+  completion stages each expire after 10 minutes. A separate signed HttpOnly
+  **Lax** cookie scoped to `/oauth/social` survives the provider GET callback;
+  the existing Strict hosted-login binding is verified before starting it.
+  Provider/client/session mismatch, expiry and replay fail closed.
+- OTP is transaction/purpose bound, valid 5 minutes, maximum 5 attempts,
+  60-second resend cooldown, 5 emails/address/30 minutes and 10/IP/hour.
+  Production without SMTP fails closed and never logs OTPs. Provider access
+  and refresh tokens are neither persisted nor returned to clients.
+- Linking and creation serialize identity/email races and lock account rows;
+  timestamp-only updates cannot undo concurrent admin disable/reset. Existing
+  account status/reset rules, `select_account` SSO isolation and admin OTP remain
+  enforced. Central OIDC callback, state, PKCE, nonce and UUID `sub` stay intact.
+- `preferred_username` is a display alias (`loginId ?? email`), **not proof of
+  local credentials**. `https://lafamila.xyz/claims/local_login_id` is the actual
+  `string | null` value on ID/access tokens and userinfo. Directory `loginId`
+  can be NULL. Deploy the matching Chat nullable-identity cache update before
+  Auth; Todo normalizes absent directory IDs to its existing empty-string API.
+- Source, setup, consent/review, secret rotation and native test procedures:
+  [`docs/social-login.md`](./docs/social-login.md). Core provider and workflow
+  coverage lives in `src/social/*.spec.ts` and `test/social-*.e2e-spec.ts`.
+
 ## Security & Configuration Tips
 
 Never commit secrets, private keys, database URLs, or runtime state. Keep issuer, client secrets, cookie settings, and PostgreSQL credentials in environment variables. Auth changes require tests before merge.

@@ -173,7 +173,7 @@ export class SignupService {
     options: { consume: boolean },
   ): Promise<EmailVerificationEntity> {
     const verification = await this.verifications.findOne({
-      where: { email, consumedAt: IsNull() },
+      where: { email, purpose: 'signup', consumedAt: IsNull() },
       order: { createdAt: 'DESC' },
     });
     if (!verification || verification.expiresAt.getTime() <= Date.now()) {

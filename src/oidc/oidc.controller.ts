@@ -330,6 +330,8 @@ export class OidcController {
       email: payload.email,
       name: payload.name,
       preferred_username: payload.preferred_username,
+      'https://lafamila.xyz/claims/local_login_id':
+        payload['https://lafamila.xyz/claims/local_login_id'],
     };
   }
 

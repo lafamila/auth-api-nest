@@ -11,8 +11,9 @@ describe('NotificationDevicesService', () => {
   const now = new Date('2026-10-13T00:00:00.000Z');
 
   it('lists only active non-deleted devices', async () => {
+    const findDevices = jest.fn(async () => []);
     const deviceRepository = {
-      find: jest.fn(async () => []),
+      find: findDevices,
     } as unknown as Repository<NotificationDeviceEntity>;
     const subscriptionRepository = {
       find: jest.fn(async () => []),
@@ -32,7 +33,7 @@ describe('NotificationDevicesService', () => {
     );
 
     await expect(service.list(accountId)).resolves.toEqual({ items: [] });
-    expect(deviceRepository.find).toHaveBeenCalledWith({
+    expect(findDevices).toHaveBeenCalledWith({
       where: { accountId, status: 'active', deletedAt: expect.anything() },
       order: { createdAt: 'DESC' },
     });

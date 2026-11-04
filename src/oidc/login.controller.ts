@@ -30,7 +30,7 @@ type SignedCookieRequest = Request & {
 };
 
 const HOSTED_LOGIN_SCRIPT = `(() => {
-  const forms = [...document.querySelectorAll('form[action="/oauth/login"]')];
+  const forms = [...document.querySelectorAll('form[action="/oauth/login"], form[data-social-login]')];
   let submitting = false;
   for (const form of forms) {
     form.addEventListener('submit', (event) => {

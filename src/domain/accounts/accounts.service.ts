@@ -1,11 +1,18 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  In,
+  QueryFailedError,
+  Repository,
+} from 'typeorm';
 import { PasswordService } from '../../common/crypto/password.service';
 import {
   ADMIN_TEMPORARY_RESET_PASSWORD,
@@ -22,7 +29,7 @@ import { CreateAccountDto, UpdateAccountDto } from './dto/account.dto';
 
 export interface ServiceAccountSearchResult {
   id: string;
-  loginId: string;
+  loginId: string | null;
   name: string;
   email: string;
   status: string;
@@ -72,7 +79,7 @@ export class AccountsService {
         }
         if (!normalizedQuery) return true;
         return [account.loginId, account.name, account.email]
-          .filter(Boolean)
+          .filter((value): value is string => typeof value === 'string')
           .some((value) => value.toLowerCase().includes(normalizedQuery));
       })
       .slice(0, 20);
@@ -121,6 +128,9 @@ export class AccountsService {
   }
 
   findByLoginId(loginId: string): Promise<AccountEntity | null> {
+    if (typeof loginId !== 'string' || !loginId.trim()) {
+      return Promise.resolve(null);
+    }
     return this.accounts.findOneBy({ loginId });
   }
 
@@ -175,6 +185,67 @@ export class AccountsService {
     });
   }
 
+  async createSocialAccount(
+    input: {
+      email: string;
+      name: string;
+      loginId?: string;
+      password?: string;
+    },
+    manager: EntityManager,
+  ): Promise<AccountEntity> {
+    const email = input.email.trim().toLowerCase();
+    const name = input.name.trim();
+    const loginId = input.loginId?.trim() || null;
+    const password = input.password || null;
+    if (!email || !name) {
+      throw new BadRequestException('Email and name are required');
+    }
+    if (Boolean(loginId) !== Boolean(password)) {
+      throw new BadRequestException(
+        'Login ID and password must be provided together',
+      );
+    }
+    let passwordHash: string | null = null;
+    if (password) {
+      validateNormalPassword(password);
+      passwordHash = await this.passwordService.hash(password);
+    }
+    const account = manager.create(AccountEntity, {
+      loginId,
+      passwordHash,
+      email,
+      name,
+      status: 'active',
+      isSuperAdmin: false,
+      passwordResetRequired: false,
+      // The social flow verifies email ownership before creating an account.
+      emailVerifiedAt: new Date(),
+    });
+    let saved: AccountEntity;
+    try {
+      saved = await manager.save(account);
+    } catch (error) {
+      if (
+        error instanceof QueryFailedError &&
+        error.driverError?.code === '23505'
+      ) {
+        throw new ConflictException('Account loginId or email already exists');
+      }
+      throw error;
+    }
+    await this.auditLogs.record(
+      {
+        action: 'account.create',
+        targetType: 'account',
+        targetId: saved.id,
+        afterJson: this.safeAccount(saved),
+      },
+      manager,
+    );
+    return saved;
+  }
+
   async update(id: string, input: UpdateAccountDto): Promise<AccountEntity> {
     const saved = await this.dataSource.transaction(async (manager) => {
       const accountRepository = manager.getRepository(AccountEntity);
@@ -218,6 +289,9 @@ export class AccountsService {
 
   async resetPassword(id: string, password?: string): Promise<void> {
     const account = await this.findById(id);
+    if (!account.loginId || !account.passwordHash) {
+      throw new ConflictException('Account does not have local credentials');
+    }
     const nextPassword = password ?? ADMIN_TEMPORARY_RESET_PASSWORD;
     const resetRequired = validatePasswordOrTemporaryReset(nextPassword);
     account.passwordHash = await this.passwordService.hash(nextPassword);
@@ -250,8 +324,16 @@ export class AccountsService {
     loginId: string,
     password: string,
   ): Promise<AccountEntity> {
+    if (typeof password !== 'string' || !password) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
     const account = await this.findByLoginId(loginId);
-    if (!account || account.status !== 'active') {
+    if (
+      !account ||
+      account.status !== 'active' ||
+      !account.loginId ||
+      !account.passwordHash
+    ) {
       throw new UnauthorizedException('Invalid credentials');
     }
     const valid = await this.passwordService.verify(
@@ -272,8 +354,16 @@ export class AccountsService {
     loginId: string,
     password: string,
   ): Promise<AccountEntity> {
+    if (typeof password !== 'string' || !password) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
     const account = await this.findByLoginId(loginId);
-    if (!account || account.status !== 'active') {
+    if (
+      !account ||
+      account.status !== 'active' ||
+      !account.loginId ||
+      !account.passwordHash
+    ) {
       throw new UnauthorizedException('Invalid credentials');
     }
     const valid = await this.passwordService.verify(
@@ -309,6 +399,7 @@ export class AccountsService {
     return {
       id: account.id,
       loginId: account.loginId,
+      hasLocalCredentials: Boolean(account.loginId && account.passwordHash),
       name: account.name,
       email: account.email,
       status: account.status,

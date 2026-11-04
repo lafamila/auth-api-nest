@@ -4,6 +4,7 @@ import { AccountsService } from '../domain/accounts/accounts.service';
 import { OidcClientsService } from '../domain/oidc-clients/oidc-clients.service';
 import { AuthorizationCodeService } from './authorization-code.service';
 import { OAuthError } from './oauth-error';
+import { SocialProvidersService } from '../social/social-providers.service';
 
 export const SELECT_ACCOUNT_PROMPT = 'select_account';
 
@@ -37,6 +38,7 @@ export class AuthorizeFlowService {
     private readonly clients: OidcClientsService,
     private readonly accountPermissions: AccountPermissionsService,
     private readonly codes: AuthorizationCodeService,
+    private readonly socialProviders?: SocialProvidersService,
   ) {}
 
   async validateRequest(
@@ -62,6 +64,7 @@ export class AuthorizeFlowService {
       request.nonce !== undefined &&
       (request.nonce.length === 0 ||
         request.nonce.length > 255 ||
+        // eslint-disable-next-line no-control-regex -- Intentionally reject C0 and DEL in OAuth nonce.
         /[\u0000-\u001f\u007f]/.test(request.nonce))
     ) {
       throw new OAuthError('invalid_request', 'Invalid nonce');
@@ -186,6 +189,7 @@ export class AuthorizeFlowService {
     const failureText = this.escapeHtml(failureMessage);
     const failureVisibility = failureText ? 'visible' : 'hidden';
     const signupHref = this.escapeHtml(this.buildSignupUrl(request));
+    const social = this.renderSocialLogin(loginTransaction);
     return `<!doctype html>
 <html lang="ko">
   <head>
@@ -269,6 +273,14 @@ export class AuthorizeFlowService {
         cursor: wait;
         opacity: 0.72;
       }
+      .social-logins { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+      .social-logins button { font-weight: 600; padding: 0; height: 48px; display: grid; place-items: center; overflow: hidden; }
+      .social-logins img { height: 48px; width: auto; max-width: 100%; object-fit: contain; }
+      .social-google img { height: 40px; clip-path: inset(2px); }
+      .social-google { background: #fff; color: #202124; border-color: #dadce0; }
+      .social-kakao { background: #fee500; color: #191919; border-color: #fee500; }
+      .social-naver { background: #03a94d; color: #fff; border-color: #03a94d; }
+      .social-provider-form { display: none; }
       a {
         display: block;
         width: 100%;
@@ -318,9 +330,11 @@ export class AuthorizeFlowService {
         required
       />
       <button type="submit">로그인</button>
+      ${social.buttons}
       <a href="${signupHref}">sign up</a>
       <p id="failure-message" role="alert">${failureText}</p>
     </form>
+    ${social.forms}
   </body>
 </html>`;
   }
@@ -328,7 +342,7 @@ export class AuthorizeFlowService {
   renderAccountSelectionPage(
     request: AuthorizeRequestInput,
     loginTransaction: string,
-    currentAccount?: { loginId: string; name: string },
+    currentAccount?: { loginId: string | null; name: string },
     failureMessage = '',
   ) {
     const hiddenFields = this.hiddenInput(
@@ -337,13 +351,14 @@ export class AuthorizeFlowService {
     );
     const failureText = this.escapeHtml(failureMessage);
     const failureVisibility = failureText ? 'visible' : 'hidden';
+    const social = this.renderSocialLogin(loginTransaction);
     const currentAccountForm = currentAccount
       ? `<form method="post" action="/oauth/login">
       ${hiddenFields}
       ${this.hiddenInput('account_selection', 'current')}
       <button class="current-account" type="submit">
         <span>${this.escapeHtml(currentAccount.name)}</span>
-        <small>${this.escapeHtml(currentAccount.loginId)}</small>
+        <small>${this.escapeHtml(currentAccount.loginId ?? currentAccount.name)}</small>
       </button>
     </form>`
       : '';
@@ -425,6 +440,14 @@ export class AuthorizeFlowService {
         cursor: wait;
         opacity: 0.72;
       }
+      .social-logins { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+      .social-logins button { font-weight: 600; padding: 0; height: 48px; display: grid; place-items: center; overflow: hidden; }
+      .social-logins img { height: 48px; width: auto; max-width: 100%; object-fit: contain; }
+      .social-google img { height: 40px; clip-path: inset(2px); }
+      .social-google { background: #fff; color: #202124; border-color: #dadce0; }
+      .social-kakao { background: #fee500; color: #191919; border-color: #fee500; }
+      .social-naver { background: #03a94d; color: #fff; border-color: #03a94d; }
+      .social-provider-form { display: none; }
       .current-account {
         display: grid;
         gap: 2px;
@@ -471,9 +494,42 @@ export class AuthorizeFlowService {
         <button type="submit">로그인</button>
         <p id="failure-message" role="alert">${failureText}</p>
       </form>
+      ${social.buttons}
     </main>
+    ${social.forms}
   </body>
 </html>`;
+  }
+
+  private renderSocialLogin(transaction: string) {
+    const providers = this.socialProviders?.list() ?? [];
+    if (!providers.length) return { buttons: '', forms: '' };
+    const buttons = providers
+      .map(({ key, label }) => {
+        const assets: Record<string, string> = {
+          google: 'google.png',
+          kakao: 'kakao.svg',
+          naver: 'naver.png',
+        };
+        const labels: Record<string, string> = {
+          google: 'Google로 로그인',
+          kakao: '카카오 로그인',
+          naver: '네이버 로그인',
+        };
+        const name = this.escapeHtml(labels[key] ?? `${label}로 로그인`);
+        const content = assets[key]
+          ? `<img src="/oauth/social/assets/${assets[key]}" alt="" />`
+          : name;
+        return `<button class="social-${this.escapeHtml(key)}" aria-label="${name}" type="submit" form="social-login-${this.escapeHtml(key)}">${content}</button>`;
+      })
+      .join('');
+    const forms = providers
+      .map(
+        ({ key }) =>
+          `<form id="social-login-${this.escapeHtml(key)}" class="social-provider-form" data-social-login method="post" action="/oauth/login/social/${this.escapeHtml(key)}">${this.hiddenInput('login_transaction', transaction)}</form>`,
+      )
+      .join('');
+    return { buttons: `<div class="social-logins">${buttons}</div>`, forms };
   }
 
   renderAuthorizationRedirectPage(redirectUrl: string) {
@@ -496,7 +552,7 @@ export class AuthorizeFlowService {
     const redirect = new URL(redirectUri);
     const redirectSource =
       redirect.origin === 'null' ? redirect.protocol : redirect.origin;
-    return `default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; form-action 'self' ${redirectSource}; frame-ancestors 'none'; base-uri 'none'`;
+    return `default-src 'none'; script-src 'self'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self' ${redirectSource}; frame-ancestors 'none'; base-uri 'none'`;
   }
 
   buildErrorRedirectUrl(

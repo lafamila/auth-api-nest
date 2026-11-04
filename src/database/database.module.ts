@@ -27,6 +27,8 @@ import { NotificationDeviceEntity } from './entities/notification-device.entity'
 import { NotificationIdempotencyEntity } from './entities/notification-idempotency.entity';
 import { NotificationSubscriptionEntity } from './entities/notification-subscription.entity';
 import { NotificationEntity } from './entities/notification.entity';
+import { SocialIdentityEntity } from './entities/social-identity.entity';
+import { SocialLoginTransactionEntity } from './entities/social-login-transaction.entity';
 
 export const AUTH_ENTITIES = [
   AccountEntity,
@@ -53,6 +55,8 @@ export const AUTH_ENTITIES = [
   NotificationDeliveryEntity,
   NotificationDeliveryAttemptEntity,
   NotificationIdempotencyEntity,
+  SocialIdentityEntity,
+  SocialLoginTransactionEntity,
 ];
 
 @Module({

@@ -1,4 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { Socket, connect as netConnect } from 'node:net';
 import { TLSSocket, connect as tlsConnect } from 'node:tls';
 import { AppConfigService } from '../config/app-config.service';
@@ -16,6 +20,11 @@ export class EmailDeliveryService {
   ): Promise<void> {
     const smtp = this.config.smtp;
     if (!smtp.host) {
+      if (this.config.nodeEnv === 'production') {
+        throw new ServiceUnavailableException(
+          'Email delivery is not configured',
+        );
+      }
       this.logger.log(`Signup email verification code for ${email}: ${code}`);
       return;
     }

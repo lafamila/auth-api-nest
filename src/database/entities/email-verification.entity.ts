@@ -15,6 +15,12 @@ export class EmailVerificationEntity {
   @Column()
   email!: string;
 
+  @Column({ type: 'varchar', default: 'signup' })
+  purpose!: 'signup' | 'social';
+
+  @Column({ name: 'context_hash', type: 'varchar', nullable: true })
+  contextHash!: string | null;
+
   @Column({ name: 'code_hash' })
   codeHash!: string;
 

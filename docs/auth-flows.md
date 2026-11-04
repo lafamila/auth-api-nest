@@ -4,13 +4,20 @@
 
 1. Service redirects the browser to `/oauth/authorize` with `response_type=code`, `client_id`, exact `redirect_uri`, `scope=openid profile email service.permission`, `state`, `code_challenge`, and `code_challenge_method=S256`.
 2. If there is no active `tas_session` cookie, auth renders its hosted login page for the same authorize request.
-3. The hosted login page collects ID/PW on auth-api-nest only. It shows a `로그인` button, a signup link, and failure messages; password reset is not linked from this page.
+3. The hosted login page collects ID/PW on auth-api-nest only, or starts a configured Google/Kakao/Naver login. It shows a signup link and failure messages; password reset is not linked from this page.
 4. After successful hosted login, auth issues `tas_session` and resumes the original authorize request.
 5. Auth validates the OIDC client, exact redirect URI, PKCE, account status, and service availability. If the account has no account-service row yet for that active service, auth lazily creates `visitor` during authorize/token processing.
 6. Auth redirects back to the service with either `code` or a standard OAuth `error`.
 7. Service exchanges the code at `POST /oauth/token` with `grant_type=authorization_code`, `client_id`, optional `client_secret`, `redirect_uri`, and `code_verifier`.
 
 ## Request-Scoped Account Selection
+
+Social authentication resumes the same canonical authorize request after a
+browser-bound provider callback and any required signup/email proof. It does
+not replace client `state`, PKCE, nonce, callbacks or service permissions.
+`prompt=select_account` continues to preserve the existing central SSO subject.
+Provider tokens stay on Auth and are discarded after profile retrieval.
+See [social login setup and security](./social-login.md).
 
 OIDC discovery advertises `prompt_values_supported: ["select_account"]`.
 `select_account` is the only supported `prompt` value; `prompt=login`, unknown

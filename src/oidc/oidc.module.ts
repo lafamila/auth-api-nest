@@ -15,6 +15,14 @@ import { OidcProviderAdapterService } from './oidc-provider-adapter.service';
 import { SigningKeyService } from './signing-key.service';
 import { TokenService } from './token.service';
 import { HostedLoginTransactionService } from './hosted-login-transaction.service';
+import { SocialLoginController } from '../social/social-login.controller';
+import { SocialLoginService } from '../social/social-login.service';
+import { SocialProvidersService } from '../social/social-providers.service';
+import { SocialIdentityEntity } from '../database/entities/social-identity.entity';
+import { SocialLoginTransactionEntity } from '../database/entities/social-login-transaction.entity';
+import { EmailVerificationEntity } from '../database/entities/email-verification.entity';
+import { SignupModule } from '../signup/signup.module';
+import { AuditLogsModule } from '../domain/audit-logs/audit-logs.module';
 
 @Module({
   imports: [
@@ -22,9 +30,17 @@ import { HostedLoginTransactionService } from './hosted-login-transaction.servic
     AccountsModule,
     OidcClientsModule,
     AccountPermissionsModule,
-    TypeOrmModule.forFeature([TokenRecordEntity, SigningKeyEntity]),
+    SignupModule,
+    AuditLogsModule,
+    TypeOrmModule.forFeature([
+      TokenRecordEntity,
+      SigningKeyEntity,
+      SocialIdentityEntity,
+      SocialLoginTransactionEntity,
+      EmailVerificationEntity,
+    ]),
   ],
-  controllers: [OidcController, LoginController],
+  controllers: [OidcController, LoginController, SocialLoginController],
   providers: [
     AuthorizationCodeService,
     AuthorizeFlowService,
@@ -33,6 +49,8 @@ import { HostedLoginTransactionService } from './hosted-login-transaction.servic
     SigningKeyService,
     TokenService,
     HostedLoginTransactionService,
+    SocialLoginService,
+    SocialProvidersService,
   ],
   exports: [TokenService, SigningKeyService],
 })

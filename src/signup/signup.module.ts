@@ -16,5 +16,6 @@ import { SignupService } from './signup.service';
   ],
   controllers: [SignupController, SignupPageController],
   providers: [SignupService, EmailDeliveryService],
+  exports: [EmailDeliveryService],
 })
 export class SignupModule {}

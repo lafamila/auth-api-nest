@@ -41,4 +41,17 @@ describe('EmailDeliveryService', () => {
       }),
     );
   });
+
+  it('fails closed instead of logging an OTP when production SMTP is absent', async () => {
+    const service = new EmailDeliveryService({
+      nodeEnv: 'production',
+      smtp: { host: '' },
+    } as never);
+    const logger = jest.spyOn(service['logger'], 'log');
+
+    await expect(
+      service.sendSignupCode('user@example.test', 'ABC123', '5 minutes'),
+    ).rejects.toThrow('Email delivery is not configured');
+    expect(logger).not.toHaveBeenCalled();
+  });
 });

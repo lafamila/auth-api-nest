@@ -5,7 +5,7 @@ import { PermissionStatus } from '../../../database/entities/service-permission-
 export interface PermissionDashboardRowDto {
   id: string;
   accountId: string;
-  loginId: string;
+  loginId: string | null;
   accountName: string;
   email: string;
   serviceId: string;

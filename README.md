@@ -24,6 +24,9 @@ npm run test        # Jest unit tests (*.spec.ts)
 npm run test:e2e    # Jest e2e (test/jest-e2e.json)
 ```
 
+e2e는 `TEST_DATABASE_URL`에 **격리된 테스트 DB**를 지정해서 실행한다. 기존 bootstrap
+fixture는 계정/admin 데이터를 변경하므로 운영/실사용 DB를 연결하지 않는다.
+
 ## Docker
 
 ```bash
@@ -38,5 +41,11 @@ docker compose -f docker-compose.dev.yml up --build
 - Dockerfile 자체에는 `HEALTHCHECK` instruction 이 없으므로 배포 환경에서는 `GET /health` 를 외부 헬스체크로 사용한다.
 
 ## 상세
+
+Google·Kakao·Naver 소셜 로그인과 선택 ID/PW 가입을 지원한다. 제공자 키는 Auth에만 설정하며,
+설정되지 않은 제공자는 표시하지 않는다. 기존 계정의 검증된 이메일은 같은 UUID에 연결한다.
+제공자 가입·앱 등록·이메일 동의·검수·키 발급·callback·배포 순서는
+[`소셜 로그인 등록 가이드`](./docs/social-login.md)를 따른다. 소셜 전용 계정 호환성을 위해
+Chat 업데이트를 먼저 배포하고 Auth의 새 migration 두 개를 적용한다.
 
 Notification API/FCM/retention/onboarding 계약은 [`docs/notifications.md`](./docs/notifications.md)를 참조한다. 전체 아키텍처, admin/bootstrap 정책, 토큰/서명키 정책 등은 [`CLAUDE.md`](./CLAUDE.md) 와 `docs/` (auth-flows, admin-api, service-integration, permission-webhooks, account-directory) 를 참조.
