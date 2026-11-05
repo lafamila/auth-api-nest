@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "id": "api-dist",
+      "description": "Nest CLI로 컴파일한 중앙 인증 API 출력",
+      "strategy": "in_place",
+      "paths": ["dist/"]
+    }
+  ]
+}

@@ -6,3 +6,5 @@ dist/
 coverage/
 .env
 .env.local
+.build-artifacts-state.json
+.build-artifacts-staging/
