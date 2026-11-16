@@ -11,11 +11,17 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { DataSource, EntityManager } from 'typeorm';
+import { AccountEntity } from '../database/entities/account.entity';
+import { AccountServicePermissionEntity } from '../database/entities/account-service-permission.entity';
 import { AccountPermissionsService } from '../domain/account-permissions/account-permissions.service';
 import { AccountsService } from '../domain/accounts/accounts.service';
 import { OidcClientsService } from '../domain/oidc-clients/oidc-clients.service';
 import { AppConfigService } from '../config/app-config.service';
-import { AuthorizationCodeService } from './authorization-code.service';
+import {
+  AuthorizationCodeRecord,
+  AuthorizationCodeService,
+} from './authorization-code.service';
 import {
   AuthorizeFlowService,
   SELECT_ACCOUNT_PROMPT,
@@ -24,12 +30,20 @@ import { TokenRequestDto } from './dto/token.dto';
 import { OAuthError } from './oauth-error';
 import { verifyPkceS256 } from './pkce';
 import { SigningKeyService } from './signing-key.service';
-import { TokenService } from './token.service';
+import { RefreshTokenReuseError, TokenService } from './token.service';
 import { HostedLoginTransactionService } from './hosted-login-transaction.service';
+import { SsoSessionService } from './sso-session.service';
 
 type SignedCookieRequest = Request & {
   signedCookies?: Record<string, string | undefined>;
 };
+
+type TokenTransactionResult =
+  | {
+      kind: 'success';
+      response: Awaited<ReturnType<TokenService['issueTokens']>>;
+    }
+  | { kind: 'error'; error: Error };
 
 @Controller()
 export class OidcController {
@@ -43,6 +57,8 @@ export class OidcController {
     private readonly signingKeys: SigningKeyService,
     private readonly tokens: TokenService,
     private readonly hostedLoginTransactions: HostedLoginTransactionService,
+    private readonly sso: SsoSessionService,
+    private readonly dataSource: DataSource,
   ) {}
 
   @Get('.well-known/openid-configuration')
@@ -104,7 +120,7 @@ export class OidcController {
       if (validated.kind === 'redirect') {
         return response.redirect(validated.redirectUrl);
       }
-      const accountId = request.signedCookies?.tas_session;
+      const accountId = await this.sso.accountId(request);
       if (validated.request.prompt === SELECT_ACCOUNT_PROMPT) {
         const currentAccount = accountId
           ? await this.accounts.findById(accountId)
@@ -230,35 +246,81 @@ export class OidcController {
           'Missing authorization_code fields',
         );
       }
-      const code = await this.codes.consume(body.code);
-      if (!code || code.clientId !== client.clientId) {
-        throw new OAuthError('invalid_grant', 'Invalid authorization code');
-      }
-      if (code.redirectUri !== body.redirect_uri) {
-        throw new OAuthError('invalid_grant', 'redirect_uri mismatch');
-      }
-      if (!verifyPkceS256(body.code_verifier, code.codeChallenge)) {
-        throw new OAuthError('invalid_grant', 'PKCE verification failed');
-      }
-      const account = await this.accounts.findById(code.accountId);
-      if (account.passwordResetRequired) {
-        throw new OAuthError(
-          'access_denied',
-          'Password reset is required',
-          403,
-        );
-      }
-      const permission = await this.requirePermission(
-        account.id,
-        client.serviceId,
+      const candidate = await this.codes.findActive(body.code);
+      const candidateError = this.authorizationCodeError(
+        candidate,
+        client.clientId,
+        body.redirect_uri,
+        body.code_verifier,
       );
-      return this.tokens.issueTokens(
-        account,
-        client,
-        permission,
-        undefined,
-        code.nonce,
+      if (candidateError) {
+        throw candidateError;
+      }
+      await this.requirePermission(candidate!.accountId, client.serviceId);
+
+      const result = await this.dataSource.transaction<TokenTransactionResult>(
+        async (manager) => {
+          const account = await this.lockAccount(manager, candidate!.accountId);
+          if (!account) {
+            return {
+              kind: 'error',
+              error: new OAuthError(
+                'invalid_grant',
+                'Invalid authorization code',
+              ),
+            };
+          }
+          const code = await this.codes.consume(body.code!, manager);
+          const codeError = this.authorizationCodeError(
+            code,
+            client.clientId,
+            body.redirect_uri!,
+            body.code_verifier!,
+          );
+          if (codeError) {
+            return { kind: 'error', error: codeError };
+          }
+          if (!this.codes.isCurrentCredential(code!, account)) {
+            return {
+              kind: 'error',
+              error: new OAuthError(
+                'invalid_grant',
+                'Authorization code credentials are stale',
+              ),
+            };
+          }
+          const accountError = this.accountTokenError(account);
+          if (accountError) {
+            return { kind: 'error', error: accountError };
+          }
+          const permission = await this.findCurrentPermission(
+            manager,
+            account.id,
+            client.serviceId,
+          );
+          if (!permission) {
+            return {
+              kind: 'error',
+              error: this.permissionDeniedError(),
+            };
+          }
+          return {
+            kind: 'success',
+            response: await this.tokens.issueTokens(
+              account,
+              client,
+              permission,
+              undefined,
+              code!.nonce,
+              manager,
+            ),
+          };
+        },
       );
+      if (result.kind === 'error') {
+        throw result.error;
+      }
+      return result.response;
     }
 
     if (!body.refresh_token) {
@@ -270,30 +332,87 @@ export class OidcController {
     const holder = await this.tokens.getRefreshTokenAccountId(
       body.refresh_token,
     );
-    if (holder) {
-      const holderAccount = await this.accounts.findById(holder.accountId);
-      if (holderAccount.status !== 'active') {
-        throw new OAuthError('access_denied', 'Account is not active', 403);
-      }
+    if (!holder) {
+      throw new UnauthorizedException('Invalid refresh token');
     }
-    const refresh = await this.tokens.consumeRefreshToken(body.refresh_token);
-    if (refresh.clientId !== client.clientId) {
+    if (holder.clientId !== client.clientId) {
       throw new UnauthorizedException('Refresh token client mismatch');
     }
-    const account = await this.accounts.findById(refresh.accountId);
-    if (account.passwordResetRequired) {
-      throw new OAuthError('access_denied', 'Password reset is required', 403);
+    const holderAccount = await this.accounts.findById(holder.accountId);
+    if (holderAccount.status !== 'active') {
+      throw new OAuthError('access_denied', 'Account is not active', 403);
     }
-    const permission = await this.requirePermission(
-      account.id,
-      client.serviceId,
+    await this.requirePermission(holder.accountId, client.serviceId);
+
+    const result = await this.dataSource.transaction<TokenTransactionResult>(
+      async (manager) => {
+        const account = await this.lockAccount(manager, holder.accountId);
+        if (!account || account.status !== 'active') {
+          return {
+            kind: 'error',
+            error: new OAuthError(
+              'access_denied',
+              'Account is not active',
+              403,
+            ),
+          };
+        }
+        const consumption = await this.tokens.consumeRefreshTokenForRotation(
+          body.refresh_token!,
+          manager,
+        );
+        if (consumption.kind === 'reuse') {
+          return {
+            kind: 'error',
+            error: new RefreshTokenReuseError(),
+          };
+        }
+        const refresh = consumption.refresh;
+        if (refresh.clientId !== client.clientId) {
+          return {
+            kind: 'error',
+            error: new UnauthorizedException('Refresh token client mismatch'),
+          };
+        }
+        if (!this.tokens.isCurrentCredential(refresh, account)) {
+          await this.tokens.revokeFamily(refresh.familyId, manager);
+          return {
+            kind: 'error',
+            error: new UnauthorizedException('Invalid refresh token'),
+          };
+        }
+        const accountError = this.accountTokenError(account);
+        if (accountError) {
+          return { kind: 'error', error: accountError };
+        }
+        const permission = await this.findCurrentPermission(
+          manager,
+          account.id,
+          client.serviceId,
+        );
+        if (!permission) {
+          return {
+            kind: 'error',
+            error: this.permissionDeniedError(),
+          };
+        }
+        return {
+          kind: 'success',
+          response: await this.tokens.issueTokens(
+            account,
+            client,
+            permission,
+            refresh.familyId,
+            undefined,
+            manager,
+          ),
+        };
+      },
     );
-    return this.tokens.issueTokens(
-      account,
-      client,
-      permission,
-      refresh.familyId,
-    );
+    if (result.kind === 'error') {
+      throw result.error;
+    }
+    return result.response;
   }
 
   @Post('oauth/revoke')
@@ -353,6 +472,59 @@ export class OidcController {
     };
   }
 
+  private authorizationCodeError(
+    code: AuthorizationCodeRecord | null,
+    clientId: string,
+    redirectUri: string,
+    codeVerifier: string,
+  ): OAuthError | null {
+    if (!code || code.clientId !== clientId) {
+      return new OAuthError('invalid_grant', 'Invalid authorization code');
+    }
+    if (code.redirectUri !== redirectUri) {
+      return new OAuthError('invalid_grant', 'redirect_uri mismatch');
+    }
+    if (!verifyPkceS256(codeVerifier, code.codeChallenge)) {
+      return new OAuthError('invalid_grant', 'PKCE verification failed');
+    }
+    return null;
+  }
+
+  private async lockAccount(
+    manager: EntityManager,
+    accountId: string,
+  ): Promise<AccountEntity | null> {
+    return manager.getRepository(AccountEntity).findOne({
+      where: { id: accountId },
+      lock: { mode: 'pessimistic_write' },
+    });
+  }
+
+  private accountTokenError(account: AccountEntity): OAuthError | null {
+    if (account.status !== 'active') {
+      return new OAuthError('access_denied', 'Account is not active', 403);
+    }
+    if (account.passwordResetRequired) {
+      return new OAuthError('access_denied', 'Password reset is required', 403);
+    }
+    return null;
+  }
+
+  private findCurrentPermission(
+    manager: EntityManager,
+    accountId: string,
+    serviceId: string,
+  ): Promise<AccountServicePermissionEntity | null> {
+    return manager.getRepository(AccountServicePermissionEntity).findOne({
+      where: { accountId, serviceId, status: 'active' },
+      relations: { permissionDefinition: true },
+    });
+  }
+
+  private permissionDeniedError(): OAuthError {
+    return new OAuthError('access_denied', 'No active service permission', 403);
+  }
+
   private async requirePermission(accountId: string, serviceId: string) {
     const permission =
       await this.accountPermissions.findActiveOrCreateVisitorForFirstLogin(
@@ -360,11 +532,7 @@ export class OidcController {
         serviceId,
       );
     if (!permission) {
-      throw new OAuthError(
-        'access_denied',
-        'No active service permission',
-        403,
-      );
+      throw this.permissionDeniedError();
     }
     return permission;
   }

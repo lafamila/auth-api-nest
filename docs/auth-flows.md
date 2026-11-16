@@ -137,12 +137,16 @@ Per-client overrides (`accessTokenTtlSeconds` / `refreshTokenTtlSeconds`) are re
 
 ## Admin Bootstrap + Login
 
-1. `/admin` calls `GET /api/admin/bootstrap/status`.
+1. `/login` checks for active superadmins and offers `/bootstrap` only when none exist.
 2. If there is no active superadmin, the bootstrap page calls `POST /api/admin/bootstrap/start`.
 3. The response shows the OTP secret, otpauth URI, and QR once so the user can register Google Authenticator.
 4. `/api/admin/bootstrap/complete` verifies the OTP code and only then creates the first superadmin.
-5. If an active superadmin exists, `/admin` shows login and calls `POST /api/admin/login` with login ID, password, and OTP.
+5. Superadmins use shared `/login`, then browser-bound `/login/otp`, then the root console `/`. The compatibility `/api/admin/login` endpoint still accepts ID/PW/OTP; `/admin` UI is removed.
 6. Admin APIs require the HttpOnly admin session cookie. `x-admin-key` is not an admin authorization model.
+
+General accounts use the same `/login` and see their own account/service portal.
+This extra admin OTP applies only to the Auth site, not service OIDC flows.
+See [account portal](./account-portal.md) for profile/CSRF/credential invalidation.
 
 ## Signup
 

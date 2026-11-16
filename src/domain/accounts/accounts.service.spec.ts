@@ -21,7 +21,7 @@ describe('AccountsService', () => {
       updatedAt: new Date(),
     } as AccountEntity;
     const accountRepository = {
-      findOneBy: jest.fn().mockResolvedValue(account),
+      findOne: jest.fn().mockResolvedValue(account),
       countBy: jest.fn().mockResolvedValue(1),
       save: jest.fn(),
     };
@@ -45,6 +45,10 @@ describe('AccountsService', () => {
     await expect(
       service.update(account.id, { status: 'disabled' }),
     ).rejects.toBeInstanceOf(ConflictException);
+    expect(accountRepository.findOne).toHaveBeenCalledWith({
+      where: { id: account.id },
+      lock: { mode: 'pessimistic_write' },
+    });
     expect(accountRepository.save).not.toHaveBeenCalled();
   });
 });

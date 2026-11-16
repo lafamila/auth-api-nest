@@ -21,7 +21,7 @@
 6. **서비스 통합 계약 유지** — 이 레포는 다른 서비스들이 참고하는 중앙 auth 계약의 소유자다. OIDC/OAuth2 endpoints, callback/redirect URI 검증, token claim, service permission claim, admin service/client/permission/credential API, service credential scope 정책을 바꿀 때는 consuming service 영향까지 검토한다.
 7. **신규 서비스 onboarding 지원** — admin console 과 문서는 새 서비스가 준비해야 할 항목을 계속 설명할 수 있어야 한다: `serviceKey`, permission definitions, OIDC client, redirect/callback URI, login/session/token 처리, access denied 정책, backend-to-auth service credential, env var, secret 비노출 원칙.
 8. **Service onboarding request 우선** — 새 서비스 등록과 기존 서비스 spec 변경은 service onboarding request 를 통해 진행한다. 서비스가 제출한 approved core spec(`serviceKey`, permission keys, redirect URIs, scopes, client type, PKCE, service credential scopes)은 auth admin 이 임의 수정하지 않는다. 수정이 필요하면 서비스가 update request 를 제출하고 superadmin 이 승인/거절한다. 운영상 disable/archive, credential revoke/rotate, client disable 은 admin 조치로 허용한다.
-9. **Admin access 는 superadmin session 기반** — `/admin` UI 와 `/api/admin/**` 는 `x-admin-key` 가 아니라 `accounts.is_super_admin` 계정의 admin session 으로 보호한다. Superadmin 이 없을 때만 bootstrap 을 열고, Google OTP 등록/검증까지 완료되어야 superadmin 생성이 완료된다. OTP 기기 분실 등 복구는 DB 에서 해당 superadmin 을 직접 삭제하고 bootstrap 을 다시 여는 방식으로 처리한다.
+9. **Admin access 는 superadmin session 기반** — Auth `/login`에서 기본 인증 후 Google OTP를 확인하고 `/`에 관리 콘솔을 표시한다. `/admin` UI는 404이며 `/api/admin/**`는 유지한다. `/service`도 admin session이 없으면 404다. 일반 계정 `/`는 본인 서비스/등급 포털이다. Superadmin이 없을 때만 `/bootstrap`을 열고 OTP 등록/검증 후 생성한다. 서비스 OIDC 로그인에는 관리자 OTP 단계를 추가하지 않는다. `x-admin-key`는 사용하지 않는다. 자세한 계약은 `docs/account-portal.md`를 따른다.
 10. **Secret one-time exposure** — OTP secret, OIDC client secret, service credential secret, request secret 등 raw secret 은 생성/승인/rotate 과정에서 한 번만 보여준다. 저장 후 재조회 가능한 API/UI 를 만들지 않는다. 브라우저에 노출되는 secret 은 사용자가 직접 등록/저장해야 하는 bootstrap 또는 approval completion 순간으로 제한한다.
 11. **Signup and email verification** — 일반 회원가입은 email 인증을 요구한다. 인증번호는 알파벳+숫자 6자리, 5분 유효, email 기준 30분 내 5회 및 IP 기준 1시간 10회 제한을 따른다. 신규 계정은 account row 만 생성되고, 특정 서비스에 최초 로그인할 때 해당 account-service row 가 전혀 없으면 그 시점에만 `visitor` 가 lazy 생성된다. revoked/disabled/suspended row 는 자동 복구하지 않는다.
 12. **Cross-repo 영향 보고** — 이 레포의 변경이 다른 repo, 공통 API 계약, auth claim/permission, env var, Docker/deploy 설정, 공통 문서에 영향을 준다고 판단되면 현재 orchestrator 에게 반드시 보고한다. 직접 보고할 수 없으면 워크스페이스 루트 `../.idea/` 에 `{REPO_NAME}_CROSS_REPO_IMPACT_{YYYYMMDD}.md` 형식의 handoff 문서를 남긴다.
@@ -160,8 +160,9 @@ Content-Type: application/json
 
 ## Admin Bootstrap & Signup Contract
 
-- If no active superadmin exists, `/admin` shows bootstrap and allows creating the first superadmin only after Google OTP registration and verification are complete.
-- If an active superadmin exists, `/admin` shows superadmin login. General accounts cannot log into admin.
+- `/` redirects unauthenticated visitors to shared `/login`. Superadmins complete an additional `/login/otp` step before the root console; other accounts see their own service/permission portal.
+- `/profile` supports immutable name/current ID, verified email change for ID/PW accounts, local credential registration for social-only accounts and explicit social linking. See `docs/account-portal.md`.
+- `/admin` UI is removed; `/service` returns 404 without an admin session. `/api/admin/**` remains available with OTP admin sessions. `/bootstrap` is available only with zero active superadmins.
 - Admin session uses HttpOnly cookies with idle 30 minutes and absolute 12 hours. There is no admin refresh token.
 - `x-admin-key` is not the admin authorization model. Do not add new admin UI/API paths that depend on it.
 - OTP secrets are encrypted at rest using `ADMIN_OTP_ENCRYPTION_KEY` and exposed only during initial registration.

@@ -13,6 +13,8 @@ npm run start:dev   # watch mode, http://localhost:3032
 - PostgreSQL 이 필요하다. 로컬은 워크스페이스 공유 infra PostgreSQL 을 auth 전용 DB 로 사용하는 것을 권장한다.
 - DB 마이그레이션은 별도 스크립트 없이 `RUN_MIGRATIONS=true` 일 때 기동 시 자동 실행된다 (TypeORM `migrationsRun`).
 - `/service` onboarding form 은 같은 validation 경로로 JSON 파일, drag-and-drop, 붙여넣기 import 를 지원한다.
+- `/` → `/login`에서 로그인한다. 일반 계정은 본인 서비스/등급·내 정보, superadmin은 Google OTP 확인 후 관리 콘솔을 본다. `/admin` UI는 제거되었고 `/service`는 admin session 없으면 404다.
+- 이번 버전은 `AddAccountCredentialVersion20261116000000` migration이 필요하다. 기존 계정/권한은 유지한다. [포털 계약](./docs/account-portal.md)을 참고한다.
 
 ## 빌드 / 테스트 / 린트
 

@@ -10,6 +10,8 @@ import {
 import { Request, Response } from 'express';
 import { AdminAuthService } from '../admin-auth.service';
 import { AdminGuard } from '../admin.guard';
+import { AccountsService } from '../../domain/accounts/accounts.service';
+import { AccountEntity } from '../../database/entities/account.entity';
 import {
   AdminLoginDto,
   BootstrapCompleteDto,
@@ -18,7 +20,10 @@ import {
 
 @Controller('api/admin')
 export class AdminAuthController {
-  constructor(private readonly adminAuth: AdminAuthService) {}
+  constructor(
+    private readonly adminAuth: AdminAuthService,
+    private readonly accounts: AccountsService,
+  ) {}
 
   @Get('bootstrap/status')
   bootstrapStatus() {
@@ -50,8 +55,8 @@ export class AdminAuthController {
 
   @UseGuards(AdminGuard)
   @Get('session')
-  session(@Req() request: Request & { adminAccount?: unknown }) {
-    return { account: request.adminAccount };
+  session(@Req() request: Request & { adminAccount?: AccountEntity }) {
+    return { account: this.accounts.safeAccount(request.adminAccount!) };
   }
 
   @UseGuards(AdminGuard)

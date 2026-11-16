@@ -18,7 +18,9 @@ interface HostedLoginTransactionRow {
 }
 
 export interface HostedLoginTransaction {
-  request: AuthorizeRequestInput;
+  request: AuthorizeRequestInput | null;
+  purpose?: 'portal';
+  expectedAccountId?: string;
   sessionAccountId: string | null;
   expiresAt: Date;
 }
@@ -34,23 +36,43 @@ export class HostedLoginTransactionService {
     request: AuthorizeRequestInput;
     sessionAccountId: string | null;
   }): Promise<{ id: string; browserNonce: string }> {
+    return this.createRecord(input.request, input.sessionAccountId);
+  }
+
+  createPortal(sessionAccountId: string | null, expectedAccountId?: string) {
+    return this.createRecord(null, sessionAccountId, expectedAccountId);
+  }
+
+  private async createRecord(
+    request: AuthorizeRequestInput | null,
+    sessionAccountId: string | null,
+    expectedAccountId?: string,
+  ) {
     const id = randomBytes(32).toString('base64url');
     const browserNonce = randomBytes(32).toString('base64url');
-    await this.tokenRecords.insert({
-      tokenHash: hashToken(id),
-      type: 'authorization_login',
-      status: 'active',
-      accountId: input.sessionAccountId,
-      clientId: input.request.clientId,
-      familyId: null,
-      serviceId: null,
-      metadataJson: {
-        authorizeRequest: input.request,
-        browserBindingHash: hashToken(browserNonce),
-      },
-      usedAt: null,
-      expiresAt: new Date(Date.now() + HOSTED_LOGIN_TRANSACTION_TTL_MS),
-    });
+    await this.tokenRecords.save(
+      this.tokenRecords.create({
+        tokenHash: hashToken(id),
+        type: 'authorization_login',
+        status: 'active',
+        accountId: sessionAccountId,
+        clientId: request?.clientId ?? 'auth-portal',
+        familyId: null,
+        serviceId: null,
+        metadataJson: {
+          authorizeRequest: request,
+          ...(!request
+            ? {
+                loginPurpose: 'portal',
+                ...(expectedAccountId ? { expectedAccountId } : {}),
+              }
+            : {}),
+          browserBindingHash: hashToken(browserNonce),
+        },
+        usedAt: null,
+        expiresAt: new Date(Date.now() + HOSTED_LOGIN_TRANSACTION_TTL_MS),
+      }),
+    );
     return { id, browserNonce };
   }
 
@@ -145,6 +167,23 @@ export class HostedLoginTransactionService {
   private rowToTransaction(
     row: HostedLoginTransactionRow,
   ): HostedLoginTransaction | null {
+    if (
+      row.client_id === 'auth-portal' &&
+      row.metadata_json?.loginPurpose === 'portal' &&
+      row.metadata_json.authorizeRequest === null
+    ) {
+      const expected = row.metadata_json.expectedAccountId;
+      if (expected !== undefined && typeof expected !== 'string') return null;
+      return {
+        request: null,
+        purpose: 'portal',
+        ...(typeof expected === 'string'
+          ? { expectedAccountId: expected }
+          : {}),
+        sessionAccountId: row.account_id,
+        expiresAt: new Date(row.expires_at),
+      };
+    }
     const request = this.readAuthorizeRequest(row.metadata_json);
     if (!request || request.clientId !== row.client_id) {
       return null;

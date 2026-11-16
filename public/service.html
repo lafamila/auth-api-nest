@@ -86,17 +86,6 @@
         color: var(--accent);
       }
 
-      button.icon-button {
-        align-items: center;
-        background: transparent;
-        color: #44546f;
-        display: inline-flex;
-        justify-content: center;
-        min-height: 32px;
-        min-width: 32px;
-        padding: 4px;
-      }
-
       button:disabled {
         cursor: not-allowed;
         opacity: 0.5;
@@ -143,8 +132,7 @@
         gap: 20px;
       }
 
-      section,
-      .locked-state {
+      section {
         background: rgba(255, 255, 255, 0.94);
         border: 1px solid #d9e0eb;
         border-radius: 8px;
@@ -152,8 +140,7 @@
       }
 
       .toolbar,
-      .inline-actions,
-      .admin-access-head {
+      .inline-actions {
         align-items: center;
         display: flex;
         flex-wrap: wrap;
@@ -265,7 +252,6 @@
 
       .repeatable-row,
       .create-result,
-      .secret-card,
       .import-panel {
         background: #f8fafc;
         border: 1px solid #dce4ef;
@@ -323,35 +309,6 @@
         white-space: pre-wrap;
       }
 
-      .admin-access-float {
-        bottom: 20px;
-        position: fixed;
-        right: 20px;
-        z-index: 20;
-      }
-
-      .admin-access-button {
-        box-shadow: 0 12px 28px rgba(22, 32, 51, 0.2);
-        min-width: 150px;
-      }
-
-      .admin-access-panel {
-        background: white;
-        border: 1px solid #d9e0eb;
-        border-radius: 8px;
-        bottom: 58px;
-        box-shadow: 0 16px 44px rgba(22, 32, 51, 0.22);
-        display: grid;
-        gap: 14px;
-        max-height: min(78vh, 640px);
-        overflow: auto;
-        padding: 16px;
-        position: absolute;
-        right: 0;
-        width: min(390px, calc(100vw - 32px));
-      }
-
-      .admin-access-panel[hidden],
       [hidden] {
         display: none !important;
       }
@@ -359,23 +316,6 @@
       @media (max-width: 760px) {
         .form-grid {
           grid-template-columns: minmax(0, 1fr);
-        }
-
-        .admin-access-float {
-          bottom: 14px;
-          left: 14px;
-          right: 14px;
-        }
-
-        .admin-access-button {
-          width: 100%;
-        }
-
-        .admin-access-panel {
-          bottom: 58px;
-          left: 0;
-          right: 0;
-          width: 100%;
         }
       }
     </style>
@@ -389,18 +329,17 @@
             Create or revise auth-side service integration requests.
           </div>
         </div>
-        <a class="hint" href="/admin">Admin console</a>
+        <nav aria-label="Admin navigation" class="inline-actions">
+          <a class="hint" href="/">Admin console</a>
+          <a class="hint" href="/profile">Profile</a>
+          <button class="secondary" disabled id="logoutAdmin" type="button">Logout</button>
+        </nav>
       </div>
     </header>
 
     <main class="shell">
-      <div class="locked-state" id="lockedState">
-        <h2>Admin Session required</h2>
-        <p class="hint">
-          Sign in with a superadmin session before composing a service
-          onboarding request.
-        </p>
-      </div>
+      <div aria-live="polite" class="message" id="statusMessage" role="status">Checking admin session...</div>
+      <button class="secondary" hidden id="retryAdminSession" type="button">Retry</button>
 
       <section hidden id="serviceMain">
         <div class="toolbar">
@@ -612,78 +551,11 @@
       </section>
     </main>
 
-    <div class="admin-access-float">
-      <button class="admin-access-button" id="openAdminAccess">
-        Admin Session
-      </button>
-      <div
-        aria-labelledby="adminAccessTitle"
-        class="admin-access-panel"
-        hidden
-        id="adminAccessPanel"
-        role="dialog"
-      >
-        <div class="admin-access-head">
-          <h2 id="adminAccessTitle">Admin Session</h2>
-          <button
-            aria-label="Close Admin Access"
-            class="icon-button"
-            id="closeAdminAccess"
-          >
-            X
-          </button>
-        </div>
-        <div class="form" id="bootstrapForm" hidden>
-          <label
-            >Login ID <input id="bootstrapLoginId" autocomplete="username"
-          /></label>
-          <label>Name <input id="bootstrapName" autocomplete="name" /></label>
-          <label
-            >Email <input id="bootstrapEmail" type="email" autocomplete="email"
-          /></label>
-          <label
-            >Password
-            <input
-              id="bootstrapPassword"
-              type="password"
-              autocomplete="new-password"
-          /></label>
-          <button id="startBootstrap" type="button">Create OTP Setup</button>
-          <div class="secret-card" hidden id="bootstrapOtpCard"></div>
-          <label
-            >OTP Code <input id="bootstrapOtpCode" inputmode="numeric"
-          /></label>
-          <button id="completeBootstrap" type="button">
-            Complete Bootstrap
-          </button>
-          <div class="hint">Only shown while no active superadmin exists.</div>
-        </div>
-        <div class="form" id="adminLoginForm" hidden>
-          <label
-            >Login ID <input id="adminLoginId" autocomplete="username"
-          /></label>
-          <label
-            >Password
-            <input
-              id="adminPassword"
-              type="password"
-              autocomplete="current-password"
-          /></label>
-          <label
-            >Google OTP <input id="adminOtpCode" inputmode="numeric"
-          /></label>
-          <button id="adminLogin" type="button">Login</button>
-        </div>
-        <div class="message" id="statusMessage"></div>
-      </div>
-    </div>
-
     <script src="/service-request-import.js"></script>
     <script>
       const state = {
         adminSession: null,
-        bootstrapChallengeId: null,
-        requiresBootstrap: false,
+        loggingOut: false,
         credentialScopeOptions: [],
         serviceRequestDraft: {
           serviceKey: '',
@@ -761,7 +633,9 @@
         });
         if (!response.ok) {
           const error = await response.json().catch(() => ({}));
-          throw new Error(error.message || error.error || response.statusText);
+          throw Object.assign(new Error(error.message || error.error || response.statusText), {
+            status: response.status,
+          });
         }
         if (response.status === 204) {
           return null;
@@ -799,28 +673,6 @@
 
       function showServiceMain(isVisible) {
         $('serviceMain').hidden = !isVisible;
-        $('lockedState').hidden = isVisible;
-      }
-
-      function showAccessPanel(mode) {
-        const safeMode =
-          mode === 'bootstrap' && state.requiresBootstrap
-            ? 'bootstrap'
-            : 'login';
-        $('adminAccessPanel').hidden = false;
-        $('bootstrapForm').hidden = safeMode !== 'bootstrap';
-        $('adminLoginForm').hidden = safeMode !== 'login';
-        if (safeMode !== 'bootstrap') {
-          $('bootstrapOtpCard').hidden = true;
-          $('bootstrapOtpCard').innerHTML = '';
-          state.bootstrapChallengeId = null;
-        }
-      }
-
-      function updateAdminAccessButton() {
-        $('openAdminAccess').textContent = state.adminSession
-          ? 'Logout'
-          : 'Admin Session';
       }
 
       function getSessionRequester() {
@@ -1381,161 +1233,81 @@
       }
 
       async function initializeAdminSession() {
+        $('retryAdminSession').hidden = true;
+        $('retryAdminSession').disabled = true;
+        setStatus('Checking admin session...');
         try {
-          await loadCredentialScopeOptions();
-        } catch (error) {
-          setStatus(error.message, true);
-        }
-        try {
-          const session = await requestJson('/api/admin/session');
+          const session = await requestJson('/api/admin/session', { cache: 'no-store' });
           state.adminSession = session.account;
-          state.requiresBootstrap = false;
-          $('adminAccessPanel').hidden = true;
-          updateAdminAccessButton();
+          $('logoutAdmin').disabled = false;
+          await loadCredentialScopeOptions();
           showServiceMain(true);
           syncRequesterFromSession();
           renderServiceRequestPreview();
           setStatus(`Logged in as ${session.account.loginId}`);
-          return;
-        } catch {
+        } catch (error) {
           state.adminSession = null;
-          updateAdminAccessButton();
+          $('logoutAdmin').disabled = true;
           showServiceMain(false);
           syncRequesterFromSession();
           renderServiceRequestPreview();
-        }
-
-        try {
-          const status = await requestJson('/api/admin/bootstrap/status');
-          state.requiresBootstrap = status.requiresBootstrap;
-          setStatus(
-            status.requiresBootstrap
-              ? 'Create the first superadmin account'
-              : 'Admin login required',
-          );
-        } catch (error) {
-          state.requiresBootstrap = false;
+          if (error.status === 401) {
+            window.location.replace('/login');
+            return;
+          }
           setStatus(error.message, true);
+          $('retryAdminSession').hidden = false;
+        } finally {
+          $('retryAdminSession').disabled = false;
         }
-      }
-
-      async function completeLogin(result, message) {
-        if (!state.credentialScopeOptions.length) {
-          await loadCredentialScopeOptions();
-        }
-        state.adminSession = result.account;
-        state.requiresBootstrap = false;
-        $('adminAccessPanel').hidden = true;
-        updateAdminAccessButton();
-        showServiceMain(true);
-        syncRequesterFromSession();
-        renderServiceRequestPreview();
-        setStatus(message);
       }
 
       async function logoutAdminSession() {
+        if (state.loggingOut) return;
+        state.loggingOut = true;
+        $('logoutAdmin').disabled = true;
+        $('logoutAdmin').textContent = 'Logging out...';
+        setStatus('Logging out...');
         try {
-          await requestJson('/api/admin/logout', {
+          const session = await requestJson('/api/portal/me', { cache: 'no-store' });
+          if (!session.csrfToken) throw new Error('Unable to verify logout. Please retry.');
+          await requestJson('/api/portal/logout', {
             method: 'POST',
+            headers: { 'X-CSRF-Token': session.csrfToken },
             body: JSON.stringify({}),
           });
-        } catch {
-          // Expired sessions still leave the local UI in logged-out state.
+          state.adminSession = null;
+          state.serviceRequestResult = null;
+          renderServiceRequestResult();
+          showServiceMain(false);
+          window.location.replace('/login');
+        } catch (error) {
+          if (error.status === 401) {
+            try {
+              await requestJson('/api/admin/logout', { method: 'POST', body: '{}' });
+            } catch (logoutError) {
+              if (logoutError.status !== 401) {
+                setStatus(logoutError.message, true);
+                return;
+              }
+            }
+            state.adminSession = null;
+            state.serviceRequestResult = null;
+            renderServiceRequestResult();
+            showServiceMain(false);
+            window.location.replace('/login');
+            return;
+          }
+          setStatus(error.message, true);
+        } finally {
+          state.loggingOut = false;
+          $('logoutAdmin').disabled = !state.adminSession;
+          $('logoutAdmin').textContent = 'Logout';
         }
-        state.adminSession = null;
-        updateAdminAccessButton();
-        showServiceMain(false);
-        syncRequesterFromSession();
-        renderServiceRequestPreview();
-        await initializeAdminSession();
-        setStatus('Logged out');
       }
 
-      $('startBootstrap').addEventListener('click', async () => {
-        if (!state.requiresBootstrap) {
-          showAccessPanel('login');
-          setStatus(
-            'Bootstrap is unavailable because an active superadmin already exists.',
-            true,
-          );
-          return;
-        }
-        try {
-          const result = await requestJson('/api/admin/bootstrap/start', {
-            method: 'POST',
-            body: JSON.stringify({
-              loginId: $('bootstrapLoginId').value,
-              name: $('bootstrapName').value,
-              email: $('bootstrapEmail').value,
-              password: $('bootstrapPassword').value,
-            }),
-          });
-          state.bootstrapChallengeId = result.challengeId;
-          $('bootstrapOtpCard').hidden = false;
-          $('bootstrapOtpCard').innerHTML = `
-            <div class="form">
-              ${result.otpQrDataUrl ? `<img alt="OTP QR" src="${result.otpQrDataUrl}" style="width: 192px; height: 192px;" />` : ''}
-              <div><strong>OTP Secret</strong><code>${escapeHtml(result.otpSecret)}</code></div>
-              <div><strong>Authenticator URI</strong><code>${escapeHtml(result.otpauthUri)}</code></div>
-              <div class="hint">Register the QR or URI, then enter the OTP code. These values are shown only here.</div>
-            </div>
-          `;
-          setStatus('OTP setup generated');
-        } catch (error) {
-          setStatus(error.message, true);
-        }
-      });
-
-      $('completeBootstrap').addEventListener('click', async () => {
-        if (!state.requiresBootstrap) {
-          showAccessPanel('login');
-          setStatus(
-            'Bootstrap is unavailable because an active superadmin already exists.',
-            true,
-          );
-          return;
-        }
-        try {
-          const result = await requestJson('/api/admin/bootstrap/complete', {
-            method: 'POST',
-            body: JSON.stringify({
-              challengeId: state.bootstrapChallengeId,
-              otpCode: $('bootstrapOtpCode').value,
-            }),
-          });
-          state.bootstrapChallengeId = null;
-          await completeLogin(result, 'Bootstrap completed and logged in');
-        } catch (error) {
-          setStatus(error.message, true);
-        }
-      });
-
-      $('adminLogin').addEventListener('click', async () => {
-        try {
-          const result = await requestJson('/api/admin/login', {
-            method: 'POST',
-            body: JSON.stringify({
-              loginId: $('adminLoginId').value,
-              password: $('adminPassword').value,
-              otpCode: $('adminOtpCode').value,
-            }),
-          });
-          await completeLogin(result, 'Logged in');
-        } catch (error) {
-          setStatus(error.message, true);
-        }
-      });
-
-      $('openAdminAccess').addEventListener('click', () => {
-        if (state.adminSession) {
-          void logoutAdminSession();
-          return;
-        }
-        showAccessPanel(state.requiresBootstrap ? 'bootstrap' : 'login');
-      });
-      $('closeAdminAccess').addEventListener('click', () => {
-        $('adminAccessPanel').hidden = true;
-      });
+      $('logoutAdmin').addEventListener('click', () => void logoutAdminSession());
+      $('retryAdminSession').addEventListener('click', () => void initializeAdminSession());
 
       ['requestServiceKey', 'requestServiceName', 'requestDescription'].forEach(
         (id) => $(id).addEventListener('input', renderServiceRequestPreview),
@@ -1753,7 +1525,6 @@
       renderServiceRequestRows();
       renderPermissionWebhook();
       renderServiceRequestPreview();
-      updateAdminAccessButton();
       void initializeAdminSession();
     </script>
   </body>

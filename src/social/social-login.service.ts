@@ -15,6 +15,7 @@ import {
 import {
   DataSource,
   EntityManager,
+  IsNull,
   LessThan,
   MoreThan,
   Repository,
@@ -36,6 +37,9 @@ import { HostedLoginTransactionService } from '../oidc/hosted-login-transaction.
 import { EmailDeliveryService } from '../signup/email-delivery.service';
 import { SocialIdentityProfile } from './social-provider.types';
 import { SocialProvidersService } from './social-providers.service';
+import { TokenRecordEntity } from '../database/entities/token-record.entity';
+import { AdminSessionEntity } from '../database/entities/admin-session.entity';
+import { PortalActor, RECENT_AUTH_MS } from '../portal/portal.types';
 
 const TRANSACTION_TTL_MS = 10 * 60 * 1000;
 const CODE_TTL_MS = 5 * 60 * 1000;
@@ -44,6 +48,8 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export interface SocialBrowserContext {
   binding: string;
   sessionAccountId: string | null;
+  portalSessionHash?: string | null;
+  adminSessionHash?: string | null;
 }
 
 export interface SocialSignupInput {
@@ -56,10 +62,13 @@ export interface SocialSignupInput {
 
 export type SocialCallbackResult =
   | { kind: 'signup' }
+  | { kind: 'linked'; provider: string }
   | {
       kind: 'authenticated';
       account: AccountEntity;
-      request: AuthorizeRequestInput;
+      request: AuthorizeRequestInput | null;
+      purpose?: 'portal';
+      expectedAccountId?: string;
     };
 
 @Injectable()
@@ -96,10 +105,13 @@ export class SocialLoginService {
     if (!transaction || transaction.sessionAccountId !== sessionAccountId) {
       throw new BadRequestException('Invalid or expired login transaction');
     }
-    const validated = await this.authorizeFlow.validateRequest(
-      transaction.request,
-    );
-    if (validated.kind !== 'validated') {
+    const validated = transaction.request
+      ? await this.authorizeFlow.validateRequest(transaction.request)
+      : null;
+    if (
+      (validated && validated.kind !== 'validated') ||
+      (!transaction.request && transaction.purpose !== 'portal')
+    ) {
       throw new BadRequestException('Authorization request is no longer valid');
     }
     const state = randomBytes(32).toString('base64url');
@@ -122,7 +134,11 @@ export class SocialLoginService {
         provider,
         phase: 'authorization',
         data: {
-          request: validated.request,
+          request: transaction.request,
+          ...(transaction.purpose ? { purpose: transaction.purpose } : {}),
+          ...(transaction.expectedAccountId
+            ? { expectedAccountId: transaction.expectedAccountId }
+            : {}),
           sessionAccountId,
           providerClientId,
           encryptedVerifier: this.crypto.encrypt(verifier),
@@ -131,6 +147,65 @@ export class SocialLoginService {
       }),
     );
     return { state, binding, authorizationUrl };
+  }
+
+  async startLink(
+    provider: string,
+    actor: PortalActor,
+    context: SocialBrowserContext,
+  ) {
+    const providerClientId = this.providers.clientIdFor(provider);
+    const stamp = actor.session.metadataJson?.authenticatedAt;
+    const authenticatedAt = typeof stamp === 'string' ? Date.parse(stamp) : NaN;
+    if (
+      !Number.isFinite(authenticatedAt) ||
+      Date.now() - authenticatedAt > RECENT_AUTH_MS
+    )
+      throw new UnauthorizedException(
+        'Recent account authentication is required',
+      );
+    const state = randomBytes(32).toString('base64url');
+    const binding = randomBytes(32).toString('base64url');
+    const verifier = randomBytes(48).toString('base64url');
+    await this.transactions.save(
+      this.transactions.create({
+        tokenHash: hashToken(state),
+        browserBindingHash: hashToken(binding),
+        provider,
+        phase: 'authorization',
+        expiresAt: new Date(Date.now() + TRANSACTION_TTL_MS),
+        data: {
+          request: null,
+          purpose: 'link',
+          sessionAccountId: context.sessionAccountId,
+          providerClientId,
+          targetAccountId: actor.account.id,
+          portalSessionHash: actor.session.tokenHash,
+          credentialVersion: actor.account.credentialVersion ?? 0,
+          encryptedVerifier: this.crypto.encrypt(verifier),
+        },
+      }),
+    );
+    return { state, binding };
+  }
+
+  async continueLink(state: string, context: SocialBrowserContext) {
+    return this.dataSource.transaction(async (manager) => {
+      const row = await this.lockTransaction(
+        manager,
+        state,
+        context,
+        'authorization',
+      );
+      if (row.data.purpose !== 'link')
+        throw new BadRequestException('Invalid social link');
+      return this.providers.authorizationUrl(row.provider, {
+        state,
+        codeChallenge: createHash('sha256')
+          .update(this.crypto.decrypt(row.data.encryptedVerifier!))
+          .digest('base64url'),
+      });
+    });
   }
 
   async callback(
@@ -182,18 +257,37 @@ export class SocialLoginService {
         'processing',
       );
       const email = profile.email ? this.normalizeEmail(profile.email) : '';
+      if (row.data.purpose === 'link') {
+        await this.linkIdentity(manager, row, profile);
+        await manager.delete(SocialLoginTransactionEntity, row.id);
+        return { kind: 'linked', provider: row.provider };
+      }
       const account = await this.resolveIdentity(
         manager,
         profile,
         email,
         profile.emailVerified,
+        undefined,
+        row.data.expectedAccountId,
       );
       if (account) {
         await manager.delete(SocialLoginTransactionEntity, row.id);
-        return { kind: 'authenticated', account, request: row.data.request };
+        return {
+          kind: 'authenticated',
+          account,
+          request: row.data.request,
+          ...(row.data.purpose === 'portal'
+            ? { purpose: 'portal' as const }
+            : {}),
+          ...(row.data.expectedAccountId
+            ? { expectedAccountId: row.data.expectedAccountId }
+            : {}),
+        };
       }
       row.phase = 'signup';
       row.data = {
+        ...row.data,
+        encryptedVerifier: undefined,
         request: row.data.request,
         sessionAccountId: row.data.sessionAccountId,
         providerClientId: row.data.providerClientId,
@@ -373,10 +467,21 @@ export class SocialLoginService {
           email,
           true,
           input,
+          row.data.expectedAccountId,
         );
         if (!account) throw new BadRequestException('Unable to create account');
         await manager.delete(SocialLoginTransactionEntity, row.id);
-        return { kind: 'authenticated', account, request: row.data.request };
+        return {
+          kind: 'authenticated',
+          account,
+          request: row.data.request,
+          ...(row.data.purpose === 'portal'
+            ? { purpose: 'portal' as const }
+            : {}),
+          ...(row.data.expectedAccountId
+            ? { expectedAccountId: row.data.expectedAccountId }
+            : {}),
+        };
       });
     } catch (error) {
       if (
@@ -399,6 +504,7 @@ export class SocialLoginService {
     email: string,
     emailVerified: boolean,
     signup?: SocialSignupInput,
+    expectedAccountId?: string,
   ): Promise<AccountEntity | null> {
     await this.lockKey(
       manager,
@@ -411,6 +517,8 @@ export class SocialLoginService {
       subject: profile.subject,
     });
     if (identity) {
+      if (expectedAccountId && identity.accountId !== expectedAccountId)
+        throw new UnauthorizedException('같은 계정으로 다시 인증해 주세요');
       const account = await manager.findOneOrFail(AccountEntity, {
         where: { id: identity.accountId },
         lock: { mode: 'pessimistic_write' },
@@ -435,6 +543,8 @@ export class SocialLoginService {
         'Email matches multiple accounts; contact the administrator',
       );
     let account = matches[0];
+    if (expectedAccountId && account?.id !== expectedAccountId)
+      throw new UnauthorizedException('같은 계정으로 다시 인증해 주세요');
     if (account) {
       this.assertAccount(account);
       account.emailVerifiedAt ??= new Date();
@@ -487,6 +597,114 @@ export class SocialLoginService {
       throw new UnauthorizedException('Password reset is required');
   }
 
+  private async linkIdentity(
+    manager: EntityManager,
+    row: SocialLoginTransactionEntity,
+    profile: SocialIdentityProfile,
+  ) {
+    await this.lockKey(
+      manager,
+      `social-identity:${profile.provider}:${profile.providerClientId}:${profile.subject}`,
+    );
+    const account = await this.validateLinkSession(
+      manager,
+      row,
+      undefined,
+      true,
+    );
+    const identities = manager.getRepository(SocialIdentityEntity);
+    const existing = await identities.findOneBy({
+      provider: profile.provider,
+      providerClientId: profile.providerClientId,
+      subject: profile.subject,
+    });
+    if (existing && existing.accountId !== account.id)
+      throw new ConflictException('이미 다른 계정에 연결된 소셜 계정입니다');
+    if (!existing) {
+      await identities.save(
+        identities.create({
+          provider: profile.provider,
+          providerClientId: profile.providerClientId,
+          subject: profile.subject,
+          accountId: account.id,
+        }),
+      );
+      await this.audit.record(
+        {
+          actorAccountId: account.id,
+          action: 'account.link_social',
+          targetType: 'account',
+          targetId: account.id,
+          afterJson: { provider: profile.provider, explicit: true },
+        },
+        manager,
+      );
+    }
+  }
+
+  private async validateLinkSession(
+    manager: EntityManager,
+    row: SocialLoginTransactionEntity,
+    context?: SocialBrowserContext,
+    lockAccount = false,
+  ) {
+    if (
+      !row.data.targetAccountId ||
+      !row.data.portalSessionHash ||
+      (context && context.portalSessionHash !== row.data.portalSessionHash)
+    )
+      throw new UnauthorizedException('Invalid account link session');
+    const account = await manager.findOneOrFail(AccountEntity, {
+      where: { id: row.data.targetAccountId },
+      ...(lockAccount ? { lock: { mode: 'pessimistic_write' as const } } : {}),
+    });
+    const session = await manager.findOne(TokenRecordEntity, {
+      where: {
+        tokenHash: row.data.portalSessionHash,
+        accountId: row.data.targetAccountId,
+        type: 'portal_session',
+        status: 'active',
+      },
+      ...(lockAccount ? { lock: { mode: 'pessimistic_write' as const } } : {}),
+    });
+    const stamp = session?.metadataJson?.authenticatedAt;
+    const at = typeof stamp === 'string' ? Date.parse(stamp) : NaN;
+    if (
+      !session ||
+      session.expiresAt.getTime() <= Date.now() ||
+      !Number.isFinite(at) ||
+      Date.now() - at > RECENT_AUTH_MS
+    )
+      throw new UnauthorizedException('Account link session expired');
+    this.assertAccount(account);
+    if (
+      (account.credentialVersion ?? 0) !== row.data.credentialVersion ||
+      session.metadataJson?.credentialVersion !== account.credentialVersion
+    )
+      throw new UnauthorizedException('Account changed during linking');
+    if (account.isSuperAdmin) {
+      const id = session.metadataJson?.adminSessionId;
+      if (typeof id !== 'string')
+        throw new UnauthorizedException('Admin OTP is required');
+      const admin = await manager.findOne(AdminSessionEntity, {
+        where: { id, accountId: account.id, revokedAt: IsNull() },
+        ...(lockAccount
+          ? { lock: { mode: 'pessimistic_write' as const } }
+          : {}),
+      });
+      if (
+        !admin ||
+        admin.revokedAt ||
+        admin.idleExpiresAt.getTime() <= Date.now() ||
+        admin.absoluteExpiresAt.getTime() <= Date.now() ||
+        admin.credentialVersion !== account.credentialVersion ||
+        (context && context.adminSessionHash !== admin.tokenHash)
+      )
+        throw new UnauthorizedException('Admin OTP session expired');
+    }
+    return account;
+  }
+
   private async lockTransaction(
     manager: EntityManager,
     state: string,
@@ -523,6 +741,8 @@ export class SocialLoginService {
         'Social provider does not match this login',
       );
     }
+    if (row.data.purpose === 'link')
+      await this.validateLinkSession(manager, row, context);
     return row;
   }
 

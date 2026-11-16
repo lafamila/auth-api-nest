@@ -86,13 +86,11 @@ Both paths create a pending `service_onboarding_requests` row and use the same
 approval lifecycle. The `/service` UI does not bypass the public request
 contract.
 
-The `/service` page currently requires the same superadmin session as `/admin`.
-If there is no valid admin session, the request form is hidden and the floating
-Admin Session control opens bootstrap or login. When developer accounts are
-introduced later, `/service` can switch its identity source without changing the
-public request API contract.
+The `/service` page requires the OTP superadmin session used by the root console
+at `/`. Without it, the entire page returns 404. Sign in through `/login` first.
+The programmatic request API contract is unchanged. `/admin` UI was removed.
 
-Auth admins approve or reject the request in `/admin`. Approved core spec fields
+Auth admins approve or reject the request in `/`. Approved core spec fields
 are not edited directly inside auth; if the service needs to change redirect
 URIs, permission keys, scopes, or client shape, it submits an update request
 using the request-update-only `requestSecret` returned by the original request.
@@ -105,7 +103,7 @@ pending request for that `serviceKey`.
 
 The approval response may include one-time client or service credential secrets.
 The consuming service must store those in backend-only environment variables or
-a secret manager. In `/admin`, approval and credential rotation secrets appear
+a secret manager. In the root admin console, approval and credential rotation secrets appear
 only in a one-time modal with label/value rows, value-only copy buttons, and
 concrete `.env` examples containing the actual issued values. Overlay clicks
 and copy clicks do not close the modal; only the top close button or bottom

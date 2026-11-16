@@ -24,13 +24,16 @@ import {
   HostedLoginTransactionService,
 } from './hosted-login-transaction.service';
 import { OAuthError } from './oauth-error';
+import { PortalAuthService } from '../portal/portal-auth.service';
+import { SsoSessionService } from './sso-session.service';
+import { AccountEntity } from '../database/entities/account.entity';
 
 type SignedCookieRequest = Request & {
   signedCookies?: Record<string, string | undefined>;
 };
 
 const HOSTED_LOGIN_SCRIPT = `(() => {
-  const forms = [...document.querySelectorAll('form[action="/oauth/login"], form[data-social-login]')];
+  const forms = [...document.querySelectorAll('form[action="/oauth/login"], form[data-social-login], form[data-single-submit]')];
   let submitting = false;
   for (const form of forms) {
     form.addEventListener('submit', (event) => {
@@ -64,6 +67,8 @@ export class LoginController {
     private readonly authorizeFlow: AuthorizeFlowService,
     private readonly config: AppConfigService,
     private readonly hostedLoginTransactions: HostedLoginTransactionService,
+    private readonly portal: PortalAuthService,
+    private readonly sso: SsoSessionService,
   ) {}
 
   @Get('oauth/hosted-login.js')
@@ -89,13 +94,69 @@ export class LoginController {
         body.login_transaction,
         request,
       );
+      if (!loaded.transaction.request) {
+        if (
+          loaded.transaction.purpose !== 'portal' ||
+          loaded.transaction.sessionAccountId !==
+            (await this.sso.accountId(request))
+        ) {
+          throw new BadRequestException(
+            'Login session changed during authorization',
+          );
+        }
+        if (!body.loginId || !body.password || body.account_selection)
+          throw new BadRequestException(
+            'Hosted login credentials are required',
+          );
+        let account: AccountEntity;
+        try {
+          account = await this.accounts.authenticate(
+            body.loginId,
+            body.password,
+          );
+          if (
+            loaded.transaction.expectedAccountId &&
+            loaded.transaction.expectedAccountId !== account.id
+          ) {
+            throw new UnauthorizedException('같은 계정으로 다시 인증해 주세요');
+          }
+        } catch (error) {
+          if (!(error instanceof UnauthorizedException)) throw error;
+          this.setHostedPageSecurityHeaders(response, this.config.issuerUrl);
+          return response
+            .status(200)
+            .type('html')
+            .send(
+              this.authorizeFlow.renderHostedLoginPage(
+                null,
+                body.login_transaction,
+                error.message,
+              ),
+            );
+        }
+        await this.consumeHostedLoginTransaction(
+          body.login_transaction,
+          loaded.browserNonce,
+          response,
+        );
+        const target = await this.portal.completePrimary(
+          account,
+          request,
+          response,
+          loaded.transaction.expectedAccountId,
+        );
+        return this.sendAuthorizationRedirect(
+          response,
+          new URL(target, this.config.issuerUrl).toString(),
+        );
+      }
       const validated = await this.authorizeFlow.validateRequest(
         loaded.transaction.request,
       );
       if (validated.kind === 'redirect') {
         return this.sendAuthorizationRedirect(response, validated.redirectUrl);
       }
-      const currentSession = request.signedCookies?.tas_session ?? null;
+      const currentSession = await this.sso.accountId(request);
       if (loaded.transaction.sessionAccountId !== currentSession) {
         throw new BadRequestException(
           'Login session changed during authorization',
@@ -126,10 +187,11 @@ export class LoginController {
           loaded.browserNonce,
           response,
         );
-        this.setSessionCookie(response, account.id);
+        await this.setSessionCookie(response, account);
         const authorizeResult = await this.authorizeFlow.authorizeWithAccount(
           validated,
           account.id,
+          account.credentialVersion ?? 0,
         );
         return this.sendAuthorizationRedirect(
           response,
@@ -196,6 +258,7 @@ export class LoginController {
       const authorizeResult = await this.authorizeFlow.authorizeWithAccount(
         validated,
         account.id,
+        account.credentialVersion ?? 0,
       );
       return this.sendAuthorizationRedirect(
         response,
@@ -277,17 +340,21 @@ export class LoginController {
   }
 
   @Post('logout')
-  logout(@Res({ passthrough: true }) response: Response) {
-    this.clearSessionCookie(response);
+  async logout(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    await this.sso.clear(request, response);
     return { ok: true };
   }
 
   @Get('logout')
-  logoutPage(
+  async logoutPage(
     @Query('return_to') returnTo: string | undefined,
     @Res() response: Response,
+    @Req() request: Request,
   ) {
-    this.clearSessionCookie(response);
+    await this.sso.clear(request, response);
     const safeReturnTo = this.safeReturnTo(returnTo);
     if (safeReturnTo) {
       return response.redirect(safeReturnTo);
@@ -335,28 +402,14 @@ export class LoginController {
       body.currentPassword,
       body.newPassword,
     );
-    this.setSessionCookie(response, account.id);
+    await this.setSessionCookie(response, account);
     return {
       account: this.accounts.safeAccount(account),
     };
   }
 
-  private setSessionCookie(response: Response, accountId: string) {
-    response.cookie('tas_session', accountId, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      signed: true,
-      maxAge: 12 * 60 * 60 * 1000,
-    });
-  }
-
-  private clearSessionCookie(response: Response) {
-    response.clearCookie('tas_session', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-    });
+  private async setSessionCookie(response: Response, account: AccountEntity) {
+    await this.sso.create(account, response);
   }
 
   private clearHostedLoginTransactionCookie(

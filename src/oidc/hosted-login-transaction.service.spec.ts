@@ -75,6 +75,25 @@ describe('HostedLoginTransactionService', () => {
     ).resolves.toBeNull();
   });
 
+  it('keeps portal login intent separate from an OIDC client request', async () => {
+    const created = await service.createPortal(
+      'current-account',
+      'same-account',
+    );
+
+    await expect(
+      service.consume(created.id, created.browserNonce),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        purpose: 'portal',
+        request: null,
+        sessionAccountId: 'current-account',
+        expectedAccountId: 'same-account',
+      }),
+    );
+    expect(repository.rows).toHaveLength(0);
+  });
+
   it('does not expose or consume a transaction with the wrong browser binding', async () => {
     const created = await service.create({ request, sessionAccountId: null });
 
@@ -106,6 +125,15 @@ describe('HostedLoginTransactionService', () => {
 
 class FakeHostedLoginTransactionRepository {
   readonly rows: TokenRecordEntity[] = [];
+
+  create(input: Partial<TokenRecordEntity>): TokenRecordEntity {
+    return { ...input } as TokenRecordEntity;
+  }
+
+  async save(input: TokenRecordEntity): Promise<TokenRecordEntity> {
+    await this.insert(input);
+    return input;
+  }
 
   async insert(input: Partial<TokenRecordEntity>): Promise<void> {
     this.rows.push({ ...input } as TokenRecordEntity);

@@ -17,12 +17,16 @@ import { TokenService } from './token.service';
 import { HostedLoginTransactionService } from './hosted-login-transaction.service';
 import { SocialLoginController } from '../social/social-login.controller';
 import { SocialLoginService } from '../social/social-login.service';
-import { SocialProvidersService } from '../social/social-providers.service';
+import { SocialProvidersModule } from '../social/social-providers.module';
 import { SocialIdentityEntity } from '../database/entities/social-identity.entity';
 import { SocialLoginTransactionEntity } from '../database/entities/social-login-transaction.entity';
 import { EmailVerificationEntity } from '../database/entities/email-verification.entity';
 import { SignupModule } from '../signup/signup.module';
 import { AuditLogsModule } from '../domain/audit-logs/audit-logs.module';
+import { AuthSessionModule } from './auth-session.module';
+import { PortalModule } from '../portal/portal.module';
+import { PortalController } from '../portal/portal.controller';
+import { AdminSessionModule } from '../admin/admin-session.module';
 
 @Module({
   imports: [
@@ -32,6 +36,10 @@ import { AuditLogsModule } from '../domain/audit-logs/audit-logs.module';
     AccountPermissionsModule,
     SignupModule,
     AuditLogsModule,
+    AuthSessionModule,
+    PortalModule,
+    SocialProvidersModule,
+    AdminSessionModule,
     TypeOrmModule.forFeature([
       TokenRecordEntity,
       SigningKeyEntity,
@@ -40,7 +48,12 @@ import { AuditLogsModule } from '../domain/audit-logs/audit-logs.module';
       EmailVerificationEntity,
     ]),
   ],
-  controllers: [OidcController, LoginController, SocialLoginController],
+  controllers: [
+    OidcController,
+    LoginController,
+    SocialLoginController,
+    PortalController,
+  ],
   providers: [
     AuthorizationCodeService,
     AuthorizeFlowService,
@@ -50,7 +63,6 @@ import { AuditLogsModule } from '../domain/audit-logs/audit-logs.module';
     TokenService,
     HostedLoginTransactionService,
     SocialLoginService,
-    SocialProvidersService,
   ],
   exports: [TokenService, SigningKeyService],
 })

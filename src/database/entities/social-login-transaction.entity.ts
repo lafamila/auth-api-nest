@@ -10,7 +10,12 @@ import type { AuthorizeRequestInput } from '../../oidc/authorize-flow.service';
 import type { SocialIdentityProfile } from '../../social/social-provider.types';
 
 export interface SocialLoginData {
-  request: AuthorizeRequestInput;
+  request: AuthorizeRequestInput | null;
+  purpose?: 'portal' | 'link';
+  expectedAccountId?: string;
+  targetAccountId?: string;
+  portalSessionHash?: string;
+  credentialVersion?: number;
   sessionAccountId: string | null;
   providerClientId: string;
   encryptedVerifier?: string;

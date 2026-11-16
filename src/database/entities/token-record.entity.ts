@@ -9,7 +9,11 @@ import {
 export type TokenRecordType =
   | 'authorization_code'
   | 'authorization_login'
-  | 'refresh_token';
+  | 'refresh_token'
+  | 'sso_session'
+  | 'portal_session'
+  | 'portal_mfa'
+  | 'admin_mfa_throttle';
 export type TokenRecordStatus = 'active' | 'used' | 'revoked';
 
 @Entity('token_records')

@@ -30,6 +30,10 @@ import {
 } from './social-login.service';
 import { renderSocialErrorPage, renderSocialSignupPage } from './social-pages';
 import { SocialProvidersService } from './social-providers.service';
+import { PortalAuthService } from '../portal/portal-auth.service';
+import { PortalSessionService } from '../portal/portal-session.service';
+import { SsoSessionService } from '../oidc/sso-session.service';
+import { hashSecret } from '../common/crypto/secret-hash';
 
 @Controller()
 export class SocialLoginController {
@@ -39,6 +43,9 @@ export class SocialLoginController {
     private readonly hosted: HostedLoginTransactionService,
     private readonly authorizeFlow: AuthorizeFlowService,
     private readonly config: AppConfigService,
+    private readonly portal: PortalAuthService,
+    private readonly portalSessions: PortalSessionService,
+    private readonly sso: SsoSessionService,
   ) {}
 
   @Get('api/social/providers')
@@ -62,7 +69,7 @@ export class SocialLoginController {
         provider,
         body.login_transaction,
         nonce,
-        this.sessionAccountId(request),
+        await this.sso.accountId(request),
       );
       response.clearCookie(this.hosted.cookieName(body.login_transaction), {
         httpOnly: true,
@@ -103,7 +110,7 @@ export class SocialLoginController {
       const result = await this.social.callback(
         provider,
         state,
-        this.context(state, request),
+        await this.context(state, request),
         code,
         error,
       );
@@ -113,7 +120,22 @@ export class SocialLoginController {
           `/oauth/social/signup?transaction=${encodeURIComponent(state)}`,
         );
       }
-      return await this.finish(result, state, response);
+      if (result.kind === 'linked') {
+        response.clearCookie(this.social.cookieName(state), {
+          path: '/oauth/social',
+          httpOnly: true,
+          sameSite: 'lax',
+          secure: this.config.nodeEnv === 'production',
+        });
+        return this.navigate(
+          response,
+          new URL(
+            `/profile?linked=${encodeURIComponent(result.provider)}`,
+            this.config.issuerUrl,
+          ).toString(),
+        );
+      }
+      return await this.finish(result, state, request, response);
     } catch (failure) {
       return this.failure(response, failure);
     }
@@ -128,7 +150,7 @@ export class SocialLoginController {
     try {
       const page = await this.social.signupPage(
         state,
-        this.context(state, request),
+        await this.context(state, request),
       );
       this.pageHeaders(response);
       return response.type('html').send(renderSocialSignupPage(page));
@@ -175,10 +197,10 @@ export class SocialLoginController {
 
   @Post('oauth/social/email/start')
   @HttpCode(200)
-  sendEmail(@Body() body: SocialEmailStartDto, @Req() request: Request) {
+  async sendEmail(@Body() body: SocialEmailStartDto, @Req() request: Request) {
     return this.social.sendEmailCode(
       body.transaction,
-      this.context(body.transaction, request),
+      await this.context(body.transaction, request),
       body.email,
       request.ip ?? null,
     );
@@ -186,10 +208,13 @@ export class SocialLoginController {
 
   @Post('oauth/social/email/verify')
   @HttpCode(200)
-  verifyEmail(@Body() body: SocialEmailVerifyDto, @Req() request: Request) {
+  async verifyEmail(
+    @Body() body: SocialEmailVerifyDto,
+    @Req() request: Request,
+  ) {
     return this.social.verifyEmailCode(
       body.transaction,
-      this.context(body.transaction, request),
+      await this.context(body.transaction, request),
       body.code,
     );
   }
@@ -203,15 +228,15 @@ export class SocialLoginController {
     try {
       const result = await this.social.complete(
         body.transaction,
-        this.context(body.transaction, request),
+        await this.context(body.transaction, request),
         body,
       );
-      return await this.finish(result, body.transaction, response);
+      return await this.finish(result, body.transaction, request, response);
     } catch (error) {
       try {
         const page = await this.social.signupPage(
           body.transaction,
-          this.context(body.transaction, request),
+          await this.context(body.transaction, request),
         );
         this.pageHeaders(response);
         return response
@@ -229,23 +254,40 @@ export class SocialLoginController {
   private async finish(
     result: Extract<SocialCallbackResult, { kind: 'authenticated' }>,
     state: string,
+    request: Request,
     response: Response,
   ) {
+    if (!result.request) {
+      if (result.purpose !== 'portal')
+        throw new BadRequestException('Invalid login purpose');
+      const target = await this.portal.completePrimary(
+        result.account,
+        request,
+        response,
+        result.expectedAccountId,
+        'social',
+      );
+      response.clearCookie(this.social.cookieName(state), {
+        path: '/oauth/social',
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: this.config.nodeEnv === 'production',
+      });
+      return this.navigate(
+        response,
+        new URL(target, this.config.issuerUrl).toString(),
+      );
+    }
     const validated = await this.authorizeFlow.validateRequest(result.request);
     if (validated.kind === 'redirect')
       return this.navigate(response, validated.redirectUrl);
     const authorized = await this.authorizeFlow.authorizeWithAccount(
       validated,
       result.account.id,
+      result.account.credentialVersion ?? 0,
     );
     if (!result.request.prompt) {
-      response.cookie('tas_session', result.account.id, {
-        httpOnly: true,
-        secure: this.config.nodeEnv === 'production',
-        sameSite: 'lax',
-        signed: true,
-        maxAge: 12 * 60 * 60 * 1000,
-      });
+      await this.sso.create(result.account, response);
     }
     response.clearCookie(this.social.cookieName(state), {
       path: '/oauth/social',
@@ -277,12 +319,17 @@ export class SocialLoginController {
     });
   }
 
-  private context(state: string, request: Request): SocialBrowserContext {
+  private async context(
+    state: string,
+    request: Request,
+  ): Promise<SocialBrowserContext> {
     if (typeof state !== 'string' || !state || state.length > 128)
       throw new BadRequestException('Invalid social login');
     return {
       binding: this.signedCookie(request, this.social.cookieName(state)),
-      sessionAccountId: this.sessionAccountId(request),
+      sessionAccountId: await this.sso.accountId(request),
+      portalSessionHash: this.portalSessions.fingerprint(request),
+      adminSessionHash: this.adminFingerprint(request),
     };
   }
 
@@ -296,13 +343,33 @@ export class SocialLoginController {
     return value;
   }
 
-  private sessionAccountId(request: Request): string | null {
+  private adminFingerprint(request: Request): string | null {
     const cookies = request.signedCookies as
       | Record<string, unknown>
       | undefined;
-    return typeof cookies?.tas_session === 'string'
-      ? cookies.tas_session
+    const raw = cookies?.[this.config.adminSessionCookieName];
+    return typeof raw === 'string' && raw.length <= 128
+      ? hashSecret(raw)
       : null;
+  }
+
+  @Get('oauth/social/continue')
+  async continueLink(
+    @Query('transaction') state: string,
+    @Req() request: Request,
+    @Res() response: Response,
+  ) {
+    try {
+      return this.navigate(
+        response,
+        await this.social.continueLink(
+          state,
+          await this.context(state, request),
+        ),
+      );
+    } catch (error) {
+      return this.failure(response, error);
+    }
   }
 
   private message(error: unknown): string {

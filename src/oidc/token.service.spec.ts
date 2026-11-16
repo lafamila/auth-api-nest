@@ -24,6 +24,7 @@ const account = {
   loginId: 'teddy',
   email: 'teddy@example.com',
   name: 'Teddy',
+  credentialVersion: 4,
 } as AccountEntity;
 
 const service = {
@@ -84,7 +85,11 @@ describe('TokenService', () => {
     );
 
     const first = await service.issueTokens(account, client, permission);
+    expect(tokenRecords.metadataFor(first.refresh_token)).toEqual({
+      credentialVersion: 4,
+    });
     const consumed = await service.consumeRefreshToken(first.refresh_token);
+    expect(consumed.credentialVersion).toBe(4);
     const second = await service.issueTokens(
       account,
       client,
@@ -97,6 +102,32 @@ describe('TokenService', () => {
     await expect(
       service.consumeRefreshToken(first.refresh_token),
     ).rejects.toThrow('Refresh token reuse detected');
+  });
+
+  it('accepts legacy refresh records only for credential version zero', async () => {
+    const service = new TokenService(
+      config,
+      await buildSigningKeyService(),
+      new FakeTokenRecordRepository() as never,
+    );
+    const legacy = {
+      accountId: account.id,
+      clientId: client.clientId,
+      familyId: 'legacy-family',
+      status: 'active' as const,
+      expiresAt: new Date(Date.now() + 1000),
+    };
+
+    expect(
+      service.isCurrentCredential(legacy, {
+        credentialVersion: 0,
+      } as AccountEntity),
+    ).toBe(true);
+    expect(
+      service.isCurrentCredential(legacy, {
+        credentialVersion: 1,
+      } as AccountEntity),
+    ).toBe(false);
   });
 
   it('allows a duplicate refresh within the grace window without revoking the family', async () => {
@@ -154,8 +185,8 @@ describe('TokenService', () => {
     // Age the used token past the grace window, then replay it.
     tokenRecords.ageUsedAt(first.refresh_token, 61 * 1000);
     await expect(
-      service.consumeRefreshToken(first.refresh_token),
-    ).rejects.toThrow('Refresh token reuse detected');
+      service.consumeRefreshTokenForRotation(first.refresh_token),
+    ).resolves.toEqual({ kind: 'reuse' });
     // The whole family is revoked, so the successor is no longer usable.
     await expect(
       service.consumeRefreshToken(second.refresh_token),
@@ -373,6 +404,11 @@ class FakeTokenRecordRepository {
     }
   }
 
+  metadataFor(rawToken: string): Record<string, unknown> | null | undefined {
+    return this.rows.find((entry) => entry.tokenHash === hashToken(rawToken))
+      ?.metadataJson;
+  }
+
   async query(_sql: string, params: unknown[]): Promise<unknown[]> {
     const tokenHash = params[0] as string;
     const row = this.rows.find(
@@ -396,6 +432,7 @@ class FakeTokenRecordRepository {
           client_id: row.clientId,
           family_id: row.familyId,
           status: row.status,
+          metadata_json: row.metadataJson,
           expires_at: row.expiresAt,
         },
       ],

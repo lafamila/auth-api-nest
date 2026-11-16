@@ -19,6 +19,7 @@ export type AccountStatus = 'active' | 'locked' | 'disabled';
   'chk_accounts_password_reset_local_credentials',
   'password_hash IS NOT NULL OR NOT password_reset_required',
 )
+@Check('chk_accounts_credential_version_nonnegative', 'credential_version >= 0')
 export class AccountEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -45,6 +46,9 @@ export class AccountEntity {
 
   @Column({ name: 'password_reset_required', default: false })
   passwordResetRequired!: boolean;
+
+  @Column({ name: 'credential_version', type: 'integer', default: 0 })
+  credentialVersion!: number;
 
   @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
   emailVerifiedAt!: Date | null;

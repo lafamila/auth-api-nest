@@ -15,14 +15,25 @@ import { AccountServicePermissionEntity } from '../database/entities/account-ser
 import { TokenRecordEntity } from '../database/entities/token-record.entity';
 import { AppConfigService } from '../config/app-config.service';
 import { SigningKeyService } from './signing-key.service';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 
-interface RefreshRecord {
+export interface RefreshRecord {
   accountId: string;
   clientId: string;
   familyId: string;
   status: 'active' | 'used' | 'revoked';
+  credentialVersion?: number;
   expiresAt: Date;
+}
+
+export type RefreshTokenConsumptionResult =
+  | { kind: 'consumed'; refresh: RefreshRecord }
+  | { kind: 'reuse' };
+
+export class RefreshTokenReuseError extends UnauthorizedException {
+  constructor() {
+    super('Refresh token reuse detected');
+  }
 }
 
 const CLEANUP_THROTTLE_MS = 10 * 60 * 1000;
@@ -49,6 +60,7 @@ export class TokenService implements OnModuleInit {
     permission: AccountServicePermissionEntity,
     familyId: string = randomUUID(),
     nonce?: string,
+    manager?: EntityManager,
   ) {
     const key = this.signingKeys.getActiveKey();
     const nowSeconds = Math.floor(Date.now() / 1000);
@@ -102,7 +114,10 @@ export class TokenService implements OnModuleInit {
     );
     const refreshToken = randomBytes(48).toString('base64url');
     const expiresAt = new Date(Date.now() + refreshTtlSeconds * 1000);
-    await this.tokenRecords.insert({
+    const repository = manager
+      ? manager.getRepository(TokenRecordEntity)
+      : this.tokenRecords;
+    await repository.insert({
       tokenHash: hashToken(refreshToken),
       type: 'refresh_token',
       status: 'active',
@@ -110,7 +125,7 @@ export class TokenService implements OnModuleInit {
       clientId: client.clientId,
       familyId,
       serviceId: client.service?.id ?? client.serviceId ?? null,
-      metadataJson: null,
+      metadataJson: { credentialVersion: account.credentialVersion ?? 0 },
       expiresAt,
     });
     return {
@@ -122,10 +137,30 @@ export class TokenService implements OnModuleInit {
     };
   }
 
-  async consumeRefreshToken(refreshToken: string): Promise<RefreshRecord> {
+  async consumeRefreshToken(
+    refreshToken: string,
+    manager?: EntityManager,
+  ): Promise<RefreshRecord> {
+    const result = await this.consumeRefreshTokenForRotation(
+      refreshToken,
+      manager,
+    );
+    if (result.kind === 'reuse') {
+      throw new RefreshTokenReuseError();
+    }
+    return result.refresh;
+  }
+
+  async consumeRefreshTokenForRotation(
+    refreshToken: string,
+    manager?: EntityManager,
+  ): Promise<RefreshTokenConsumptionResult> {
     this.maybeCleanupExpiredTokens();
     const tokenHash = hashToken(refreshToken);
-    const consumeResult: unknown = await this.tokenRecords.query(
+    const repository = manager
+      ? manager.getRepository(TokenRecordEntity)
+      : this.tokenRecords;
+    const consumeResult: unknown = await repository.query(
       `
         UPDATE token_records
         SET status = 'used', used_at = now()
@@ -133,16 +168,16 @@ export class TokenService implements OnModuleInit {
           AND type = 'refresh_token'
           AND status = 'active'
           AND expires_at > now()
-        RETURNING account_id, client_id, family_id, status, expires_at
+        RETURNING account_id, client_id, family_id, status, metadata_json, expires_at
       `,
       [tokenHash],
     );
     const consumed = extractReturnedRow<RefreshTokenRow>(consumeResult);
     if (consumed) {
-      return refreshRowToRecord(consumed);
+      return { kind: 'consumed', refresh: refreshRowToRecord(consumed) };
     }
 
-    const record = await this.tokenRecords.findOne({
+    const record = await repository.findOne({
       where: { tokenHash, type: 'refresh_token' },
     });
     if (
@@ -158,16 +193,20 @@ export class TokenService implements OnModuleInit {
       // more rotation instead of revoking the whole family. The identical
       // successor cannot be re-returned because only token hashes are stored.
       return {
-        accountId: record.accountId,
-        clientId: record.clientId,
-        familyId: record.familyId ?? '',
-        status: record.status,
-        expiresAt: record.expiresAt,
+        kind: 'consumed',
+        refresh: {
+          accountId: record.accountId,
+          clientId: record.clientId,
+          familyId: record.familyId ?? '',
+          status: record.status,
+          credentialVersion: credentialVersionFromMetadata(record.metadataJson),
+          expiresAt: record.expiresAt,
+        },
       };
     }
     if (record.status !== 'active') {
-      await this.revokeFamily(record.familyId);
-      throw new UnauthorizedException('Refresh token reuse detected');
+      await this.revokeFamily(record.familyId, manager);
+      return { kind: 'reuse' };
     }
     throw new UnauthorizedException('Invalid refresh token');
   }
@@ -228,14 +267,27 @@ export class TokenService implements OnModuleInit {
     );
   }
 
-  async revokeFamily(familyId: string | null): Promise<void> {
+  async revokeFamily(
+    familyId: string | null,
+    manager?: EntityManager,
+  ): Promise<void> {
     if (!familyId) {
       return;
     }
-    await this.tokenRecords.update(
+    const repository = manager
+      ? manager.getRepository(TokenRecordEntity)
+      : this.tokenRecords;
+    await repository.update(
       { familyId, type: 'refresh_token' },
       { status: 'revoked' },
     );
+  }
+
+  isCurrentCredential(refresh: RefreshRecord, account: AccountEntity): boolean {
+    const currentVersion = account.credentialVersion ?? 0;
+    return refresh.credentialVersion === undefined
+      ? currentVersion === 0
+      : refresh.credentialVersion === currentVersion;
   }
 
   verifyAccessToken(token: string): Record<string, unknown> {
@@ -256,6 +308,7 @@ interface RefreshTokenRow {
   client_id: string;
   family_id: string | null;
   status: RefreshRecord['status'];
+  metadata_json: Record<string, unknown> | null;
   expires_at: Date | string;
 }
 
@@ -265,9 +318,19 @@ function refreshRowToRecord(row: RefreshTokenRow): RefreshRecord {
     clientId: row.client_id,
     familyId: row.family_id ?? '',
     status: row.status,
+    credentialVersion: credentialVersionFromMetadata(row.metadata_json),
     expiresAt:
       row.expires_at instanceof Date
         ? row.expires_at
         : new Date(row.expires_at),
   };
+}
+
+function credentialVersionFromMetadata(
+  metadata: Record<string, unknown> | null,
+): number | undefined {
+  const value = metadata?.credentialVersion;
+  return typeof value === 'number' && Number.isSafeInteger(value)
+    ? value
+    : undefined;
 }

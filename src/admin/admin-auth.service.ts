@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   ConflictException,
   Injectable,
   UnauthorizedException,
@@ -26,6 +27,7 @@ import {
   BootstrapCompleteDto,
   BootstrapStartDto,
 } from './dto/admin-auth.dto';
+import { AdminMfaThrottleService } from './admin-mfa-throttle.service';
 
 type SignedCookieRequest = Request & {
   signedCookies?: Record<string, string | undefined>;
@@ -53,6 +55,7 @@ export class AdminAuthService {
     private readonly totp: TotpService,
     private readonly config: AppConfigService,
     private readonly auditLogs: AuditLogsService,
+    private readonly mfaThrottle: AdminMfaThrottleService,
   ) {}
 
   async bootstrapStatus(): Promise<{
@@ -170,6 +173,7 @@ export class AdminAuthService {
   }
 
   async login(input: AdminLoginDto, request: Request, response: Response) {
+    this.assertOrigin(request);
     const account = await this.accounts.authenticateIgnoringResetRequirement(
       input.loginId,
       input.password,
@@ -182,13 +186,34 @@ export class AdminAuthService {
       throw new UnauthorizedException('Admin MFA is not configured');
     }
     const otpSecret = this.aes.decrypt(mfa.encryptedOtpSecret);
-    if (!this.totp.verify(otpSecret, input.otpCode)) {
+    const outcome = await this.dataSource.transaction(async (manager) => {
+      const gate = await this.mfaThrottle.checkGuessAllowed(
+        account.id,
+        request,
+        manager,
+      );
+      if (!gate.allowed) return { valid: false, gate, blocked: true };
+      if (this.totp.verify(otpSecret, input.otpCode)) {
+        return { valid: true, gate, blocked: false };
+      }
+      const failure = await this.mfaThrottle.recordFailure(
+        account.id,
+        request,
+        manager,
+      );
+      return { valid: false, gate: failure, blocked: false };
+    });
+    if (!outcome.valid) {
+      if (outcome.blocked) {
+        await this.mfaThrottle.auditBlocked(account.id, request, outcome.gate);
+      }
       throw new UnauthorizedException('Invalid OTP code');
     }
     return this.issueAdminSession(account, request, response);
   }
 
   async validateRequest(request: SignedCookieRequest): Promise<AccountEntity> {
+    this.assertOrigin(request);
     const token = request.signedCookies?.[this.config.adminSessionCookieName];
     if (!token) {
       throw new UnauthorizedException('Admin session is required');
@@ -203,7 +228,10 @@ export class AdminAuthService {
       session.idleExpiresAt.getTime() <= now ||
       session.absoluteExpiresAt.getTime() <= now ||
       session.account.status !== 'active' ||
-      !session.account.isSuperAdmin
+      !session.account.isSuperAdmin ||
+      session.account.passwordResetRequired ||
+      (session.credentialVersion ?? 0) !==
+        (session.account.credentialVersion ?? 0)
     ) {
       throw new UnauthorizedException('Admin session is invalid or expired');
     }
@@ -211,7 +239,12 @@ export class AdminAuthService {
     session.idleExpiresAt = new Date(
       Math.min(now + ADMIN_IDLE_MS, session.absoluteExpiresAt.getTime()),
     );
-    await this.sessions.save(session);
+    const updated = await this.sessions.update(
+      { id: session.id, revokedAt: IsNull() },
+      { lastSeenAt: session.lastSeenAt, idleExpiresAt: session.idleExpiresAt },
+    );
+    if (updated.affected !== 1)
+      throw new UnauthorizedException('Admin session was revoked');
     request.adminAccount = session.account;
     request.adminSession = session;
     return session.account;
@@ -237,6 +270,37 @@ export class AdminAuthService {
     }
   }
 
+  async verifyAccountOtp(
+    account: AccountEntity,
+    code: string,
+  ): Promise<boolean> {
+    if (
+      account.status !== 'active' ||
+      !account.isSuperAdmin ||
+      account.passwordResetRequired
+    )
+      return false;
+    const mfa = await this.mfa.findOneBy({ accountId: account.id });
+    if (!mfa?.verifiedAt) return false;
+    return this.totp.verify(this.aes.decrypt(mfa.encryptedOtpSecret), code);
+  }
+
+  // Only the portal's consumed, browser-bound MFA challenge calls this entry.
+  issueVerifiedSession(
+    account: AccountEntity,
+    request: Request,
+    response: Response,
+  ) {
+    return this.issueAdminSession(account, request, response);
+  }
+
+  private assertOrigin(request: Request) {
+    const origin = request.header('origin');
+    if (origin && origin !== new URL(this.config.issuerUrl).origin) {
+      throw new ForbiddenException('Cross-origin admin access is not allowed');
+    }
+  }
+
   private async issueAdminSession(
     account: AccountEntity,
     request: Request,
@@ -244,19 +308,49 @@ export class AdminAuthService {
   ) {
     const token = randomBytes(32).toString('base64url');
     const now = new Date();
-    const session = await this.sessions.save(
-      this.sessions.create({
-        account,
-        accountId: account.id,
-        tokenHash: hashSecret(token),
-        idleExpiresAt: new Date(now.getTime() + ADMIN_IDLE_MS),
-        absoluteExpiresAt: new Date(now.getTime() + ADMIN_ABSOLUTE_MS),
-        lastSeenAt: now,
-        revokedAt: null,
-        ipAddress: this.ipAddress(request),
-        userAgent: request.header('user-agent') ?? null,
-      }),
-    );
+    const authenticatedVersion = account.credentialVersion ?? 0;
+    const issued = await this.dataSource.transaction(async (manager) => {
+      const freshAccount = await manager.findOne(AccountEntity, {
+        where: { id: account.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (
+        !freshAccount ||
+        freshAccount.status !== 'active' ||
+        !freshAccount.isSuperAdmin ||
+        freshAccount.passwordResetRequired ||
+        (freshAccount.credentialVersion ?? 0) !== authenticatedVersion
+      ) {
+        throw new UnauthorizedException(
+          'Account credentials changed during authentication',
+        );
+      }
+      const sessions = manager.getRepository(AdminSessionEntity);
+      const session = await sessions.save(
+        sessions.create({
+          account: freshAccount,
+          accountId: freshAccount.id,
+          credentialVersion: freshAccount.credentialVersion ?? 0,
+          tokenHash: hashSecret(token),
+          idleExpiresAt: new Date(now.getTime() + ADMIN_IDLE_MS),
+          absoluteExpiresAt: new Date(now.getTime() + ADMIN_ABSOLUTE_MS),
+          lastSeenAt: now,
+          revokedAt: null,
+          ipAddress: this.ipAddress(request),
+          userAgent: request.header('user-agent') ?? null,
+        }),
+      );
+      await this.auditLogs.record(
+        {
+          actorAccountId: freshAccount.id,
+          action: 'admin.session.create',
+          targetType: 'admin_session',
+          targetId: session.id,
+        },
+        manager,
+      );
+      return { account: freshAccount, session };
+    });
     response.cookie(this.config.adminSessionCookieName, token, {
       httpOnly: true,
       secure: this.config.nodeEnv === 'production',
@@ -264,16 +358,12 @@ export class AdminAuthService {
       signed: true,
       maxAge: ADMIN_ABSOLUTE_MS,
     });
-    await this.auditLogs.record({
-      actorAccountId: account.id,
-      action: 'admin.session.create',
-      targetType: 'admin_session',
-      targetId: session.id,
-    });
+    (request as SignedCookieRequest).adminAccount = issued.account;
+    (request as SignedCookieRequest).adminSession = issued.session;
     return {
-      account: this.accounts.safeAccount(account),
-      idleExpiresAt: session.idleExpiresAt,
-      absoluteExpiresAt: session.absoluteExpiresAt,
+      account: this.accounts.safeAccount(issued.account),
+      idleExpiresAt: issued.session.idleExpiresAt,
+      absoluteExpiresAt: issued.session.absoluteExpiresAt,
     };
   }
 

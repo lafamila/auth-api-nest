@@ -1,6 +1,4 @@
 import { Module } from '@nestjs/common';
-import { ServeStaticModule } from '@nestjs/serve-static';
-import { join } from 'node:path';
 import { AccountsModule } from './domain/accounts/accounts.module';
 import { AccountPermissionsModule } from './domain/account-permissions/account-permissions.module';
 import { AdminModule } from './admin/admin.module';
@@ -36,11 +34,6 @@ import { NotificationModule } from './notifications/notification.module';
     ServiceOnboardingModule,
     SignupModule,
     NotificationModule,
-    ServeStaticModule.forRoot({
-      rootPath: join(__dirname, '..', 'public'),
-      serveRoot: '/admin',
-      exclude: ['/api/*', '/oauth/*', '/oidc/*', '/.well-known/*'],
-    }),
   ],
   controllers: [HealthController, ServicePageController],
 })

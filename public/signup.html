@@ -409,7 +409,7 @@
           const url = new URL(raw, window.location.origin);
           if (
             url.origin !== window.location.origin ||
-            url.pathname !== '/oauth/authorize'
+            !['/oauth/authorize', '/login'].includes(url.pathname)
           ) {
             return fallback;
           }

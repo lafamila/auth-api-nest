@@ -22,6 +22,9 @@ export class AdminSessionEntity {
   @Column({ name: 'account_id' })
   accountId!: string;
 
+  @Column({ name: 'credential_version', type: 'integer', default: 0 })
+  credentialVersion!: number;
+
   @Index({ unique: true })
   @Column({ name: 'token_hash' })
   tokenHash!: string;

@@ -1,7 +1,8 @@
 # Admin API
 
-Admin routes use the superadmin session cookie issued by `/api/admin/login` or
-the first-superadmin `/api/admin/bootstrap/complete` flow.
+Admin routes use the superadmin session cookie issued after `/login` +
+`/login/otp`, compatibility `/api/admin/login`, or first-superadmin
+`/api/admin/bootstrap/complete`. The console is at `/`; `/admin` UI is 404.
 `x-admin-key` is no longer an admin authorization model.
 Internal service-to-service calls must use service credentials issued through the admin API.
 
@@ -39,11 +40,10 @@ Admin session policy:
 - absolute expiry: 12 hours
 - no refresh token
 
-The floating Admin Session control is state-based in both `/admin` and
-`/service`: while logged out it opens the bootstrap/login panel, and while
-logged in its label changes to `Logout` and it immediately revokes the session.
-Bootstrap fields are shown only when `bootstrap/status.requiresBootstrap` is
-`true`; otherwise the panel shows only login.
+The root console and `/service` expose logout and an own-profile link.
+Unauthenticated `/` redirects to shared `/login`; unauthenticated `/service`
+returns 404. Bootstrap has a separate `/bootstrap` page available only without
+an active superadmin. See [account portal](./account-portal.md).
 
 ## Accounts
 
@@ -70,7 +70,7 @@ Services that want to integrate with Teddy Auth should submit their desired
 auth spec instead of relying on manual admin entry.
 
 Superadmins can compose the same request from `/service` after logging in with
-an admin session. `/admin` is now the review and operations console: it shows
+an admin session. `/` is now the review and operations console: it shows
 `Service Onboarding Requests`, `Account Access Requests`, account/service
 readouts, dashboards, and operational actions, but it does not include the
 request builder. `/service` contains the structured request form for service
@@ -113,7 +113,7 @@ admin console. Changes require a new update request from the service. Admins may
 still disable/archive services, disable clients, and revoke/rotate credentials
 as operational controls.
 
-Approval and credential rotation can issue operational secrets. `/admin` shows
+Approval and credential rotation can issue operational secrets. The root console shows
 those values only in a one-time modal with label/value rows, copy buttons that
 copy only the raw value, and concrete `.env` examples containing the issued
 values. Overlay clicks, copy clicks, and ordinary modal-body clicks do not close
@@ -244,7 +244,7 @@ The `requestSecret` comes from the original create request lifecycle. It is not
 an OIDC client secret, not a service credential secret, and not something that
 belongs in `body-lab-api-nest` runtime `.env`.
 
-Approve the onboarding request in `/admin`, then use the existing account
+Approve the onboarding request in the root console `/`, then use the existing account
 access request flow to move specific body-lab users beyond `visitor`. body-lab
 must treat `visitor` and missing permission as access denied.
 

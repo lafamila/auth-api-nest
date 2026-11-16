@@ -132,6 +132,107 @@ describe('AuthorizeFlowService prompt handling', () => {
     ).toContain("form-action 'self' bodylab:");
   });
 
+  it('passes the account credential version observed before code creation', async () => {
+    const account = {
+      id: 'account-1',
+      status: 'active',
+      passwordResetRequired: false,
+      credentialVersion: 12,
+    };
+    const codes = {
+      create: jest.fn().mockResolvedValue('one-time-code'),
+    };
+    service = new AuthorizeFlowService(
+      { findById: jest.fn().mockResolvedValue(account) } as never,
+      {} as never,
+      {
+        findActiveOrCreateVisitorForFirstLogin: jest
+          .fn()
+          .mockResolvedValue({ status: 'active' }),
+      } as never,
+      codes as unknown as AuthorizationCodeService,
+    );
+
+    await service.authorizeWithAccount(
+      { kind: 'validated', client, request } as never,
+      account.id,
+    );
+
+    expect(codes.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: account.id,
+        credentialVersion: 12,
+      }),
+    );
+  });
+
+  it('rejects a mismatched credential version before permission or code issuance', async () => {
+    const account = {
+      id: 'account-1',
+      status: 'active',
+      passwordResetRequired: false,
+      credentialVersion: undefined,
+    };
+    const accountPermissions = {
+      findActiveOrCreateVisitorForFirstLogin: jest.fn(),
+    };
+    const codes = { create: jest.fn() };
+    service = new AuthorizeFlowService(
+      { findById: jest.fn().mockResolvedValue(account) } as never,
+      {} as never,
+      accountPermissions as unknown as AccountPermissionsService,
+      codes as unknown as AuthorizationCodeService,
+    );
+
+    await expect(
+      service.authorizeWithAccount(
+        { kind: 'validated', client, request } as never,
+        account.id,
+        1,
+      ),
+    ).rejects.toMatchObject({ error: 'access_denied' });
+    expect(
+      accountPermissions.findActiveOrCreateVisitorForFirstLogin,
+    ).not.toHaveBeenCalled();
+    expect(codes.create).not.toHaveBeenCalled();
+  });
+
+  it('creates a code with version zero when a legacy account matches', async () => {
+    const account = {
+      id: 'account-1',
+      status: 'active',
+      passwordResetRequired: false,
+      credentialVersion: undefined,
+    };
+    const accountPermissions = {
+      findActiveOrCreateVisitorForFirstLogin: jest
+        .fn()
+        .mockResolvedValue({ status: 'active' }),
+    };
+    const codes = {
+      create: jest.fn().mockResolvedValue('one-time-code'),
+    };
+    service = new AuthorizeFlowService(
+      { findById: jest.fn().mockResolvedValue(account) } as never,
+      {} as never,
+      accountPermissions as unknown as AccountPermissionsService,
+      codes as unknown as AuthorizationCodeService,
+    );
+
+    await service.authorizeWithAccount(
+      { kind: 'validated', client, request } as never,
+      account.id,
+      0,
+    );
+
+    expect(
+      accountPermissions.findActiveOrCreateVisitorForFirstLogin,
+    ).toHaveBeenCalledTimes(1);
+    expect(codes.create).toHaveBeenCalledWith(
+      expect.objectContaining({ credentialVersion: 0 }),
+    );
+  });
+
   it('renders selection actions without exposing an account id', () => {
     const html = service.renderAccountSelectionPage(
       { ...request, prompt: SELECT_ACCOUNT_PROMPT },

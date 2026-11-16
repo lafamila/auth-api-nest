@@ -16,7 +16,7 @@ export class EmailVerificationEntity {
   email!: string;
 
   @Column({ type: 'varchar', default: 'signup' })
-  purpose!: 'signup' | 'social';
+  purpose!: 'signup' | 'social' | 'account_email_change';
 
   @Column({ name: 'context_hash', type: 'varchar', nullable: true })
   contextHash!: string | null;

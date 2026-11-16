@@ -41,6 +41,7 @@
 
       .topbar {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         justify-content: space-between;
         gap: 16px;
@@ -84,11 +85,6 @@
         overflow-wrap: anywhere;
         font-size: 13px;
         margin-bottom: 10px;
-      }
-
-      .form {
-        display: grid;
-        gap: 10px;
       }
 
       .checkbox-group {
@@ -378,42 +374,10 @@
           "Liberation Mono", monospace;
       }
 
-      .secret-card {
-        border: 1px dashed var(--line);
-        border-radius: 8px;
-        background: #fbfcfe;
-        padding: 14px;
-      }
-
-      .secret-card code {
-        display: block;
-        overflow-wrap: anywhere;
-        font-family:
-          "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-          "Liberation Mono", monospace;
-        font-size: 12px;
-      }
-
-      .admin-access-float {
-        position: fixed;
-        right: 24px;
-        bottom: 24px;
-        z-index: 20;
-        display: flex;
-        flex-direction: row-reverse;
-        align-items: end;
-        gap: 10px;
-      }
-
-      .admin-access-button {
-        min-width: 132px;
-        box-shadow: 0 10px 30px rgb(23 105 170 / 22%);
-      }
-
       .workflow-help-float {
         position: fixed;
         right: 24px;
-        bottom: 76px;
+        bottom: 24px;
         z-index: 20;
       }
 
@@ -599,20 +563,11 @@
         font-size: 12px;
       }
 
-      .admin-access-panel {
-        width: min(320px, calc(100vw - 188px));
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: var(--panel);
-        box-shadow: 0 14px 40px rgb(22 32 51 / 18%);
-        padding: 16px;
-      }
-
       [hidden] {
         display: none !important;
       }
 
-      .admin-access-head {
+      .dialog-head {
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -620,7 +575,7 @@
         margin-bottom: 12px;
       }
 
-      .admin-access-head h2 {
+      .dialog-head h2 {
         margin: 0;
       }
 
@@ -657,19 +612,9 @@
           grid-template-columns: 1fr;
         }
 
-        .admin-access-float {
-          right: 16px;
-          bottom: 16px;
-        }
-
         .workflow-help-float {
           right: 16px;
-          bottom: 68px;
-        }
-
-        .admin-access-panel {
-          width: calc(100vw - 172px);
-          min-width: 188px;
+          bottom: 16px;
         }
       }
     </style>
@@ -678,9 +623,19 @@
     <header>
       <div class="shell topbar">
         <h1>Teddy Auth Admin</h1>
-        <button class="secondary" id="refreshAll">Refresh</button>
+        <nav aria-label="Admin navigation" class="inline-actions">
+          <a href="/service">Service onboarding</a>
+          <a href="/profile">Profile</a>
+          <button class="secondary" disabled id="refreshAll">Refresh</button>
+          <button class="secondary" disabled id="logoutAdmin">Logout</button>
+        </nav>
       </div>
     </header>
+
+    <div class="shell">
+      <div aria-live="polite" class="message" id="statusMessage" role="status">Checking admin session...</div>
+      <button class="secondary" hidden id="retryAdminSession" type="button">Retry</button>
+    </div>
 
     <main class="shell" hidden id="adminMain">
       <div class="stack content-stack">
@@ -954,7 +909,7 @@
       role="dialog"
     >
       <div class="workflow-help-dialog">
-        <div class="admin-access-head">
+        <div class="dialog-head">
           <h2 id="workflowHelpTitle">새 서비스 인증 연동 흐름</h2>
           <button aria-label="Close Workflow Help" class="icon-button" id="closeWorkflowHelp">
             X
@@ -998,7 +953,7 @@
       role="dialog"
     >
       <div class="secret-dialog">
-        <div class="admin-access-head">
+        <div class="dialog-head">
           <h2 id="secretModalTitle">One-Time Operational Secrets</h2>
           <button aria-label="Close Secret Modal" class="icon-button" id="closeSecretModal">
             X
@@ -1031,7 +986,7 @@
       role="dialog"
     >
       <div class="scope-dialog">
-        <div class="admin-access-head">
+        <div class="dialog-head">
           <h2 id="credentialScopeModalTitle">Edit Service Credential Scopes</h2>
           <button aria-label="Close Scope Modal" class="icon-button" id="closeCredentialScopeModal">
             X
@@ -1044,42 +999,6 @@
           <button class="secondary" id="cancelCredentialScopeModal" type="button">Cancel</button>
           <button id="saveCredentialScopes" type="button">Save</button>
         </div>
-      </div>
-    </div>
-
-    <div class="admin-access-float">
-          <button class="admin-access-button" id="openAdminAccess">Admin Session</button>
-      <div
-        aria-labelledby="adminAccessTitle"
-        class="admin-access-panel"
-        hidden
-        id="adminAccessPanel"
-        role="dialog"
-      >
-        <div class="admin-access-head">
-          <h2 id="adminAccessTitle">Admin Session</h2>
-          <button aria-label="Close Admin Access" class="icon-button" id="closeAdminAccess">
-            X
-          </button>
-        </div>
-        <div class="form" id="bootstrapForm" hidden>
-          <label>Login ID <input id="bootstrapLoginId" autocomplete="username" /></label>
-          <label>Name <input id="bootstrapName" autocomplete="name" /></label>
-          <label>Email <input id="bootstrapEmail" type="email" autocomplete="email" /></label>
-          <label>Password <input id="bootstrapPassword" type="password" autocomplete="new-password" /></label>
-          <button id="startBootstrap" type="button">Create OTP Setup</button>
-          <div class="secret-card" hidden id="bootstrapOtpCard"></div>
-          <label>OTP Code <input id="bootstrapOtpCode" inputmode="numeric" /></label>
-          <button id="completeBootstrap" type="button">Complete Bootstrap</button>
-          <div class="hint">Superadmin 계정이 없을 때만 표시됩니다. OTP 등록과 검증이 끝나야 계정 생성이 완료됩니다.</div>
-        </div>
-        <div class="form" id="adminLoginForm" hidden>
-          <label>Login ID <input id="adminLoginId" autocomplete="username" /></label>
-          <label>Password <input id="adminPassword" type="password" autocomplete="current-password" /></label>
-          <label>Google OTP <input id="adminOtpCode" inputmode="numeric" /></label>
-          <button id="adminLogin" type="button">Login</button>
-        </div>
-        <div class="message" id="statusMessage"></div>
       </div>
     </div>
 
@@ -1099,8 +1018,7 @@
         credentialsByService: {},
         applications: [],
         adminSession: null,
-        bootstrapChallengeId: null,
-        requiresBootstrap: false,
+        loggingOut: false,
         webhook: { subscription: null, items: [], page: 1, total: 0, loading: false, sequence: 0 },
         notificationAdmin: {
           view: 'devices',
@@ -1160,22 +1078,6 @@
         $('refreshAll').disabled = !isVisible;
       }
 
-      function showAccessPanel(mode) {
-        const safeMode = mode === 'bootstrap' && state.requiresBootstrap ? 'bootstrap' : 'login';
-        $('adminAccessPanel').hidden = false;
-        $('bootstrapForm').hidden = safeMode !== 'bootstrap';
-        $('adminLoginForm').hidden = safeMode !== 'login';
-        if (safeMode !== 'bootstrap') {
-          $('bootstrapOtpCard').hidden = true;
-          $('bootstrapOtpCard').innerHTML = '';
-          state.bootstrapChallengeId = null;
-        }
-      }
-
-      function updateAdminAccessButton() {
-        $('openAdminAccess').textContent = state.adminSession ? 'Logout' : 'Admin Session';
-      }
-
       function updateWorkflowHelpVisibility() {
         $('workflowHelpLaunch').hidden = !state.adminSession;
         if (!state.adminSession) {
@@ -1194,7 +1096,9 @@
         });
         if (!response.ok) {
           const error = await response.json().catch(() => ({}));
-          throw new Error(error.message || error.error || response.statusText);
+          throw Object.assign(new Error(error.message || error.error || response.statusText), {
+            status: response.status,
+          });
         }
         if (response.status === 204) {
           return null;
@@ -1203,7 +1107,6 @@
       }
 
       const api = requestJson;
-      const sessionRequest = requestJson;
 
       function pageItems(key, items) {
         const totalPages = Math.max(1, Math.ceil(items.length / LIST_PAGE_SIZE));
@@ -2083,35 +1986,29 @@
       }
 
       async function initializeAdminSession() {
+        $('retryAdminSession').hidden = true;
+        $('retryAdminSession').disabled = true;
+        setStatus('Checking admin session...');
         try {
-          const session = await sessionRequest('/api/admin/session');
+          const session = await requestJson('/api/admin/session', { cache: 'no-store' });
           state.adminSession = session.account;
-          state.requiresBootstrap = false;
-          $('adminAccessPanel').hidden = true;
-          updateAdminAccessButton();
+          $('logoutAdmin').disabled = false;
           showAdminMain(true);
           updateWorkflowHelpVisibility();
           await refreshAll();
-          return;
-        } catch {
-          state.adminSession = null;
-          updateAdminAccessButton();
-          showAdminMain(false);
-        }
-
-        updateWorkflowHelpVisibility();
-        try {
-          const status = await sessionRequest('/api/admin/bootstrap/status');
-          state.requiresBootstrap = status.requiresBootstrap;
-          showAccessPanel(status.requiresBootstrap ? 'bootstrap' : 'login');
-          setStatus(
-            status.requiresBootstrap
-              ? 'Create the first superadmin account'
-              : 'Admin login required',
-          );
         } catch (error) {
-          showAccessPanel('login');
+          state.adminSession = null;
+          $('logoutAdmin').disabled = true;
+          showAdminMain(false);
+          updateWorkflowHelpVisibility();
+          if (error.status === 401) {
+            window.location.replace('/login');
+            return;
+          }
           setStatus(error.message, true);
+          $('retryAdminSession').hidden = false;
+        } finally {
+          $('retryAdminSession').disabled = false;
         }
       }
 
@@ -2135,116 +2032,54 @@
         if (button && !button.disabled) void updateWebhook('retry', button.dataset.retryWebhook);
       });
 
-      $('startBootstrap').addEventListener('click', async () => {
-        if (!state.requiresBootstrap) {
-          showAccessPanel('login');
-          setStatus('Bootstrap is unavailable because an active superadmin already exists.', true);
-          return;
-        }
-        try {
-          const result = await sessionRequest('/api/admin/bootstrap/start', {
-            method: 'POST',
-            body: JSON.stringify({
-              loginId: $('bootstrapLoginId').value,
-              name: $('bootstrapName').value,
-              email: $('bootstrapEmail').value,
-              password: $('bootstrapPassword').value,
-            }),
-          });
-          state.bootstrapChallengeId = result.challengeId;
-          $('bootstrapOtpCard').hidden = false;
-          $('bootstrapOtpCard').innerHTML = `
-            <div class="form">
-              ${result.otpQrDataUrl ? `<img alt="OTP QR" src="${result.otpQrDataUrl}" style="width: 192px; height: 192px;" />` : ''}
-              <div><strong>OTP Secret</strong><code>${escapeHtml(result.otpSecret)}</code></div>
-              <div><strong>Authenticator URI</strong><code>${escapeHtml(result.otpauthUri)}</code></div>
-              <div class="hint">Register the QR or URI in your authenticator, then enter the OTP code. These values are shown only here.</div>
-            </div>
-          `;
-          setStatus('OTP setup generated');
-        } catch (error) {
-          setStatus(error.message, true);
-        }
-      });
-
-      $('completeBootstrap').addEventListener('click', async () => {
-        if (!state.requiresBootstrap) {
-          showAccessPanel('login');
-          setStatus('Bootstrap is unavailable because an active superadmin already exists.', true);
-          return;
-        }
-        try {
-          const result = await sessionRequest('/api/admin/bootstrap/complete', {
-            method: 'POST',
-            body: JSON.stringify({
-              challengeId: state.bootstrapChallengeId,
-              otpCode: $('bootstrapOtpCode').value,
-            }),
-          });
-          state.adminSession = result.account;
-          state.requiresBootstrap = false;
-          state.bootstrapChallengeId = null;
-          $('adminAccessPanel').hidden = true;
-          updateAdminAccessButton();
-          showAdminMain(true);
-          updateWorkflowHelpVisibility();
-          await refreshAll();
-          setStatus('Bootstrap completed and logged in');
-        } catch (error) {
-          setStatus(error.message, true);
-        }
-      });
-
-      $('adminLogin').addEventListener('click', async () => {
-        try {
-          const result = await sessionRequest('/api/admin/login', {
-            method: 'POST',
-            body: JSON.stringify({
-              loginId: $('adminLoginId').value,
-              password: $('adminPassword').value,
-              otpCode: $('adminOtpCode').value,
-            }),
-          });
-          state.adminSession = result.account;
-          state.requiresBootstrap = false;
-          $('adminAccessPanel').hidden = true;
-          updateAdminAccessButton();
-          showAdminMain(true);
-          updateWorkflowHelpVisibility();
-          await refreshAll();
-          setStatus('Logged in');
-        } catch (error) {
-          setStatus(error.message, true);
-        }
-      });
-
       async function logoutAdminSession() {
+        if (state.loggingOut) return;
+        state.loggingOut = true;
+        $('logoutAdmin').disabled = true;
+        $('logoutAdmin').textContent = 'Logging out...';
+        setStatus('Logging out...');
         try {
-          await sessionRequest('/api/admin/logout', {
+          const session = await requestJson('/api/portal/me', { cache: 'no-store' });
+          if (!session.csrfToken) throw new Error('Unable to verify logout. Please retry.');
+          await requestJson('/api/portal/logout', {
             method: 'POST',
+            headers: { 'X-CSRF-Token': session.csrfToken },
             body: JSON.stringify({}),
           });
-        } catch {
-          // Session may already be expired; reset the UI either way.
+          state.adminSession = null;
+          showAdminMain(false);
+          updateWorkflowHelpVisibility();
+          closeSecretModal();
+          closeCredentialScopeModal();
+          window.location.replace('/login');
+        } catch (error) {
+          if (error.status === 401) {
+            try {
+              await requestJson('/api/admin/logout', { method: 'POST', body: '{}' });
+            } catch (logoutError) {
+              if (logoutError.status !== 401) {
+                setStatus(logoutError.message, true);
+                return;
+              }
+            }
+            state.adminSession = null;
+            showAdminMain(false);
+            updateWorkflowHelpVisibility();
+            closeSecretModal();
+            closeCredentialScopeModal();
+            window.location.replace('/login');
+            return;
+          }
+          setStatus(error.message, true);
+        } finally {
+          state.loggingOut = false;
+          $('logoutAdmin').disabled = !state.adminSession;
+          $('logoutAdmin').textContent = 'Logout';
         }
-        state.adminSession = null;
-        updateAdminAccessButton();
-        showAdminMain(false);
-        updateWorkflowHelpVisibility();
-        await initializeAdminSession();
-        setStatus('Logged out');
       }
 
-      $('openAdminAccess').addEventListener('click', () => {
-        if (state.adminSession) {
-          void logoutAdminSession();
-          return;
-        }
-        $('adminAccessPanel').hidden = false;
-      });
-      $('closeAdminAccess').addEventListener('click', () => {
-        $('adminAccessPanel').hidden = true;
-      });
+      $('logoutAdmin').addEventListener('click', () => void logoutAdminSession());
+      $('retryAdminSession').addEventListener('click', () => void initializeAdminSession());
       $('openWorkflowHelp').addEventListener('click', () => {
         $('workflowHelpModal').hidden = false;
       });
@@ -2579,7 +2414,6 @@
         await copySecretModalText(entry.value, 'Secret value copied', 'Failed to copy secret value');
       });
 
-      updateAdminAccessButton();
       void initializeAdminSession();
     </script>
   </body>

@@ -1531,15 +1531,10 @@ describe('App bootstrap (e2e)', () => {
     );
     expect(adminHtml).toContain('[hidden]');
     expect(adminHtml).toContain('display: none !important;');
-    expect(adminHtml).toContain(
-      "mode === 'bootstrap' && state.requiresBootstrap",
-    );
-    expect(adminHtml).toContain(
-      'Bootstrap is unavailable because an active superadmin already exists.',
-    );
-    expect(adminHtml).toContain(
-      "state.adminSession ? 'Logout' : 'Admin Session'",
-    );
+    expect(adminHtml).not.toContain('bootstrapForm');
+    expect(adminHtml).toContain('/api/portal/logout');
+    expect(adminHtml).toContain('/profile');
+    expect(adminHtml).toContain('Logout');
     expect(adminHtml).not.toContain('adminSessionForm');
     expect(adminHtml).not.toContain('adminLogout');
     expect(adminHtml).not.toContain(
@@ -1560,7 +1555,8 @@ describe('App bootstrap (e2e)', () => {
     expect(adminHtml).not.toContain('Assign Service Permission');
 
     await request(app.getHttpServer())
-      .get('/admin')
+      .get('/')
+      .set('Cookie', adminCookie)
       .expect(200)
       .expect((response) => {
         expect(response.text).toContain('Service Onboarding Requests');
@@ -1568,6 +1564,8 @@ describe('App bootstrap (e2e)', () => {
           'Create Service Onboarding Request',
         );
       });
+    await request(app.getHttpServer()).get('/admin').expect(404);
+    await request(app.getHttpServer()).get('/admin/index.html').expect(404);
   });
 
   it('serves the service request builder on /service', async () => {
@@ -1594,7 +1592,7 @@ describe('App bootstrap (e2e)', () => {
     expect(serviceHtml).toContain('data-credential-scope');
     expect(serviceHtml).toContain('JSON Preview');
     expect(serviceHtml).toContain('Request-update-only secret');
-    expect(serviceHtml).toContain('Admin Session required');
+    expect(serviceHtml).toContain('Admin session is required.');
     expect(serviceHtml).toContain(
       'Unknown JSON fields are ignored and reported as warnings.',
     );
@@ -1604,22 +1602,15 @@ describe('App bootstrap (e2e)', () => {
     expect(serviceHtml).toContain(
       'identity always comes from the current admin session.',
     );
-    expect(serviceHtml).toContain(
-      "mode === 'bootstrap' && state.requiresBootstrap",
-    );
-    expect(serviceHtml).toContain(
-      'Bootstrap is unavailable because an active superadmin already exists.',
-    );
-    expect(serviceHtml).toContain(
-      "$('openAdminAccess').textContent = state.adminSession",
-    );
-    expect(serviceHtml).toContain("? 'Logout'");
-    expect(serviceHtml).toContain(": 'Admin Session'");
+    expect(serviceHtml).not.toContain('bootstrapForm');
+    expect(serviceHtml).toContain('/api/portal/logout');
     expect(serviceHtml).not.toContain('adminSessionForm');
     expect(serviceHtml).not.toContain('adminLogout');
 
+    await request(app.getHttpServer()).get('/service').expect(404);
     await request(app.getHttpServer())
       .get('/service')
+      .set('Cookie', adminCookie)
       .expect(200)
       .expect((response) => {
         expect(response.text).toContain('Create Service Onboarding Request');
@@ -1629,6 +1620,7 @@ describe('App bootstrap (e2e)', () => {
 
     await request(app.getHttpServer())
       .get('/service-request-import.js')
+      .set('Cookie', adminCookie)
       .expect(200)
       .expect((response) => {
         expect(response.text).toContain('normalizeImportedServiceRequest');

@@ -10,6 +10,7 @@ import {
   DataSource,
   EntityManager,
   In,
+  IsNull,
   QueryFailedError,
   Repository,
 } from 'typeorm';
@@ -21,6 +22,7 @@ import {
 } from '../../common/crypto/password-policy';
 import { AccountServicePermissionEntity } from '../../database/entities/account-service-permission.entity';
 import { AccountEntity } from '../../database/entities/account.entity';
+import { AdminSessionEntity } from '../../database/entities/admin-session.entity';
 import { ServiceEntity } from '../../database/entities/service.entity';
 import { TokenRecordEntity } from '../../database/entities/token-record.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -249,12 +251,17 @@ export class AccountsService {
   async update(id: string, input: UpdateAccountDto): Promise<AccountEntity> {
     const saved = await this.dataSource.transaction(async (manager) => {
       const accountRepository = manager.getRepository(AccountEntity);
-      const account = await accountRepository.findOneBy({ id });
+      const account = await accountRepository.findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
       if (!account) {
         throw new NotFoundException('Account not found');
       }
+      const invalidatesSessions =
+        input.status !== undefined && input.status !== 'active';
       if (
-        input.status === 'disabled' &&
+        invalidatesSessions &&
         account.status === 'active' &&
         account.isSuperAdmin
       ) {
@@ -269,11 +276,20 @@ export class AccountsService {
         }
       }
       const before = this.safeAccount(account);
-      Object.assign(account, input);
-      const updated = await accountRepository.save(account);
-      if (input.status === 'disabled') {
-        // A disabled account must not be able to keep refreshing sessions.
-        await this.revokeAccountRefreshTokens(updated.id, manager);
+      const changes = {
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.email !== undefined ? { email: input.email } : {}),
+        ...(input.status !== undefined ? { status: input.status } : {}),
+        ...(invalidatesSessions
+          ? { credentialVersion: (account.credentialVersion ?? 0) + 1 }
+          : {}),
+      };
+      if (Object.keys(changes).length > 0) {
+        await accountRepository.update(id, changes);
+      }
+      const updated = Object.assign(account, changes);
+      if (invalidatesSessions) {
+        await this.revokeAccountSessions(updated.id, manager);
       }
       return { before, updated };
     });
@@ -294,20 +310,35 @@ export class AccountsService {
     }
     const nextPassword = password ?? ADMIN_TEMPORARY_RESET_PASSWORD;
     const resetRequired = validatePasswordOrTemporaryReset(nextPassword);
-    account.passwordHash = await this.passwordService.hash(nextPassword);
-    account.passwordResetRequired = resetRequired;
-    await this.accounts.save(account);
-    // Invalidate existing refresh chains so an old session cannot outlive a
-    // password reset.
-    await this.revokeAccountRefreshTokens(id);
-    await this.auditLogs.record({
-      action: 'account.reset_password',
-      targetType: 'account',
-      targetId: id,
+    const passwordHash = await this.passwordService.hash(nextPassword);
+    await this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(AccountEntity);
+      const current = await repository.findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!current) throw new NotFoundException('Account not found');
+      if (!current.loginId || !current.passwordHash) {
+        throw new ConflictException('Account does not have local credentials');
+      }
+      await repository.update(id, {
+        passwordHash,
+        passwordResetRequired: resetRequired,
+        credentialVersion: (current.credentialVersion ?? 0) + 1,
+      });
+      await this.revokeAccountSessions(id, manager);
+      await this.auditLogs.record(
+        {
+          action: 'account.reset_password',
+          targetType: 'account',
+          targetId: id,
+        },
+        manager,
+      );
     });
   }
 
-  private async revokeAccountRefreshTokens(
+  async revokeAccountSessions(
     accountId: string,
     manager?: EntityManager,
   ): Promise<void> {
@@ -315,8 +346,26 @@ export class AccountsService {
       ? manager.getRepository(TokenRecordEntity)
       : this.tokenRecords;
     await repository.update(
-      { accountId, type: 'refresh_token', status: In(['active', 'used']) },
+      {
+        accountId,
+        type: In([
+          'refresh_token',
+          'sso_session',
+          'portal_session',
+          'portal_mfa',
+          'authorization_code',
+          'authorization_login',
+        ]),
+        status: In(['active', 'used']),
+      },
       { status: 'revoked' },
+    );
+    const adminSessions = (manager ?? this.dataSource).getRepository(
+      AdminSessionEntity,
+    );
+    await adminSessions.update(
+      { accountId, revokedAt: IsNull() },
+      { revokedAt: new Date() },
     );
   }
 
@@ -347,7 +396,10 @@ export class AccountsService {
       throw new UnauthorizedException('Password reset is required');
     }
     account.lastLoginAt = new Date();
-    return this.accounts.save(account);
+    await this.accounts.update(account.id, {
+      lastLoginAt: account.lastLoginAt,
+    });
+    return account;
   }
 
   async authenticateIgnoringResetRequirement(
@@ -389,10 +441,36 @@ export class AccountsService {
       throw new ConflictException('Password reset is not required');
     }
     validateNormalPassword(newPassword);
-    account.passwordHash = await this.passwordService.hash(newPassword);
-    account.passwordResetRequired = false;
-    account.lastLoginAt = new Date();
-    return this.accounts.save(account);
+    const passwordHash = await this.passwordService.hash(newPassword);
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(AccountEntity);
+      const current = await repository.findOne({
+        where: { id: account.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (
+        !current ||
+        current.status !== 'active' ||
+        !current.loginId ||
+        !current.passwordHash ||
+        current.passwordHash !== account.passwordHash ||
+        (current.credentialVersion ?? 0) !== (account.credentialVersion ?? 0)
+      ) {
+        throw new UnauthorizedException('Invalid credentials');
+      }
+      if (!current.passwordResetRequired) {
+        throw new ConflictException('Password reset is not required');
+      }
+      const changes = {
+        passwordHash,
+        passwordResetRequired: false,
+        credentialVersion: (current.credentialVersion ?? 0) + 1,
+        lastLoginAt: new Date(),
+      };
+      await repository.update(current.id, changes);
+      await this.revokeAccountSessions(current.id, manager);
+      return Object.assign(current, changes);
+    });
   }
 
   safeAccount(account: AccountEntity): Record<string, unknown> {

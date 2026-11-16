@@ -10,12 +10,14 @@ import { OAuthError } from './oauth-error';
 import { OidcController } from './oidc.controller';
 import { TokenService } from './token.service';
 import { createHash } from 'node:crypto';
+import { DataSource, EntityManager } from 'typeorm';
 
 describe('OidcController refresh grant permissions', () => {
   const account = {
     id: 'account-1',
     status: 'active',
     passwordResetRequired: false,
+    credentialVersion: 3,
   } as AccountEntity;
   const client = {
     clientId: 'game-platform-api',
@@ -36,7 +38,7 @@ describe('OidcController refresh grant permissions', () => {
     } as AccountServicePermissionEntity;
     const { controller, codes, tokens } = setup(currentPermission);
     const verifier = 'a'.repeat(43);
-    codes.consume.mockResolvedValue({
+    const storedCode = {
       accountId: account.id,
       clientId: client.clientId,
       redirectUri: 'xyz.lafamila.not:/oauth/callback',
@@ -44,8 +46,11 @@ describe('OidcController refresh grant permissions', () => {
       codeChallengeMethod: 'S256',
       scope: 'openid profile email service.permission',
       nonce: 'appauth-generated-nonce',
+      credentialVersion: 3,
       expiresAt: new Date(Date.now() + 60_000),
-    });
+    };
+    codes.findActive.mockResolvedValue(storedCode);
+    codes.consume.mockResolvedValue(storedCode);
 
     await controller.token({
       grant_type: 'authorization_code',
@@ -61,6 +66,7 @@ describe('OidcController refresh grant permissions', () => {
       currentPermission,
       undefined,
       'appauth-generated-nonce',
+      expect.anything(),
     );
   });
 
@@ -70,7 +76,8 @@ describe('OidcController refresh grant permissions', () => {
         key: 'admin',
       } as ServicePermissionDefinitionEntity,
     } as AccountServicePermissionEntity;
-    const { controller, tokens, permissions } = setup(currentPermission);
+    const { controller, events, manager, tokens, permissions } =
+      setup(currentPermission);
 
     await expect(
       controller.token({
@@ -88,7 +95,10 @@ describe('OidcController refresh grant permissions', () => {
       client,
       currentPermission,
       'refresh-family',
+      undefined,
+      manager,
     );
+    expect(events).toEqual(['account-lock', 'refresh-consume', 'token-issue']);
   });
 
   it('refuses refresh when the service permission has been revoked', async () => {
@@ -107,7 +117,79 @@ describe('OidcController refresh grant permissions', () => {
     expect(tokens.issueTokens).not.toHaveBeenCalled();
   });
 
+  it('rejects a stale authorization code after locking the account', async () => {
+    const currentPermission = {
+      permissionDefinition: { key: 'admin' },
+    } as AccountServicePermissionEntity;
+    const { controller, codes, tokens } = setup(currentPermission);
+    const verifier = 'a'.repeat(43);
+    const storedCode = {
+      accountId: account.id,
+      clientId: client.clientId,
+      redirectUri: 'xyz.lafamila.not:/oauth/callback',
+      codeChallenge: createHash('sha256').update(verifier).digest('base64url'),
+      codeChallengeMethod: 'S256' as const,
+      scope: 'openid',
+      credentialVersion: 2,
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+    codes.findActive.mockResolvedValue(storedCode);
+    codes.consume.mockResolvedValue(storedCode);
+    codes.isCurrentCredential.mockReturnValue(false);
+
+    await expect(
+      controller.token({
+        grant_type: 'authorization_code',
+        client_id: client.clientId,
+        code: 'authorization-code',
+        redirect_uri: storedCode.redirectUri,
+        code_verifier: verifier,
+      }),
+    ).rejects.toMatchObject({ error: 'invalid_grant' });
+    expect(tokens.issueTokens).not.toHaveBeenCalled();
+  });
+
+  it('revokes a stale refresh family without inserting a successor', async () => {
+    const currentPermission = {
+      permissionDefinition: { key: 'admin' },
+    } as AccountServicePermissionEntity;
+    const { controller, manager, tokens } = setup(currentPermission);
+    tokens.isCurrentCredential.mockReturnValue(false);
+
+    await expect(
+      controller.token({
+        grant_type: 'refresh_token',
+        client_id: client.clientId,
+        refresh_token: 'stored-refresh-token',
+      }),
+    ).rejects.toThrow('Invalid refresh token');
+
+    expect(tokens.revokeFamily).toHaveBeenCalledWith('refresh-family', manager);
+    expect(tokens.issueTokens).not.toHaveBeenCalled();
+  });
+
+  it('commits refresh-family reuse handling before returning its error', async () => {
+    const currentPermission = {
+      permissionDefinition: { key: 'admin' },
+    } as AccountServicePermissionEntity;
+    const { controller, transactionState, tokens } = setup(currentPermission);
+    tokens.consumeRefreshTokenForRotation.mockResolvedValue({ kind: 'reuse' });
+
+    await expect(
+      controller.token({
+        grant_type: 'refresh_token',
+        client_id: client.clientId,
+        refresh_token: 'reused-refresh-token',
+      }),
+    ).rejects.toThrow('Refresh token reuse detected');
+
+    expect(transactionState.commits).toBe(1);
+    expect(tokens.issueTokens).not.toHaveBeenCalled();
+  });
+
   function setup(currentPermission: AccountServicePermissionEntity | null) {
+    const events: string[] = [];
+    const transactionState = { commits: 0 };
     const permissions = {
       findActiveOrCreateVisitorForFirstLogin: jest
         .fn()
@@ -125,18 +207,53 @@ describe('OidcController refresh grant permissions', () => {
         accountId: account.id,
         clientId: client.clientId,
       }),
-      consumeRefreshToken: jest.fn().mockResolvedValue({
-        accountId: account.id,
-        clientId: client.clientId,
-        familyId: 'refresh-family',
+      consumeRefreshTokenForRotation: jest.fn().mockImplementation(async () => {
+        events.push('refresh-consume');
+        return {
+          kind: 'consumed',
+          refresh: {
+            accountId: account.id,
+            clientId: client.clientId,
+            familyId: 'refresh-family',
+            credentialVersion: 3,
+          },
+        };
       }),
-      issueTokens: jest
-        .fn()
-        .mockResolvedValue({ access_token: 'new-access-token' }),
+      isCurrentCredential: jest.fn().mockReturnValue(true),
+      revokeFamily: jest.fn().mockResolvedValue(undefined),
+      issueTokens: jest.fn().mockImplementation(async () => {
+        events.push('token-issue');
+        return { access_token: 'new-access-token' };
+      }),
     };
     const codes = {
+      findActive: jest.fn(),
       consume: jest.fn(),
+      isCurrentCredential: jest.fn().mockReturnValue(true),
     };
+    const accountRepository = {
+      findOne: jest.fn().mockImplementation(async () => {
+        events.push('account-lock');
+        return account;
+      }),
+    };
+    const permissionRepository = {
+      findOne: jest.fn().mockResolvedValue(currentPermission),
+    };
+    const manager = {
+      getRepository: jest.fn((entity) =>
+        entity === AccountEntity ? accountRepository : permissionRepository,
+      ),
+    } as unknown as EntityManager;
+    const dataSource = {
+      transaction: jest.fn(
+        async (callback: (transaction: EntityManager) => Promise<unknown>) => {
+          const result = await callback(manager);
+          transactionState.commits += 1;
+          return result;
+        },
+      ),
+    } as unknown as DataSource;
     const controller = new OidcController(
       {} as AppConfigService,
       permissions as unknown as AccountPermissionsService,
@@ -147,7 +264,17 @@ describe('OidcController refresh grant permissions', () => {
       {} as never,
       tokens as unknown as TokenService,
       {} as never,
+      {} as never,
+      dataSource,
     );
-    return { controller, permissions, codes, tokens };
+    return {
+      controller,
+      events,
+      manager,
+      permissions,
+      transactionState,
+      codes,
+      tokens,
+    };
   }
 });

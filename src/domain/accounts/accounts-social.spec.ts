@@ -14,6 +14,7 @@ import {
 } from 'typeorm';
 import { ADMIN_TEMPORARY_RESET_PASSWORD } from '../../common/crypto/password-policy';
 import { AccountEntity } from '../../database/entities/account.entity';
+import { AdminSessionEntity } from '../../database/entities/admin-session.entity';
 import { TokenRecordEntity } from '../../database/entities/token-record.entity';
 import { AllowSocialOnlyAccounts20261104000000 } from '../../database/migrations/20261104000000-AllowSocialOnlyAccounts';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -35,9 +36,11 @@ function setup(overrides: Partial<AccountEntity> = {}) {
     ...overrides,
   });
   const accounts = {
+    findOne: jest.fn().mockResolvedValue(account),
     findOneBy: jest.fn().mockResolvedValue(account),
     exists: jest.fn().mockResolvedValue(false),
     save: jest.fn(async (value: AccountEntity) => value),
+    update: jest.fn().mockResolvedValue({ affected: 1 }),
   };
   const manager = {
     create: jest.fn(
@@ -47,7 +50,12 @@ function setup(overrides: Partial<AccountEntity> = {}) {
     save: jest.fn(async (value: AccountEntity) =>
       Object.assign(value, { id: 'created-id' }),
     ),
-    getRepository: jest.fn(),
+    getRepository: jest.fn((target: unknown) => {
+      if (target === AccountEntity) return accounts;
+      if (target === TokenRecordEntity) return tokenRecords;
+      if (target === AdminSessionEntity) return adminSessions;
+      throw new Error('Unexpected repository');
+    }),
   };
   const dataSource = {
     transaction: jest.fn(
@@ -61,6 +69,7 @@ function setup(overrides: Partial<AccountEntity> = {}) {
   };
   const auditLogs = { record: jest.fn().mockResolvedValue(undefined) };
   const tokenRecords = { update: jest.fn().mockResolvedValue(undefined) };
+  const adminSessions = { update: jest.fn().mockResolvedValue(undefined) };
   const subject = new AccountsService(
     accounts as unknown as Repository<AccountEntity>,
     dataSource as unknown as DataSource,
@@ -78,6 +87,7 @@ function setup(overrides: Partial<AccountEntity> = {}) {
     passwordService,
     auditLogs,
     tokenRecords,
+    adminSessions,
   };
 }
 
@@ -388,22 +398,30 @@ describe('Local credential boundaries', () => {
       passwordService,
       tokenRecords,
       auditLogs,
+      transactionManager,
     } = setup({ loginId: 'local-user', passwordHash: 'old-hash' });
     await subject.resetPassword(account.id);
     expect(passwordService.hash).toHaveBeenCalledWith(
       ADMIN_TEMPORARY_RESET_PASSWORD,
     );
-    expect(account.passwordResetRequired).toBe(true);
-    expect(accounts.save).toHaveBeenCalledWith(account);
+    expect(accounts.update).toHaveBeenCalledWith(account.id, {
+      passwordHash: 'hashed-password',
+      passwordResetRequired: true,
+      credentialVersion: 1,
+    });
+    expect(accounts.save).not.toHaveBeenCalled();
     expect(tokenRecords.update).toHaveBeenCalledWith(
-      expect.objectContaining({ accountId: account.id, type: 'refresh_token' }),
+      expect.objectContaining({ accountId: account.id }),
       { status: 'revoked' },
     );
-    expect(auditLogs.record).toHaveBeenCalledWith({
-      action: 'account.reset_password',
-      targetType: 'account',
-      targetId: account.id,
-    });
+    expect(auditLogs.record).toHaveBeenCalledWith(
+      {
+        action: 'account.reset_password',
+        targetType: 'account',
+        targetId: account.id,
+      },
+      transactionManager,
+    );
   });
 
   it('preserves the local forced-reset authentication gate and completion path', async () => {
@@ -514,7 +532,9 @@ describe('Social-only credential schema', () => {
 
   it('declares the credential pair and reset constraints in the entity and forward migration', async () => {
     const checks = getMetadataArgsStorage().checks.filter(
-      (item) => item.target === AccountEntity,
+      (item) =>
+        item.target === AccountEntity &&
+        item.name !== 'chk_accounts_credential_version_nonnegative',
     );
     const query = jest.fn().mockResolvedValue(undefined);
     await new AllowSocialOnlyAccounts20261104000000().up({

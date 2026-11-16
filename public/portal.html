@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Teddy Auth</title>
+    <link rel="stylesheet" href="/portal/assets/portal.css" />
+    <script src="/portal/assets/portal.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">본문으로 이동</a>
+    <header id="portalHeader" class="site-header" hidden>
+      <div class="header-inner">
+        <a class="brand" href="/" aria-label="Teddy Auth 홈">
+          <img
+            src="/portal/assets/icons/shield-check.svg"
+            alt=""
+            width="23"
+            height="23"
+          />
+          <span>Teddy <strong>Auth</strong></span>
+        </a>
+        <div class="header-account">
+          <span id="accountIdentifier" class="account-identifier"></span>
+          <button
+            id="logoutButton"
+            class="quiet-button"
+            type="button"
+            aria-label="로그아웃"
+            title="로그아웃"
+          >
+            <img
+              src="/portal/assets/icons/log-out.svg"
+              alt=""
+              width="16"
+              height="16"
+            />
+            <span>로그아웃</span>
+          </button>
+        </div>
+      </div>
+    </header>
+    <div class="workspace">
+      <nav id="portalNav" class="navigation" aria-label="계정 메뉴" hidden>
+        <a id="servicesNav" href="/">
+          <img
+            src="/portal/assets/icons/layout-grid.svg"
+            alt=""
+            width="18"
+            height="18"
+          />
+          <span id="servicesNavLabel">내 서비스</span>
+        </a>
+        <a id="profileNav" href="/profile">
+          <img
+            src="/portal/assets/icons/user-round.svg"
+            alt=""
+            width="18"
+            height="18"
+          />
+          <span>내 정보</span>
+        </a>
+      </nav>
+      <main id="main" tabindex="-1">
+        <div
+          id="loadingState"
+          class="loading-state"
+          role="status"
+          aria-live="polite"
+        >
+          <span class="spinner" aria-hidden="true"></span>
+          <span>계정 정보를 불러오는 중입니다.</span>
+        </div>
+        <div
+          id="pageNotice"
+          class="notice"
+          role="status"
+          aria-live="polite"
+          hidden
+        ></div>
+        <div id="recoveryActions" class="recovery-actions" hidden>
+          <button id="retryButton" class="secondary-button" type="button">
+            다시 시도
+          </button>
+          <a
+            id="reauthButton"
+            class="primary-button"
+            href="/login?reauth=1"
+            hidden
+            >다시 인증</a
+          >
+        </div>
+        <div id="portalContent" hidden>
+          <section id="servicesView" aria-labelledby="servicesTitle" hidden>
+            <div class="page-heading">
+              <h1 id="servicesTitle">내 서비스</h1>
+              <span id="serviceCount" class="count"></span>
+            </div>
+            <div id="serviceList" class="service-list"></div>
+            <div id="servicesEmpty" class="empty-state" hidden>
+              <img
+                src="/portal/assets/icons/layout-grid.svg"
+                alt=""
+                width="28"
+                height="28"
+              />
+              <p>등록된 서비스가 없습니다.</p>
+            </div>
+          </section>
+          <div id="profileView" hidden>
+            <div class="page-heading"><h1>내 정보</h1></div>
+            <section class="profile-section" aria-labelledby="accountTitle">
+              <div class="section-heading">
+                <h2 id="accountTitle">계정 정보</h2>
+              </div>
+              <div class="identity-fields">
+                <div class="field">
+                  <label for="profileName">이름</label>
+                  <input
+                    id="profileName"
+                    type="text"
+                    readonly
+                    autocomplete="name"
+                  />
+                </div>
+                <div class="field">
+                  <label for="profileLoginId">아이디</label>
+                  <input
+                    id="profileLoginId"
+                    type="text"
+                    readonly
+                    autocomplete="username"
+                  />
+                </div>
+                <div class="field email-field">
+                  <label for="profileEmail">이메일</label>
+                  <div class="control-row">
+                    <input
+                      id="profileEmail"
+                      type="email"
+                      readonly
+                      autocomplete="email"
+                    />
+                    <button
+                      id="editEmailButton"
+                      class="secondary-button"
+                      type="button"
+                      hidden
+                    >
+                      변경
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+            <section class="profile-section" aria-labelledby="passwordTitle">
+              <div class="section-heading">
+                <h2 id="passwordTitle">비밀번호 변경</h2>
+                <img
+                  src="/portal/assets/icons/key-round.svg"
+                  alt=""
+                  width="18"
+                  height="18"
+                />
+              </div>
+              <form id="passwordForm">
+                <div id="newLoginIdField" class="field" hidden>
+                  <label for="newLoginId">새 아이디</label>
+                  <div class="control-row">
+                    <input
+                      id="newLoginId"
+                      type="text"
+                      autocomplete="username"
+                      maxlength="80"
+                      spellcheck="false"
+                      autocapitalize="none"
+                      aria-describedby="loginIdFeedback"
+                      disabled
+                    />
+                    <button
+                      id="checkLoginIdButton"
+                      class="secondary-button"
+                      type="button"
+                      disabled
+                    >
+                      중복 확인
+                    </button>
+                  </div>
+                  <p
+                    id="loginIdFeedback"
+                    class="feedback"
+                    role="status"
+                    aria-live="polite"
+                  ></p>
+                </div>
+                <div id="currentPasswordField" class="field">
+                  <label for="currentPassword">현재 비밀번호</label>
+                  <input
+                    id="currentPassword"
+                    type="password"
+                    autocomplete="current-password"
+                    required
+                  />
+                </div>
+                <div class="password-pair">
+                  <div class="field">
+                    <label for="newPassword">새 비밀번호</label>
+                    <input
+                      id="newPassword"
+                      type="password"
+                      autocomplete="new-password"
+                      minlength="8"
+                      required
+                      aria-describedby="passwordFeedback"
+                    />
+                    <p
+                      id="passwordFeedback"
+                      class="feedback"
+                      role="status"
+                      aria-live="polite"
+                    ></p>
+                  </div>
+                  <div class="field">
+                    <label for="passwordConfirm">새 비밀번호 확인</label>
+                    <input
+                      id="passwordConfirm"
+                      type="password"
+                      autocomplete="new-password"
+                      minlength="8"
+                      required
+                      aria-describedby="passwordConfirmFeedback"
+                    />
+                    <p
+                      id="passwordConfirmFeedback"
+                      class="feedback"
+                      role="status"
+                      aria-live="polite"
+                    ></p>
+                  </div>
+                </div>
+                <div class="form-footer">
+                  <p
+                    id="passwordNotice"
+                    class="feedback"
+                    role="status"
+                    aria-live="polite"
+                  ></p>
+                  <button
+                    id="savePasswordButton"
+                    class="primary-button"
+                    type="submit"
+                    disabled
+                  >
+                    비밀번호 변경
+                  </button>
+                </div>
+              </form>
+            </section>
+            <section
+              class="profile-section social-section"
+              aria-labelledby="socialTitle"
+            >
+              <div class="section-heading">
+                <h2 id="socialTitle">소셜 계정</h2>
+              </div>
+              <div id="providerList" class="provider-list"></div>
+              <p id="providersEmpty" class="muted" hidden>
+                연결 가능한 소셜 계정이 없습니다.
+              </p>
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
+    <dialog id="emailDialog" aria-labelledby="emailDialogTitle">
+      <div class="dialog-heading">
+        <h2 id="emailDialogTitle">이메일 변경</h2>
+        <button
+          id="closeEmailButton"
+          class="icon-button"
+          type="button"
+          aria-label="닫기"
+          title="닫기"
+        >
+          <img src="/portal/assets/icons/x.svg" alt="" width="20" height="20" />
+        </button>
+      </div>
+      <form id="emailStartForm">
+        <div class="field">
+          <label for="emailCurrentPassword">현재 비밀번호</label>
+          <input
+            id="emailCurrentPassword"
+            type="password"
+            autocomplete="current-password"
+            required
+          />
+        </div>
+        <div class="field">
+          <label for="newEmail">새 이메일</label>
+          <input
+            id="newEmail"
+            type="email"
+            autocomplete="email"
+            maxlength="320"
+            required
+          />
+        </div>
+        <button
+          id="sendEmailButton"
+          class="primary-button full-width"
+          type="submit"
+          disabled
+        >
+          인증번호 전송
+        </button>
+      </form>
+      <form id="emailCompleteForm" hidden>
+        <p id="emailSentTo" class="sent-to"></p>
+        <div class="field">
+          <label for="emailCode">인증번호</label>
+          <input
+            id="emailCode"
+            type="text"
+            autocomplete="one-time-code"
+            maxlength="6"
+            pattern="[A-Za-z0-9]{6}"
+            spellcheck="false"
+            autocapitalize="characters"
+            required
+          />
+        </div>
+        <button
+          id="completeEmailButton"
+          class="primary-button full-width"
+          type="submit"
+          disabled
+        >
+          이메일 변경
+        </button>
+        <button
+          id="restartEmailButton"
+          class="quiet-button full-width"
+          type="button"
+        >
+          다른 이메일 입력
+        </button>
+      </form>
+      <p id="emailNotice" class="feedback" role="status" aria-live="polite"></p>
+      <a
+        id="emailReauthButton"
+        class="secondary-button"
+        href="/login?reauth=1"
+        hidden
+        >다시 인증</a
+      >
+    </dialog>
+    <noscript
+      ><p class="noscript">
+        계정 정보를 보려면 JavaScript를 활성화해 주세요.
+      </p></noscript
+    >
+  </body>
+</html>

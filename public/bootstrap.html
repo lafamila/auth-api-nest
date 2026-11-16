@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Teddy Auth Bootstrap</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
+        background: #f5f6f8;
+        color: #162033;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      header {
+        background: #fff;
+        border-bottom: 1px solid #d9dee8;
+      }
+      .shell {
+        width: min(560px, calc(100% - 32px));
+        margin: 0 auto;
+      }
+      header .shell {
+        padding: 20px 0;
+      }
+      h1 {
+        margin: 0;
+        font-size: 22px;
+      }
+      h2 {
+        margin: 0 0 14px;
+        font-size: 16px;
+      }
+      main {
+        padding: 22px 0 40px;
+      }
+      form {
+        margin-top: 18px;
+      }
+      fieldset {
+        display: grid;
+        gap: 12px;
+        border: 0;
+        margin: 0;
+        padding: 0;
+        min-width: 0;
+      }
+      label {
+        display: grid;
+        gap: 5px;
+        color: #657084;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      input {
+        width: 100%;
+        min-width: 0;
+        border: 1px solid #d9dee8;
+        border-radius: 6px;
+        padding: 9px 10px;
+        color: #162033;
+        font: inherit;
+      }
+      button {
+        border: 1px solid #1769aa;
+        border-radius: 6px;
+        background: #1769aa;
+        color: #fff;
+        cursor: pointer;
+        font: inherit;
+        font-weight: 700;
+        padding: 9px 12px;
+      }
+      button.secondary {
+        background: #fff;
+        color: #1769aa;
+      }
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+      .message {
+        min-height: 22px;
+        color: #657084;
+        font-size: 13px;
+        overflow-wrap: anywhere;
+      }
+      .message.error {
+        color: #b42318;
+      }
+      .secret-card {
+        display: grid;
+        gap: 14px;
+        border: 1px dashed #d9dee8;
+        border-radius: 8px;
+        background: #fff;
+        padding: 14px;
+        margin-bottom: 18px;
+      }
+      .secret-card img {
+        width: 192px;
+        height: 192px;
+        max-width: 100%;
+        object-fit: contain;
+      }
+      .secret-card code {
+        display: block;
+        overflow-wrap: anywhere;
+        font-family: 'SFMono-Regular', Consolas, monospace;
+        font-size: 12px;
+      }
+      .hint {
+        color: #657084;
+        font-size: 12px;
+        line-height: 1.5;
+        margin: 0;
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="shell"><h1>Teddy Auth Bootstrap</h1></div>
+    </header>
+    <main class="shell" id="bootstrapMain">
+      <div aria-live="polite" class="message" id="statusMessage" role="status">
+        Checking bootstrap availability...
+      </div>
+      <button class="secondary" hidden id="retryBootstrap" type="button">
+        Retry
+      </button>
+
+      <form hidden id="bootstrapForm">
+        <h2>First Superadmin</h2>
+        <fieldset disabled id="bootstrapDetails">
+          <label
+            >Login ID
+            <input autocomplete="username" id="bootstrapLoginId" required
+          /></label>
+          <label
+            >Name <input autocomplete="name" id="bootstrapName" required
+          /></label>
+          <label
+            >Email
+            <input
+              autocomplete="email"
+              id="bootstrapEmail"
+              required
+              type="email"
+          /></label>
+          <label
+            >Password
+            <input
+              autocomplete="new-password"
+              id="bootstrapPassword"
+              minlength="8"
+              required
+              type="password"
+          /></label>
+          <button id="startBootstrap" type="submit">Create OTP Setup</button>
+        </fieldset>
+      </form>
+
+      <form hidden id="bootstrapVerification">
+        <h2>Google OTP Setup</h2>
+        <div class="secret-card" id="bootstrapOtpCard">
+          <img alt="OTP QR" hidden id="bootstrapOtpQr" />
+          <div>
+            <strong>OTP Secret</strong><code id="bootstrapOtpSecret"></code>
+          </div>
+          <div>
+            <strong>Authenticator URI</strong
+            ><code id="bootstrapOtpauthUri"></code>
+          </div>
+          <p class="hint">
+            Register the QR or URI in your authenticator, then enter the OTP
+            code. These values are shown only here.
+          </p>
+        </div>
+        <fieldset disabled id="bootstrapVerificationFields">
+          <label
+            >OTP Code
+            <input
+              autocomplete="one-time-code"
+              id="bootstrapOtpCode"
+              inputmode="numeric"
+              maxlength="6"
+              minlength="6"
+              pattern="[0-9]{6}"
+              required
+          /></label>
+          <button id="completeBootstrap" type="submit">
+            Complete Bootstrap
+          </button>
+          <button class="secondary" id="restartBootstrap" type="button">
+            Start Over
+          </button>
+        </fieldset>
+      </form>
+    </main>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const state = {
+        requiresBootstrap: false,
+        challengeId: null,
+        busy: false,
+      };
+
+      function setStatus(text, isError = false) {
+        $('statusMessage').textContent = text;
+        $('statusMessage').classList.toggle('error', isError);
+      }
+
+      function setBusy(busy) {
+        state.busy = busy;
+        $('bootstrapMain').setAttribute('aria-busy', String(busy));
+        $('bootstrapDetails').disabled =
+          busy || !state.requiresBootstrap || Boolean(state.challengeId);
+        $('bootstrapVerificationFields').disabled = busy || !state.challengeId;
+        $('retryBootstrap').disabled = busy;
+      }
+
+      function clearOtpSetup() {
+        state.challengeId = null;
+        $('bootstrapOtpSecret').textContent = '';
+        $('bootstrapOtpauthUri').textContent = '';
+        $('bootstrapOtpQr').removeAttribute('src');
+        $('bootstrapOtpQr').hidden = true;
+        $('bootstrapOtpCode').value = '';
+        $('bootstrapVerification').hidden = true;
+      }
+
+      async function requestJson(path, options = {}) {
+        const response = await fetch(path, {
+          ...options,
+          cache: 'no-store',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          throw Object.assign(
+            new Error(error.message || error.error || response.statusText),
+            {
+              status: response.status,
+            },
+          );
+        }
+        return response.json();
+      }
+
+      async function initializeBootstrap() {
+        state.requiresBootstrap = false;
+        clearOtpSetup();
+        $('bootstrapForm').hidden = true;
+        $('retryBootstrap').hidden = true;
+        setBusy(true);
+        setStatus('Checking bootstrap availability...');
+        try {
+          const status = await requestJson('/api/admin/bootstrap/status');
+          if (status.requiresBootstrap !== true) {
+            window.location.replace('/');
+            return;
+          }
+          state.requiresBootstrap = true;
+          $('bootstrapForm').hidden = false;
+          setStatus('Create the first superadmin account');
+        } catch (error) {
+          setStatus(error.message, true);
+          $('retryBootstrap').hidden = false;
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      async function showBootstrapError(error) {
+        if (error.status === 409) {
+          const status = await requestJson('/api/admin/bootstrap/status').catch(
+            () => null,
+          );
+          if (status && status.requiresBootstrap === false) {
+            state.requiresBootstrap = false;
+            clearOtpSetup();
+            $('bootstrapForm').hidden = true;
+            window.location.replace('/');
+            return;
+          }
+        }
+        setStatus(error.message, true);
+      }
+
+      $('bootstrapForm').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (state.busy || !state.requiresBootstrap || state.challengeId) return;
+        const body = JSON.stringify({
+          loginId: $('bootstrapLoginId').value,
+          name: $('bootstrapName').value,
+          email: $('bootstrapEmail').value,
+          password: $('bootstrapPassword').value,
+        });
+        setBusy(true);
+        $('startBootstrap').textContent = 'Creating OTP setup...';
+        setStatus('Creating OTP setup...');
+        try {
+          const result = await requestJson('/api/admin/bootstrap/start', {
+            method: 'POST',
+            body,
+          });
+          state.challengeId = result.challengeId;
+          $('bootstrapPassword').value = '';
+          $('bootstrapOtpSecret').textContent = result.otpSecret;
+          $('bootstrapOtpauthUri').textContent = result.otpauthUri;
+          if (
+            typeof result.otpQrDataUrl === 'string' &&
+            /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(result.otpQrDataUrl)
+          ) {
+            $('bootstrapOtpQr').src = result.otpQrDataUrl;
+            $('bootstrapOtpQr').hidden = false;
+          }
+          $('bootstrapForm').hidden = true;
+          $('bootstrapVerification').hidden = false;
+          setStatus('OTP setup generated');
+        } catch (error) {
+          await showBootstrapError(error);
+        } finally {
+          $('startBootstrap').textContent = 'Create OTP Setup';
+          setBusy(false);
+        }
+        if (state.challengeId) $('bootstrapOtpCode').focus();
+      });
+
+      $('bootstrapVerification').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (state.busy || !state.requiresBootstrap || !state.challengeId)
+          return;
+        setBusy(true);
+        $('completeBootstrap').textContent = 'Verifying OTP...';
+        setStatus('Verifying OTP...');
+        try {
+          await requestJson('/api/admin/bootstrap/complete', {
+            method: 'POST',
+            body: JSON.stringify({
+              challengeId: state.challengeId,
+              otpCode: $('bootstrapOtpCode').value,
+            }),
+          });
+          state.requiresBootstrap = false;
+          clearOtpSetup();
+          setStatus('Bootstrap completed');
+          window.location.replace('/');
+        } catch (error) {
+          await showBootstrapError(error);
+        } finally {
+          $('completeBootstrap').textContent = 'Complete Bootstrap';
+          setBusy(false);
+        }
+      });
+
+      $('restartBootstrap').addEventListener('click', () => {
+        if (state.busy) return;
+        clearOtpSetup();
+        $('bootstrapPassword').value = '';
+        $('bootstrapForm').hidden = false;
+        setBusy(false);
+        setStatus('Create a new OTP setup');
+        $('bootstrapPassword').focus();
+      });
+      $('retryBootstrap').addEventListener(
+        'click',
+        () => void initializeBootstrap(),
+      );
+      window.addEventListener('pagehide', () => {
+        clearOtpSetup();
+        $('bootstrapPassword').value = '';
+      });
+      window.addEventListener('pageshow', (event) => {
+        if (event.persisted) void initializeBootstrap();
+      });
+      void initializeBootstrap();
+    </script>
+  </body>
+</html>

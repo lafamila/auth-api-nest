@@ -58,6 +58,18 @@ describe('Hosted login callback navigation', () => {
       flow,
       {} as never,
       transactions as never,
+      {} as never,
+      {
+        accountId: async (request: Request) =>
+          (request.signedCookies as Record<string, string> | undefined)
+            ?.tas_session ?? null,
+        create: async (value: { id: string }, response: Response) => {
+          response.cookie('tas_session', value.id, {
+            httpOnly: true,
+            signed: true,
+          });
+        },
+      } as never,
     );
     const response = {
       status: jest.fn().mockReturnThis(),

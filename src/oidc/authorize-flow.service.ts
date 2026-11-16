@@ -118,8 +118,20 @@ export class AuthorizeFlowService {
   async authorizeWithAccount(
     validated: ValidatedAuthorizeRequest,
     accountId: string,
+    expectedCredentialVersion?: number,
   ): Promise<AuthorizeRedirectResult> {
     const account = await this.accounts.findById(accountId);
+    const credentialVersion = account.credentialVersion ?? 0;
+    if (
+      expectedCredentialVersion !== undefined &&
+      expectedCredentialVersion !== credentialVersion
+    ) {
+      throw new OAuthError(
+        'access_denied',
+        'Account credential state has changed',
+        403,
+      );
+    }
     if (account.status !== 'active') {
       return {
         kind: 'redirect',
@@ -166,6 +178,7 @@ export class AuthorizeFlowService {
       codeChallengeMethod: 'S256',
       scope: validated.request.scope,
       nonce: validated.request.nonce,
+      credentialVersion,
     });
     return {
       kind: 'redirect',
@@ -178,7 +191,7 @@ export class AuthorizeFlowService {
   }
 
   renderHostedLoginPage(
-    request: AuthorizeRequestInput,
+    request: AuthorizeRequestInput | null,
     loginTransaction: string,
     failureMessage = '',
   ) {
@@ -188,7 +201,9 @@ export class AuthorizeFlowService {
     );
     const failureText = this.escapeHtml(failureMessage);
     const failureVisibility = failureText ? 'visible' : 'hidden';
-    const signupHref = this.escapeHtml(this.buildSignupUrl(request));
+    const signupHref = this.escapeHtml(
+      request ? this.buildSignupUrl(request) : '/signup?return_to=%2Flogin',
+    );
     const social = this.renderSocialLogin(loginTransaction);
     return `<!doctype html>
 <html lang="ko">
