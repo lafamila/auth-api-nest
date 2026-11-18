@@ -15,7 +15,11 @@ export class AdminMfaEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @OneToOne(() => AccountEntity, { eager: true, nullable: false })
+  @OneToOne(() => AccountEntity, {
+    eager: true,
+    nullable: false,
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'account_id' })
   account!: AccountEntity;
 

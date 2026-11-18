@@ -1,5 +1,9 @@
-import { IsIn, IsOptional, IsString } from 'class-validator';
-import { ServiceStatus } from '../../../database/entities/service.entity';
+import { IsIn, IsOptional, IsString, ValidateIf } from 'class-validator';
+import {
+  SERVICE_CATEGORY_KEYS,
+  ServiceCategory,
+  ServiceStatus,
+} from '../../../database/entities/service.entity';
 
 export class CreateServiceDto {
   @IsString()
@@ -11,6 +15,10 @@ export class CreateServiceDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ValidateIf((_object, value: unknown) => value !== undefined)
+  @IsIn(SERVICE_CATEGORY_KEYS)
+  category?: ServiceCategory;
 }
 
 export class UpdateServiceDto {
@@ -25,4 +33,8 @@ export class UpdateServiceDto {
   @IsOptional()
   @IsIn(['active', 'disabled', 'archived'])
   status?: ServiceStatus;
+
+  @ValidateIf((_object, value: unknown) => value !== undefined)
+  @IsIn(SERVICE_CATEGORY_KEYS)
+  category?: ServiceCategory;
 }

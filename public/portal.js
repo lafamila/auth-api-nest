@@ -17,6 +17,13 @@
     passwordValid: false,
     confirmValid: false,
     verificationId: '',
+    lifecycle: null,
+    lifecycleLoading: false,
+    lifecycleCommand: null,
+    lifecycleFocus: null,
+    policies: null,
+    policiesLoading: false,
+    policiesSaving: false,
   };
   let passwordTimer;
   let confirmTimer;
@@ -29,11 +36,51 @@
   }
 
   function locked() {
-    return state.loading || state.busy || state.navigating || state.reauth;
+    return (
+      state.loading ||
+      state.lifecycleLoading ||
+      state.policiesLoading ||
+      state.busy ||
+      state.navigating ||
+      state.reauth
+    );
   }
 
   function localCredentials() {
     return state.me && state.me.account.hasLocalCredentials === true;
+  }
+
+  function providerEnabled(provider) {
+    return Boolean(
+      state.me?.socialProviders.some(
+        (item) => item.key === provider && item.enabled === true,
+      ),
+    );
+  }
+
+  function requiresLifecyclePassword() {
+    return typeof state.lifecycle?.actor?.requiresCurrentPassword === 'boolean'
+      ? state.lifecycle.actor.requiresCurrentPassword
+      : Boolean(localCredentials());
+  }
+
+  function lifecycleReady() {
+    const command = state.lifecycleCommand;
+    if (!state.me || !state.lifecycle || !command || locked() || state.checking)
+      return false;
+    if (requiresLifecyclePassword() && !$('lifecyclePassword').value)
+      return false;
+    if (command.kind === 'withdraw')
+      return (
+        state.lifecycle.accountDeletion.allowed &&
+        $('withdrawConfirmation').value === 'DELETE'
+      );
+    const connection = state.lifecycle.connections.find(
+      (item) => item.provider === command.provider,
+    );
+    return Boolean(
+      connection?.canUnlink && !connection.requiresProviderAuthentication,
+    );
   }
 
   function passwordReady() {
@@ -95,6 +142,61 @@
     $('restartEmailButton').disabled = disabled;
     $('emailDialog').setAttribute('aria-busy', String(state.busy));
     $('retryButton').disabled = state.loading;
+    $('lifecycleSection').setAttribute(
+      'aria-busy',
+      String(state.lifecycleLoading),
+    );
+    $('retryLifecycleButton').disabled = disabled;
+    $('withdrawButton').disabled =
+      disabled || !state.lifecycle?.accountDeletion.allowed;
+    for (const button of $('connectionList').querySelectorAll('button')) {
+      const connection = state.lifecycle?.connections.find(
+        (item) => item.provider === button.dataset.provider,
+      );
+      button.disabled =
+        disabled ||
+        !connection ||
+        (button.dataset.action === 'reconnect'
+          ? !connection.requiresProviderAuthentication ||
+            !providerEnabled(connection.provider)
+          : !connection.canUnlink || connection.requiresProviderAuthentication);
+    }
+    $('lifecyclePassword').disabled =
+      disabled || !state.lifecycleCommand || !requiresLifecyclePassword();
+    $('withdrawConfirmation').disabled =
+      disabled || state.lifecycleCommand?.kind !== 'withdraw';
+    $('confirmLifecycleButton').disabled = !lifecycleReady();
+    $('confirmLifecycleButton').setAttribute(
+      'aria-busy',
+      String(state.busy && Boolean(state.lifecycleCommand)),
+    );
+    $('closeLifecycleButton').disabled = $('cancelLifecycleButton').disabled =
+      state.busy || state.navigating;
+    $('lifecycleDialog').setAttribute(
+      'aria-busy',
+      String(state.busy && Boolean(state.lifecycleCommand)),
+    );
+    const policyDisabled =
+      disabled || !state.policies || state.policies.accepted;
+    for (const id of ['termsPolicyAccepted', 'privacyPolicyAccepted'])
+      $(id).disabled = policyDisabled;
+    $('savePolicyButton').disabled =
+      policyDisabled ||
+      !$('termsPolicyAccepted').checked ||
+      !$('privacyPolicyAccepted').checked;
+    $('savePolicyButton').textContent = state.policiesSaving
+      ? '저장 중'
+      : '동의 저장';
+    $('savePolicyButton').setAttribute(
+      'aria-busy',
+      String(state.policiesSaving),
+    );
+    $('policyForm').setAttribute('aria-busy', String(state.policiesSaving));
+    $('policySection').setAttribute(
+      'aria-busy',
+      String(state.policiesLoading || state.policiesSaving),
+    );
+    $('reloadPolicyButton').disabled = disabled;
   }
 
   async function request(path, body) {
@@ -127,11 +229,16 @@
         body !== undefined &&
         ((payload?.code === 'invalid_current_password' &&
           (path === '/api/portal/password' ||
-            path === '/api/portal/email/start')) ||
+            path === '/api/portal/email/start' ||
+            path === '/api/portal/withdraw' ||
+            /^\/api\/portal\/social\/(google|kakao|naver)\/unlink$/.test(
+              path,
+            ))) ||
           (payload?.code === 'invalid_email_verification' &&
             path === '/api/portal/email/complete'));
       if (response.status === 401 && !fieldValidationError) {
         state.navigating = true;
+        clearSecrets();
         window.location.assign('/login');
         throw new Error('로그인이 필요합니다.');
       }
@@ -150,6 +257,7 @@
         error.reauthenticate =
           response.status === 403 &&
           payload.code === 'reauthentication_required';
+        error.code = payload.code;
         throw error;
       }
       return payload;
@@ -163,13 +271,31 @@
   }
 
   function reportError(error, target) {
+    if (target === 'lifecycleNotice' || target === 'lifecycleNoticeInDialog') {
+      const reasons = {
+        last_login_method:
+          '아이디 / 비밀번호나 다른 로그인 수단을 먼저 추가해 주세요.',
+        last_superadmin:
+          '마지막 최고 관리자는 탈퇴할 수 없습니다. 다른 최고 관리자를 먼저 지정해 주세요.',
+        last_active_superadmin:
+          '마지막 최고 관리자는 탈퇴할 수 없습니다. 다른 최고 관리자를 먼저 지정해 주세요.',
+        provider_reauthentication_required:
+          '소셜 계정으로 다시 인증한 후 계속해 주세요.',
+        provider_revocation_unavailable:
+          '제공자 연결 철회를 처리할 수 없습니다. 잠시 후 다시 시도해 주세요.',
+      };
+      if (Object.prototype.hasOwnProperty.call(reasons, error.code))
+        error.message = reasons[error.code];
+    }
     if (error.reauthenticate) {
       state.reauth = true;
+      clearSecrets();
       message('pageNotice', '다시 인증한 후 계속해 주세요.', 'error');
       $('recoveryActions').hidden = false;
       $('retryButton').hidden = true;
       $('reauthButton').hidden = false;
       $('emailReauthButton').hidden = !$('emailDialog').open;
+      $('lifecycleReauthButton').hidden = !$('lifecycleDialog').open;
     }
     message(
       target,
@@ -306,9 +432,138 @@
         false;
   }
 
+  function renderLifecycle() {
+    $('connectionList').replaceChildren();
+    const labels = { google: 'Google', kakao: 'Kakao', naver: 'Naver' };
+    for (const connection of state.lifecycle.connections) {
+      const {
+        provider,
+        identityCount,
+        canUnlink,
+        requiresProviderAuthentication,
+      } = connection;
+      const label = labels[provider];
+      const row = node('div', 'lifecycle-row');
+      const details = node('div', 'lifecycle-details');
+      details.append(
+        node(
+          'h3',
+          '',
+          `${label}${identityCount > 1 ? ` (${identityCount}개 연결)` : ''}`,
+        ),
+      );
+      const reason =
+        connection.reason === 'last_login_method'
+          ? '아이디 / 비밀번호나 다른 로그인 수단을 먼저 추가해 주세요.'
+          : requiresProviderAuthentication
+            ? providerEnabled(provider)
+              ? `${label}로 다시 인증한 후 연결을 해제해 주세요.`
+              : `${label} 인증을 현재 사용할 수 없습니다.`
+            : connection.reason === 'provider_revocation_unavailable'
+              ? '제공자 연결 철회를 처리할 수 없습니다. 잠시 후 다시 불러와 주세요.'
+              : !canUnlink
+                ? '아이디 / 비밀번호나 다른 로그인 수단을 먼저 추가해 주세요.'
+                : '해제하면 이 소셜 계정으로 로그인할 수 없습니다.';
+      details.append(node('p', 'muted', reason));
+      const actions = node('div', 'lifecycle-actions');
+      if (requiresProviderAuthentication && providerEnabled(provider)) {
+        const reconnect = node('button', 'secondary-button', '다시 인증');
+        reconnect.type = 'button';
+        reconnect.dataset.provider = provider;
+        reconnect.dataset.action = 'reconnect';
+        reconnect.setAttribute('aria-label', `${label}로 다시 인증`);
+        reconnect.addEventListener('click', () =>
+          reconnectProvider(provider, reconnect),
+        );
+        actions.append(reconnect);
+      }
+      const unlink = node('button', 'quiet-button danger-command', '연결 해제');
+      unlink.type = 'button';
+      unlink.dataset.provider = provider;
+      unlink.dataset.action = 'unlink';
+      unlink.setAttribute('aria-label', `${label} 연결 해제`);
+      unlink.addEventListener('click', () =>
+        openLifecycle(
+          { kind: 'unlink', provider, label, identityCount },
+          unlink,
+        ),
+      );
+      actions.append(unlink);
+      row.append(details, actions);
+      $('connectionList').append(row);
+    }
+    $('connectionsEmpty').hidden = state.lifecycle.connections.length !== 0;
+    const deletion = state.lifecycle.accountDeletion;
+    $('withdrawBlockedReason').hidden = deletion.allowed;
+    $('withdrawBlockedReason').textContent = deletion.allowed
+      ? ''
+      : ['last_superadmin', 'last_active_superadmin'].includes(
+            deletion.blockedReason,
+          )
+        ? '마지막 최고 관리자는 탈퇴할 수 없습니다. 다른 최고 관리자를 먼저 지정해 주세요.'
+        : deletion.blockedReason === 'provider_reauthentication_required'
+          ? '소셜 계정으로 다시 인증한 후 탈퇴를 진행해 주세요.'
+          : deletion.blockedReason === 'provider_revocation_unavailable'
+            ? '제공자 연결 철회를 처리할 수 없습니다. 잠시 후 다시 불러와 주세요.'
+            : '현재 계정은 탈퇴할 수 없습니다. 관리자에게 문의해 주세요.';
+  }
+
+  async function loadLifecycle() {
+    if (
+      !profileRoute ||
+      !state.me ||
+      state.lifecycleLoading ||
+      state.navigating ||
+      state.reauth
+    )
+      return;
+    state.lifecycle = null;
+    state.lifecycleLoading = true;
+    $('lifecycleSection').hidden = false;
+    $('connectionList').replaceChildren();
+    $('connectionsEmpty').hidden = true;
+    $('retryLifecycleButton').hidden = true;
+    $('withdrawBlockedReason').hidden = true;
+    message('lifecycleNotice', '연결 및 탈퇴 정보를 불러오는 중입니다.');
+    renderControls();
+    try {
+      const lifecycle = await request('/api/portal/lifecycle');
+      if (
+        typeof lifecycle.accountDeletion?.allowed !== 'boolean' ||
+        lifecycle.accountDeletion.serviceDataPolicy !== 'separate' ||
+        !Array.isArray(lifecycle.connections) ||
+        lifecycle.connections.some(
+          (connection) =>
+            !connection ||
+            !providerKeys.has(connection.provider) ||
+            !Number.isInteger(connection.identityCount) ||
+            connection.identityCount < 1 ||
+            typeof connection.canUnlink !== 'boolean' ||
+            typeof connection.requiresProviderAuthentication !== 'boolean',
+        )
+      )
+        throw new Error(
+          '연결 및 탈퇴 정보를 확인할 수 없습니다. 다시 불러와 주세요.',
+        );
+      state.lifecycle = lifecycle;
+      renderLifecycle();
+      message('lifecycleNotice');
+    } catch (error) {
+      reportError(error, 'lifecycleNotice');
+      $('retryLifecycleButton').hidden = state.navigating || state.reauth;
+    } finally {
+      state.lifecycleLoading = false;
+      renderControls();
+    }
+  }
+
   async function loadMe() {
     if (state.loading) return;
     state.loading = true;
+    state.lifecycle = null;
+    $('lifecycleSection').hidden = true;
+    state.policies = null;
+    $('policySection').hidden = true;
     $('loadingState').hidden = false;
     $('portalContent').hidden = true;
     $('recoveryActions').hidden = true;
@@ -328,6 +583,8 @@
       }
       state.me = me;
       renderAccount();
+      if (profileRoute) await loadLifecycle();
+      if (profileRoute) await loadPolicies();
     } catch (error) {
       reportError(error, 'pageNotice');
       if (!state.navigating) {
@@ -341,19 +598,181 @@
     }
   }
 
+  function policyStatus(payload) {
+    if (
+      typeof payload.accepted !== 'boolean' ||
+      typeof payload.termsVersion !== 'string' ||
+      !payload.termsVersion ||
+      typeof payload.privacyVersion !== 'string' ||
+      !payload.privacyVersion ||
+      typeof payload.policyDigest !== 'string' ||
+      !/^[a-f0-9]{64}$/i.test(payload.policyDigest) ||
+      (payload.accepted &&
+        (typeof payload.acceptedAt !== 'string' ||
+          Number.isNaN(new Date(payload.acceptedAt).getTime())))
+    )
+      throw new Error(
+        '정책 동의 상태를 확인할 수 없습니다. 다시 불러와 주세요.',
+      );
+    const urls = {};
+    for (const key of ['termsUrl', 'privacyUrl']) {
+      if (typeof payload[key] !== 'string' || !payload[key])
+        throw new Error('정책 주소를 확인할 수 없습니다.');
+      const url = new URL(payload[key], window.location.origin);
+      if (
+        url.origin !== window.location.origin ||
+        !['https:', 'http:'].includes(url.protocol)
+      )
+        throw new Error('정책 주소를 확인할 수 없습니다.');
+      urls[key] = url.href;
+    }
+    return { ...payload, ...urls };
+  }
+
+  function renderPolicies() {
+    const policies = state.policies;
+    $('termsPolicyAccepted').checked = $('privacyPolicyAccepted').checked =
+      false;
+    $('termsPolicyLink').setAttribute('href', policies.termsUrl);
+    $('privacyPolicyLink').setAttribute('href', policies.privacyUrl);
+    $('policyForm').hidden = policies.accepted;
+    const acceptedAt = policies.accepted
+      ? new Intl.DateTimeFormat('ko-KR', {
+          timeZone: 'Asia/Seoul',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+        }).format(new Date(policies.acceptedAt))
+      : '';
+    message(
+      'policyStatus',
+      policies.accepted
+        ? `현재 정책 동의 완료 · ${acceptedAt} (KST)`
+        : '현재 이용약관과 개인정보처리방침에 대한 동의가 필요합니다.',
+      policies.accepted ? 'success' : '',
+    );
+  }
+
+  async function loadPolicies() {
+    if (
+      !profileRoute ||
+      !state.me ||
+      state.policiesLoading ||
+      state.navigating ||
+      state.reauth
+    )
+      return;
+    state.policies = null;
+    state.policiesLoading = true;
+    $('policySection').hidden = false;
+    $('policyForm').hidden = true;
+    $('termsPolicyAccepted').checked = $('privacyPolicyAccepted').checked =
+      false;
+    $('reloadPolicyButton').hidden = true;
+    message('policyStatus', '정책 동의 상태를 불러오는 중입니다.');
+    message('policyNotice');
+    renderControls();
+    try {
+      state.policies = policyStatus(await request('/api/portal/policies'));
+      renderPolicies();
+    } catch (error) {
+      message('policyStatus');
+      reportError(error, 'policyNotice');
+      $('reloadPolicyButton').hidden = state.navigating || state.reauth;
+    } finally {
+      state.policiesLoading = false;
+      renderControls();
+    }
+  }
+
+  $('reloadPolicyButton').addEventListener('click', () => {
+    if (
+      !locked() &&
+      !state.checking &&
+      !$('emailDialog').open &&
+      !$('lifecycleDialog').open
+    )
+      return loadPolicies();
+  });
+  for (const id of ['termsPolicyAccepted', 'privacyPolicyAccepted'])
+    $(id).addEventListener('change', renderControls);
+  $('policyForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (
+      !state.me ||
+      locked() ||
+      state.checking ||
+      !state.policies ||
+      state.policies.accepted ||
+      !$('termsPolicyAccepted').checked ||
+      !$('privacyPolicyAccepted').checked ||
+      $('emailDialog').open ||
+      $('lifecycleDialog').open
+    )
+      return;
+    const snapshot = state.policies;
+    state.busy = state.policiesSaving = true;
+    message('policyNotice', '동의를 저장하는 중입니다.');
+    renderControls();
+    try {
+      const result = policyStatus(
+        await request('/api/portal/policies', {
+          termsAccepted: true,
+          privacyAccepted: true,
+          termsVersion: snapshot.termsVersion,
+          privacyVersion: snapshot.privacyVersion,
+          policyDigest: snapshot.policyDigest,
+        }),
+      );
+      if (
+        !result.accepted ||
+        result.termsVersion !== snapshot.termsVersion ||
+        result.privacyVersion !== snapshot.privacyVersion ||
+        result.policyDigest !== snapshot.policyDigest
+      )
+        throw new Error(
+          '동의 결과를 확인할 수 없습니다. 현재 정책을 다시 불러와 주세요.',
+        );
+      state.policies = result;
+      renderPolicies();
+      message('policyNotice', '동의가 저장되었습니다.', 'success');
+      $('reloadPolicyButton').hidden = true;
+    } catch (error) {
+      state.policies = null;
+      $('termsPolicyAccepted').checked = $('privacyPolicyAccepted').checked =
+        false;
+      message('policyStatus', '현재 정책을 다시 불러온 후 동의해 주세요.');
+      reportError(error, 'policyNotice');
+      $('reloadPolicyButton').hidden = state.navigating || state.reauth;
+    } finally {
+      state.busy = state.policiesSaving = false;
+      renderControls();
+    }
+  });
+
+  function clearSecrets() {
+    clearTimeout(passwordTimer);
+    clearTimeout(confirmTimer);
+    for (const id of [
+      'currentPassword',
+      'newPassword',
+      'passwordConfirm',
+      'emailCurrentPassword',
+      'emailCode',
+      'lifecyclePassword',
+      'withdrawConfirmation',
+    ])
+      $(id).value = '';
+    state.passwordValid = state.confirmValid = false;
+    state.verificationId = '';
+  }
+
   function mutationComplete(result, target) {
     if (result.reauthenticate === true) {
       state.navigating = true;
-      for (const id of [
-        'currentPassword',
-        'newPassword',
-        'passwordConfirm',
-        'emailCurrentPassword',
-        'emailCode',
-      ])
-        $(id).value = '';
-      state.passwordValid = state.confirmValid = false;
-      state.verificationId = '';
+      clearSecrets();
       message(target, '완료되었습니다. 로그인 화면으로 이동합니다.', 'success');
       setTimeout(() => window.location.assign('/login'), 900);
       return true;
@@ -379,6 +798,21 @@
     }
   }
 
+  function navigateProvider(result, target) {
+    if (typeof result.redirectUrl !== 'string' || !result.redirectUrl)
+      throw new Error('연결 주소를 확인할 수 없습니다.');
+    const url = new URL(result.redirectUrl, window.location.origin);
+    if (
+      url.origin !== window.location.origin ||
+      !['https:', 'http:'].includes(url.protocol)
+    )
+      throw new Error('연결 주소를 확인할 수 없습니다.');
+    state.navigating = true;
+    clearSecrets();
+    message(target, '소셜 계정 인증으로 이동합니다.');
+    window.location.assign(url.href);
+  }
+
   async function linkProvider(key, button) {
     if (locked() || state.checking) return;
     button.setAttribute('aria-busy', 'true');
@@ -386,22 +820,183 @@
       `/api/portal/social/${encodeURIComponent(key)}/link`,
       {},
       'pageNotice',
-      (result) => {
-        if (typeof result.redirectUrl !== 'string' || !result.redirectUrl)
-          throw new Error('연결 주소를 확인할 수 없습니다.');
-        const url = new URL(result.redirectUrl, window.location.origin);
-        if (
-          url.origin !== window.location.origin ||
-          !['https:', 'http:'].includes(url.protocol)
-        )
-          throw new Error('연결 주소를 확인할 수 없습니다.');
-        state.navigating = true;
-        message('pageNotice', '소셜 계정 인증으로 이동합니다.');
-        window.location.assign(url.href);
-      },
+      (result) => navigateProvider(result, 'pageNotice'),
     );
     button.setAttribute('aria-busy', 'false');
   }
+
+  async function reconnectProvider(provider, button) {
+    if (
+      locked() ||
+      state.checking ||
+      !providerEnabled(provider) ||
+      !state.lifecycle?.connections.some(
+        (item) =>
+          item.provider === provider && item.requiresProviderAuthentication,
+      )
+    )
+      return;
+    state.busy = true;
+    button.setAttribute('aria-busy', 'true');
+    message('lifecycleNotice', '소셜 계정 인증을 준비하는 중입니다.');
+    renderControls();
+    try {
+      const result = await request(
+        `/api/portal/social/${encodeURIComponent(provider)}/reconnect`,
+        {},
+      );
+      navigateProvider(result, 'lifecycleNotice');
+    } catch (error) {
+      reportError(error, 'lifecycleNotice');
+    } finally {
+      state.busy = false;
+      button.setAttribute('aria-busy', 'false');
+      renderControls();
+    }
+  }
+
+  function openLifecycle(command, button) {
+    if (
+      !state.lifecycle ||
+      locked() ||
+      state.checking ||
+      $('emailDialog').open ||
+      $('lifecycleDialog').open
+    )
+      return;
+    if (command.kind === 'withdraw' && !state.lifecycle.accountDeletion.allowed)
+      return;
+    if (
+      command.kind === 'unlink' &&
+      !state.lifecycle.connections.some(
+        (item) =>
+          item.provider === command.provider &&
+          item.canUnlink &&
+          !item.requiresProviderAuthentication,
+      )
+    )
+      return;
+    state.lifecycleCommand = command;
+    state.lifecycleFocus = button;
+    $('lifecyclePassword').value = $('withdrawConfirmation').value = '';
+    $('lifecyclePassword').removeAttribute('aria-invalid');
+    const withdraw = command.kind === 'withdraw';
+    $('lifecyclePasswordField').hidden = !requiresLifecyclePassword();
+    $('lifecyclePassword').required = requiresLifecyclePassword();
+    $('withdrawConfirmationField').hidden = !withdraw;
+    $('withdrawConfirmation').required = withdraw;
+    $('lifecycleDialogTitle').textContent = withdraw
+      ? 'Auth 계정 탈퇴'
+      : `${command.label} 연결 해제`;
+    $('lifecycleDialogDescription').textContent = withdraw
+      ? 'Auth 계정과 인증 데이터가 삭제되며 복구할 수 없습니다. Todo, BodyLab, Chat 등 다른 서비스 데이터는 삭제되지 않으므로 각 서비스에서 별도로 삭제해야 합니다. 제공자 연결 철회는 대기열에서 처리될 수 있습니다.'
+      : `${command.label} 연결${command.identityCount > 1 ? ` ${command.identityCount}개를 모두` : '을'} 해제하면 이 소셜 계정으로 로그인할 수 없습니다. 제공자 연결 철회는 대기열에서 처리될 수 있습니다.`;
+    $('confirmLifecycleButton').textContent = withdraw
+      ? 'Auth 계정 탈퇴'
+      : '연결 해제';
+    $('lifecycleReauthButton').hidden = true;
+    message('lifecycleNoticeInDialog');
+    $('lifecycleDialog').showModal();
+    renderControls();
+    (withdraw
+      ? $('withdrawConfirmation')
+      : requiresLifecyclePassword()
+        ? $('lifecyclePassword')
+        : $('cancelLifecycleButton')
+    ).focus();
+  }
+
+  function closeLifecycle() {
+    if (state.busy || state.navigating) return;
+    $('lifecycleDialog').close();
+    $('lifecyclePassword').value = $('withdrawConfirmation').value = '';
+    state.lifecycleCommand = null;
+    message('lifecycleNoticeInDialog');
+    renderControls();
+    if (state.reauth) $('reauthButton').focus();
+    else state.lifecycleFocus?.focus();
+    state.lifecycleFocus = null;
+  }
+
+  $('withdrawButton').addEventListener('click', () =>
+    openLifecycle({ kind: 'withdraw' }, $('withdrawButton')),
+  );
+  $('closeLifecycleButton').addEventListener('click', closeLifecycle);
+  $('cancelLifecycleButton').addEventListener('click', closeLifecycle);
+  $('lifecycleDialog').addEventListener('cancel', (event) => {
+    event.preventDefault();
+    closeLifecycle();
+  });
+  for (const id of ['lifecyclePassword', 'withdrawConfirmation'])
+    $(id).addEventListener('input', renderControls);
+  $('retryLifecycleButton').addEventListener('click', () => {
+    if (!locked() && !state.checking) return loadLifecycle();
+  });
+  $('lifecycleForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!lifecycleReady()) return;
+    const command = state.lifecycleCommand;
+    const withdraw = command.kind === 'withdraw';
+    const body = { confirmation: withdraw ? 'DELETE' : 'UNLINK' };
+    if (requiresLifecyclePassword())
+      body.currentPassword = $('lifecyclePassword').value;
+    state.busy = true;
+    message('lifecycleNoticeInDialog', '처리 중입니다.');
+    renderControls();
+    try {
+      const result = await request(
+        withdraw
+          ? '/api/portal/withdraw'
+          : `/api/portal/social/${encodeURIComponent(command.provider)}/unlink`,
+        body,
+      );
+      if (
+        withdraw
+          ? result.withdrawn !== true
+          : result.ok !== true || result.reauthenticate !== true
+      )
+        throw new Error(
+          '처리 결과를 확인할 수 없습니다. 연결 상태를 다시 확인해 주세요.',
+        );
+      state.navigating = true;
+      clearSecrets();
+      state.me = state.lifecycle = null;
+      for (const id of [
+        'profileName',
+        'profileEmail',
+        'profileLoginId',
+        'newLoginId',
+        'newEmail',
+      ])
+        $(id).value = '';
+      $('accountIdentifier').textContent = '';
+      $('serviceList').replaceChildren();
+      $('providerList').replaceChildren();
+      $('connectionList').replaceChildren();
+      $('portalContent').hidden =
+        $('portalHeader').hidden =
+        $('portalNav').hidden =
+          true;
+      $('emailDialog').close();
+      const pending = Array.isArray(result.pendingProviderRevocations)
+        ? result.pendingProviderRevocations.length > 0
+        : Boolean(result.pendingProviderRevocations);
+      message(
+        'lifecycleNoticeInDialog',
+        `${withdraw ? 'Auth 계정 탈퇴가' : '연결 해제가'} 완료되었습니다.${pending ? ' 제공자 연결 철회는 대기열에서 처리될 수 있습니다.' : ''}`,
+        'success',
+      );
+      setTimeout(
+        () => window.location.assign(withdraw ? '/about' : '/login'),
+        900,
+      );
+    } catch (error) {
+      reportError(error, 'lifecycleNoticeInDialog');
+    } finally {
+      state.busy = false;
+      renderControls();
+    }
+  });
 
   function validatePassword() {
     state.passwordValid =
@@ -540,7 +1135,7 @@
   }
 
   $('editEmailButton').addEventListener('click', () => {
-    if (!localCredentials() || locked()) return;
+    if (!localCredentials() || locked() || $('lifecycleDialog').open) return;
     resetEmail();
     $('emailDialog').showModal();
     $('emailCurrentPassword').focus();

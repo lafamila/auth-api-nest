@@ -4,7 +4,13 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { isEmail } from 'class-validator';
+import { AesGcmService } from '../common/crypto/aes-gcm.service';
 import { AppConfigService } from '../config/app-config.service';
+import {
+  ProviderRevocationGrant,
+  tokenExpiry,
+  validToken,
+} from './provider-revocations-grant';
 import {
   SocialAuthorizationInput,
   SocialCodeExchangeInput,
@@ -13,7 +19,7 @@ import {
 
 type ProviderProfile = Omit<
   SocialIdentityProfile,
-  'provider' | 'providerClientId'
+  'provider' | 'providerClientId' | 'encryptedRevocationGrant'
 >;
 
 interface ProviderDefinition {
@@ -71,7 +77,10 @@ const PROVIDERS: readonly ProviderDefinition[] = [
 
 @Injectable()
 export class SocialProvidersService {
-  constructor(private readonly config: AppConfigService) {}
+  constructor(
+    private readonly config: AppConfigService,
+    private readonly crypto: AesGcmService,
+  ) {}
 
   list(): Array<{ key: string; label: string }> {
     return PROVIDERS.filter((provider) => {
@@ -103,6 +112,12 @@ export class SocialProvidersService {
     if (definition.pkce) {
       url.searchParams.set('code_challenge', input.codeChallenge);
       url.searchParams.set('code_challenge_method', 'S256');
+    }
+    if (definition.key === 'google') {
+      url.searchParams.set('access_type', 'offline');
+      if (input.forceConsent === true) {
+        url.searchParams.set('prompt', 'consent');
+      }
     }
     return url.toString();
   }
@@ -143,12 +158,13 @@ export class SocialProvidersService {
         body,
       });
       if (
-        typeof token.access_token !== 'string' ||
-        token.access_token.length > 16_384 ||
-        !/^[A-Za-z0-9._~+/-]+=*$/.test(token.access_token) ||
+        !validToken(token.access_token) ||
         typeof token.token_type !== 'string' ||
         token.token_type.toLowerCase() !== 'bearer'
       ) {
+        throw new Error(AUTHENTICATION_FAILED);
+      }
+      if (token.refresh_token != null && !validToken(token.refresh_token)) {
         throw new Error(AUTHENTICATION_FAILED);
       }
       // Browser claims and token-response ID tokens never supply identity data.
@@ -160,10 +176,21 @@ export class SocialProvidersService {
           'content-type': 'application/x-www-form-urlencoded;charset=utf-8',
         },
       });
+      const profile = definition.parseProfile(payload);
+      const grant: ProviderRevocationGrant = {
+        provider: definition.key,
+        clientId: credentials.clientId,
+        subject: profile.subject,
+        accessToken: token.access_token,
+        refreshToken: (token.refresh_token as string | undefined) ?? null,
+        accessTokenExpiresAt: tokenExpiry(token.expires_in),
+        refreshTokenExpiresAt: tokenExpiry(token.refresh_token_expires_in),
+      };
       return {
         provider: definition.key,
         providerClientId: credentials.clientId,
-        ...definition.parseProfile(payload),
+        ...profile,
+        encryptedRevocationGrant: this.crypto.encrypt(JSON.stringify(grant)),
       };
     } catch {
       throw new BadGatewayException(AUTHENTICATION_FAILED);

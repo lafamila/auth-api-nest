@@ -1,4 +1,8 @@
 import { createRequire } from 'node:module';
+import {
+  SERVICE_CATEGORIES,
+  ServiceCategory,
+} from './database/entities/service.entity';
 
 type SessionAccount = {
   name: string;
@@ -9,6 +13,7 @@ type ImportedDraft = {
   serviceKey: string;
   name: string;
   description: string;
+  category: ServiceCategory;
   requesterName: string;
   requesterEmail: string;
   permissions: Array<{ key: string; label: string; description: string }>;
@@ -43,6 +48,7 @@ type ServiceRequestImportModule = {
     sessionAccount: SessionAccount,
     options?: {
       supportedCredentialScopes: Array<{ key: string }>;
+      supportedServiceCategories?: ReadonlyArray<{ key: string }>;
       source?: 'file' | 'paste';
     },
   ) => ImportResult;
@@ -51,6 +57,7 @@ type ServiceRequestImportModule = {
     sessionAccount: SessionAccount,
     options?: {
       supportedCredentialScopes: Array<{ key: string }>;
+      supportedServiceCategories?: ReadonlyArray<{ key: string }>;
       source?: 'file' | 'paste';
     },
   ) => ImportResult;
@@ -68,11 +75,54 @@ describe('service request import helper', () => {
     email: 'admin-session@lafamila.xyz',
   };
   const importOptions = {
+    supportedServiceCategories: SERVICE_CATEGORIES,
     supportedCredentialScopes: [
       { key: 'account.search' },
       { key: 'permission.read' },
     ],
   };
+
+  it.each(SERVICE_CATEGORIES)(
+    'imports category $key without warning or guessing',
+    ({ key }) => {
+      const result = normalizeImportedServiceRequest(
+        { serviceKey: 'test', name: 'Test', category: key },
+        sessionAccount,
+        importOptions,
+      );
+      expect(result.draft.category).toBe(key);
+      expect(result.warnings).toEqual([]);
+    },
+  );
+
+  it('defaults an omitted create category to other even for a game service name', () => {
+    expect(
+      normalizeImportedServiceRequest(
+        { serviceKey: 'game-platform', name: 'Game Platform' },
+        sessionAccount,
+        importOptions,
+      ).draft.category,
+    ).toBe('other');
+  });
+
+  it.each([null, '', 'unknown', 'Game', {}, [], 1])(
+    'rejects invalid imported category %j',
+    (category) => {
+      expect(() =>
+        normalizeImportedServiceRequest(
+          { category },
+          sessionAccount,
+          importOptions,
+        ),
+      ).toThrow('category must be a supported service category.');
+    },
+  );
+
+  it('requires server metadata to validate an explicit imported category', () => {
+    expect(() =>
+      normalizeImportedServiceRequest({ category: 'game' }, sessionAccount),
+    ).toThrow('category must be a supported service category.');
+  });
 
   it('overrides requester identity from the current session and warns on unknown fields', () => {
     const result = normalizeImportedServiceRequest(

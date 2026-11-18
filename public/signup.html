@@ -336,6 +336,13 @@
           <div id="codeFeedback" class="feedback"></div>
         </div>
 
+        <div class="policy-acceptance" aria-label="가입 동의">
+          <label><input id="termsAccepted" type="checkbox" required /><span><a href="/terms" target="_blank" rel="noopener">이용약관</a> 동의 (필수)</span></label>
+          <label><input id="privacyAccepted" type="checkbox" required /><span><a href="/privacy" target="_blank" rel="noopener">개인정보처리방침</a> 동의 (필수)</span></label>
+          <p id="policyFeedback" class="feedback" role="status"></p>
+          <button id="loadPoliciesButton" class="secondary" type="button" hidden>정책 다시 불러오기</button>
+        </div>
+
         <button
           id="createAccountButton"
           class="create-button"
@@ -366,6 +373,7 @@
       const loginRedirectUrl = resolveLoginRedirectUrl();
 
       const state = {
+        policy: null,
         loginId: { checking: false, checkedValue: '', available: false },
         password: { touched: false, valid: false },
         confirm: { touched: false, valid: false },
@@ -539,6 +547,9 @@
 
       function updateCreateButton() {
         $('createAccountButton').disabled =
+          !state.policy ||
+          !$('termsAccepted').checked ||
+          !$('privacyAccepted').checked ||
           state.creating ||
           !state.loginId.available ||
           !state.password.valid ||
@@ -547,6 +558,28 @@
           !state.email.sent ||
           !state.code.verified;
       }
+
+      async function loadPolicies() {
+        state.policy = null;
+        $('loadPoliciesButton').hidden = true;
+        $('termsAccepted').checked = $('privacyAccepted').checked = false;
+        setFeedback('policyFeedback', '정책 확인 중...');
+        updateCreateButton();
+        try {
+          const response = await fetch('/api/public/policies', {cache: 'no-store', credentials: 'same-origin'});
+          if (!response.ok) throw new Error('정책을 불러오지 못했습니다.');
+          const policy = await response.json();
+          if (typeof policy.termsVersion !== 'string' || typeof policy.privacyVersion !== 'string' || !/^[a-f0-9]{64}$/.test(policy.policyDigest)) throw new Error('정책 응답을 확인할 수 없습니다.');
+          state.policy = policy;
+          setFeedback('policyFeedback', '');
+        } catch (error) {
+          setFeedback('policyFeedback', error.message, 'error');
+          $('loadPoliciesButton').hidden = false;
+        } finally { updateCreateButton(); }
+      }
+      $('termsAccepted').addEventListener('change', updateCreateButton);
+      $('privacyAccepted').addEventListener('change', updateCreateButton);
+      $('loadPoliciesButton').addEventListener('click', () => void loadPolicies());
 
       $('loginId').addEventListener('input', () => {
         resetLoginIdCheck();
@@ -706,6 +739,11 @@
         setMessage('');
         try {
           await post('/api/signup/complete', {
+            termsAccepted: $('termsAccepted').checked,
+            privacyAccepted: $('privacyAccepted').checked,
+            termsVersion: state.policy.termsVersion,
+            privacyVersion: state.policy.privacyVersion,
+            policyDigest: state.policy.policyDigest,
             loginId: $('loginId').value.trim(),
             name: $('name').value.trim(),
             email: state.email.sentValue,
@@ -726,6 +764,7 @@
           updateCreateButton();
         }
       });
+      void loadPolicies();
     </script>
   </body>
 </html>

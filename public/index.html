@@ -53,6 +53,19 @@
         font-size: 22px;
       }
 
+      .brand-heading {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .brand-heading img {
+        display: block;
+        flex: 0 0 24px;
+        width: 24px;
+        height: 24px;
+      }
+
       h2 {
         margin: 0 0 14px;
         font-size: 16px;
@@ -316,6 +329,20 @@
       .table-actions {
         display: grid;
         gap: 8px;
+      }
+
+      .service-category-editor {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .service-category-editor select {
+        width: 150px;
+      }
+
+      .service-category-editor button {
+        min-width: 64px;
       }
 
       .table-actions .inline-actions {
@@ -622,7 +649,10 @@
   <body>
     <header>
       <div class="shell topbar">
-        <h1>Teddy Auth Admin</h1>
+        <div class="brand-heading">
+          <img src="/brand/auth-logo-128.png" alt="Auth" width="24" height="24" />
+          <h1>Teddy Auth Admin</h1>
+        </div>
         <nav aria-label="Admin navigation" class="inline-actions">
           <a href="/service">Service onboarding</a>
           <a href="/profile">Profile</a>
@@ -726,6 +756,7 @@
               <tr>
                 <th>Key</th>
                 <th>Name</th>
+                <th>Category</th>
                 <th>Status</th>
                 <th>Permission Version</th>
               </tr>
@@ -1008,6 +1039,8 @@
       const state = {
         accounts: [],
         services: [],
+        serviceCategoryOptions: [],
+        serviceCategoryEdits: {},
         onboardingRequests: [],
         onboardingFilter: 'all',
         secretModal: null,
@@ -1218,6 +1251,15 @@
               <tr>
                 <td class="mono">${escapeHtml(service.serviceKey)}</td>
                 <td>${escapeHtml(service.name)}</td>
+                <td>
+                  <div class="service-category-editor" aria-busy="${Boolean(state.serviceCategoryEdits[service.id]?.saving)}">
+                    <select data-service-category="${escapeHtml(service.id)}" aria-label="Category for ${escapeHtml(service.serviceKey)}" ${state.serviceCategoryEdits[service.id]?.saving ? 'disabled' : ''}>
+                      ${state.serviceCategoryOptions.map((category) => `<option value="${escapeHtml(category.key)}" ${(state.serviceCategoryEdits[service.id]?.value ?? service.category ?? 'other') === category.key ? 'selected' : ''}>${escapeHtml(category.label)}</option>`).join('')}
+                    </select>
+                    <button class="secondary" type="button" data-save-service-category="${escapeHtml(service.id)}" ${state.serviceCategoryEdits[service.id]?.saving || !state.serviceCategoryEdits[service.id] || state.serviceCategoryEdits[service.id].value === service.category ? 'disabled' : ''}>${state.serviceCategoryEdits[service.id]?.saving ? 'Saving...' : 'Save'}</button>
+                  </div>
+                  <div class="hint" role="status" data-service-category-message="${escapeHtml(service.id)}">${escapeHtml(state.serviceCategoryEdits[service.id]?.message || '')}</div>
+                </td>
                 <td><span class="badge">${escapeHtml(service.status)}</span></td>
                 <td>${service.permissionSchemaVersion}</td>
               </tr>
@@ -1586,6 +1628,9 @@
 
       function onboardingSpecHtml(requestItem) {
         const spec = requestItem.requestedSpec || {};
+        const categoryLabel = spec.category === undefined
+          ? (requestItem.kind === 'update' ? 'Unchanged' : state.serviceCategoryOptions.find((item) => item.key === 'other')?.label)
+          : state.serviceCategoryOptions.find((item) => item.key === spec.category)?.label || spec.category;
         const permissions = (spec.permissions || []).map((item) => item.key).join(', ') || '-';
         const clients = (spec.oidcClients || []).map((item) => item.clientId).join(', ') || '-';
         const credentials =
@@ -1595,6 +1640,7 @@
             <summary>requestedSpec</summary>
             <div class="cell-stack">
               <div><strong>Name</strong>: ${escapeHtml(spec.name || '-')}</div>
+              <div><strong>Category</strong>: ${escapeHtml(categoryLabel)}</div>
               <div><strong>Description</strong>: ${escapeHtml(spec.description || '-')}</div>
               <div><strong>Permissions</strong>: ${escapeHtml(permissions)}</div>
               <div><strong>OIDC Clients</strong>: ${escapeHtml(clients)}</div>
@@ -1943,13 +1989,15 @@
           return;
         }
         try {
-          const [accounts, services] = await Promise.all([
+          const [accounts, services, categories] = await Promise.all([
             api('/api/admin/accounts'),
             api('/api/admin/services'),
+            api('/api/service-categories'),
             loadCredentialScopeOptions(),
           ]);
           state.accounts = accounts;
           state.services = services;
+          state.serviceCategoryOptions = categories;
           renderAccounts();
           renderServices();
           await Promise.all([
@@ -2011,6 +2059,41 @@
           $('retryAdminSession').disabled = false;
         }
       }
+
+      $('servicesBody').addEventListener('change', (event) => {
+        const select = event.target.closest('[data-service-category]');
+        if (!select || select.disabled) return;
+        const id = select.dataset.serviceCategory;
+        state.serviceCategoryEdits[id] = { value: select.value, saving: false, message: '' };
+        renderServices();
+      });
+      $('servicesBody').addEventListener('click', async (event) => {
+        const button = event.target.closest('[data-save-service-category]');
+        if (!button || button.disabled) return;
+        const id = button.dataset.saveServiceCategory;
+        const edit = state.serviceCategoryEdits[id];
+        if (!edit || edit.saving) return;
+        edit.saving = true;
+        edit.message = '';
+        renderServices();
+        try {
+          const saved = await api(`/api/admin/services/${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ category: edit.value }),
+          });
+          const service = state.services.find((item) => item.id === id);
+          if (service) service.category = saved.category;
+          edit.value = saved.category;
+          edit.message = 'Saved';
+          setStatus('Service category updated');
+        } catch (error) {
+          edit.message = error.message;
+          setStatus(error.message, true);
+        } finally {
+          edit.saving = false;
+          renderServices();
+        }
+      });
 
       $('loadWebhook').addEventListener('click', () => { void loadWebhook(); });
       $('webhookService').addEventListener('change', () => {

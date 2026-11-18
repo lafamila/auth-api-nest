@@ -4,6 +4,11 @@ export interface SocialSignupPageInput {
   emailVerified: boolean;
   name: string;
   error?: string;
+  policy?: {
+    termsVersion: string;
+    privacyVersion: string;
+    policyDigest: string;
+  };
 }
 
 function escapeHtml(value: string): string {
@@ -70,8 +75,8 @@ function renderDocument(
       }
       h1 { margin: 0 0 6px; font-size: 21px; line-height: 1.25; }
       h2 { margin: 0 0 18px; font-size: 16px; font-weight: 600; }
-      form, .field, #passwordFields { display: grid; gap: 6px; min-width: 0; }
-      form, #passwordFields { gap: 12px; }
+      form, .field { display: grid; gap: 6px; min-width: 0; }
+      form { gap: 12px; }
       label { font-size: 12px; font-weight: 700; }
       .optional, .hint { color: var(--muted); font-weight: 400; }
       .control-row {
@@ -195,35 +200,14 @@ export function renderSocialSignupPage(input: SocialSignupPageInput): string {
           <p id="emailFeedback" class="feedback${input.emailVerified ? ' success' : ''}" role="status" aria-live="polite">${input.emailVerified ? 'Verified.' : ''}</p>
         </div>
         ${codeField}
-        <div class="field">
-          <label for="loginId">ID <span class="optional">(optional)</span></label>
-          <div class="control-row">
-            <div class="input-wrap">
-              <input id="loginId" name="loginId" autocomplete="username" autocapitalize="none" spellcheck="false" aria-describedby="loginIdFeedback" />
-              <span id="loginIdCheck" class="check" aria-hidden="true" hidden>&#10003;</span>
-            </div>
-            <button id="checkLoginIdButton" class="secondary" type="button" disabled>Check</button>
-          </div>
-          <p id="loginIdFeedback" class="feedback" role="status" aria-live="polite"></p>
-        </div>
-        <div id="passwordFields" hidden>
-          <div class="field">
-            <label for="password">Password</label>
-            <div class="input-wrap">
-              <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" aria-describedby="passwordRule passwordFeedback" disabled />
-              <span id="passwordCheck" class="check" aria-hidden="true" hidden>&#10003;</span>
-            </div>
-            <p id="passwordRule" class="hint">At least 8 characters and 1 special character.</p>
-            <p id="passwordFeedback" class="feedback" role="status" aria-live="polite"></p>
-          </div>
-          <div class="field">
-            <label for="passwordConfirm">Confirm password</label>
-            <div class="input-wrap">
-              <input id="passwordConfirm" name="passwordConfirm" type="password" autocomplete="new-password" aria-describedby="passwordConfirmFeedback" disabled />
-              <span id="passwordConfirmCheck" class="check" aria-hidden="true" hidden>&#10003;</span>
-            </div>
-            <p id="passwordConfirmFeedback" class="feedback" role="status" aria-live="polite"></p>
-          </div>
+        <div class="policy-acceptance" aria-label="가입 동의">
+          <label><input id="termsAccepted" name="termsAccepted" type="checkbox" value="true" required /><span><a href="/terms" target="_blank" rel="noopener">이용약관</a> 동의 (필수)</span></label>
+          <label><input id="privacyAccepted" name="privacyAccepted" type="checkbox" value="true" required /><span><a href="/privacy" target="_blank" rel="noopener">개인정보처리방침</a> 동의 (필수)</span></label>
+          <input id="termsVersion" name="termsVersion" type="hidden" value="${escapeHtml(input.policy?.termsVersion ?? '')}" />
+          <input id="privacyVersion" name="privacyVersion" type="hidden" value="${escapeHtml(input.policy?.privacyVersion ?? '')}" />
+          <input id="policyDigest" name="policyDigest" type="hidden" value="${escapeHtml(input.policy?.policyDigest ?? '')}" />
+          <p id="policyFeedback" class="feedback" role="status"></p>
+          <button id="loadPoliciesButton" class="secondary" type="button" hidden>정책 다시 불러오기</button>
         </div>
         <button id="continueButton" type="submit" disabled>Continue</button>
         <p id="message" class="message error" role="alert" aria-live="assertive">${escapeHtml(input.error ?? '')}</p>

@@ -27,6 +27,8 @@ import { OAuthError } from './oauth-error';
 import { PortalAuthService } from '../portal/portal-auth.service';
 import { SsoSessionService } from './sso-session.service';
 import { AccountEntity } from '../database/entities/account.entity';
+import { AuthenticationMethod } from './authentication-method';
+import { PublicSiteService } from '../public-site/public-site.service';
 
 type SignedCookieRequest = Request & {
   signedCookies?: Record<string, string | undefined>;
@@ -69,6 +71,7 @@ export class LoginController {
     private readonly hostedLoginTransactions: HostedLoginTransactionService,
     private readonly portal: PortalAuthService,
     private readonly sso: SsoSessionService,
+    private readonly publicSite?: PublicSiteService,
   ) {}
 
   @Get('oauth/hosted-login.js')
@@ -122,17 +125,13 @@ export class LoginController {
           }
         } catch (error) {
           if (!(error instanceof UnauthorizedException)) throw error;
+          const html = this.authorizeFlow.renderHostedLoginPage(
+            null,
+            body.login_transaction,
+            error.message,
+          );
           this.setHostedPageSecurityHeaders(response, this.config.issuerUrl);
-          return response
-            .status(200)
-            .type('html')
-            .send(
-              this.authorizeFlow.renderHostedLoginPage(
-                null,
-                body.login_transaction,
-                error.message,
-              ),
-            );
+          return response.status(200).type('html').send(html);
         }
         await this.consumeHostedLoginTransaction(
           body.login_transaction,
@@ -144,6 +143,7 @@ export class LoginController {
           request,
           response,
           loaded.transaction.expectedAccountId,
+          'local',
         );
         return this.sendAuthorizationRedirect(
           response,
@@ -156,19 +156,25 @@ export class LoginController {
       if (validated.kind === 'redirect') {
         return this.sendAuthorizationRedirect(response, validated.redirectUrl);
       }
-      const currentSession = await this.sso.accountId(request);
-      if (loaded.transaction.sessionAccountId !== currentSession) {
+      const currentContext = await this.sso.context(request);
+      if (
+        loaded.transaction.sessionAccountId !==
+        (currentContext?.accountId ?? null)
+      ) {
         throw new BadRequestException(
           'Login session changed during authorization',
         );
       }
       if (validated.request.prompt === SELECT_ACCOUNT_PROMPT) {
-        return this.completeAccountSelection(
+        return await this.completeAccountSelection(
           body,
           validated,
           loaded.transaction,
           body.login_transaction,
           loaded.browserNonce,
+          request,
+          currentContext?.authenticationMethod ?? 'legacy',
+          currentContext?.credentialVersion,
           response,
         );
       }
@@ -192,27 +198,25 @@ export class LoginController {
           validated,
           account.id,
           account.credentialVersion ?? 0,
+          'local',
         );
         return this.sendAuthorizationRedirect(
           response,
           authorizeResult.redirectUrl,
+          authorizeResult.policyDenied,
         );
       } catch (error) {
         if (error instanceof UnauthorizedException) {
+          const html = this.authorizeFlow.renderHostedLoginPage(
+            validated.request,
+            body.login_transaction,
+            error.message,
+          );
           this.setHostedPageSecurityHeaders(
             response,
             validated.request.redirectUri,
           );
-          return response
-            .status(200)
-            .type('html')
-            .send(
-              this.authorizeFlow.renderHostedLoginPage(
-                validated.request,
-                body.login_transaction,
-                error.message,
-              ),
-            );
+          return response.status(200).type('html').send(html);
         }
         throw error;
       }
@@ -221,6 +225,7 @@ export class LoginController {
         return response.status(error.statusCode).json({
           error: error.error,
           error_description: error.errorDescription,
+          ...(error.code ? { code: error.code } : {}),
         });
       }
       throw error;
@@ -233,6 +238,9 @@ export class LoginController {
     transaction: HostedLoginTransaction,
     transactionId: string,
     browserNonce: string,
+    request: Request,
+    currentMethod: AuthenticationMethod,
+    currentCredentialVersion: number | undefined,
     response: Response,
   ) {
     if (!body.account_selection) {
@@ -242,7 +250,8 @@ export class LoginController {
     try {
       const account =
         body.account_selection === 'current'
-          ? transaction.sessionAccountId
+          ? transaction.sessionAccountId &&
+            currentCredentialVersion !== undefined
             ? await this.accounts.findById(transaction.sessionAccountId)
             : (() => {
                 throw new UnauthorizedException(
@@ -258,48 +267,59 @@ export class LoginController {
       const authorizeResult = await this.authorizeFlow.authorizeWithAccount(
         validated,
         account.id,
-        account.credentialVersion ?? 0,
+        body.account_selection === 'current'
+          ? currentCredentialVersion
+          : (account.credentialVersion ?? 0),
+        body.account_selection === 'current' ? currentMethod : 'local',
       );
+      if (
+        authorizeResult.policyDenied &&
+        body.account_selection === 'current' &&
+        currentMethod === 'kakao'
+      )
+        await this.portal.signOutKakao(account.id, request, response);
       return this.sendAuthorizationRedirect(
         response,
         authorizeResult.redirectUrl,
+        authorizeResult.policyDenied,
       );
     } catch (error) {
       if (error instanceof UnauthorizedException) {
         const currentAccount = transaction.sessionAccountId
           ? await this.accounts.findById(transaction.sessionAccountId)
           : undefined;
+        const html = this.authorizeFlow.renderAccountSelectionPage(
+          validated.request,
+          transactionId,
+          currentAccount,
+          error.message,
+        );
         this.setHostedPageSecurityHeaders(
           response,
           validated.request.redirectUri,
         );
-        return response
-          .status(200)
-          .type('html')
-          .send(
-            this.authorizeFlow.renderAccountSelectionPage(
-              validated.request,
-              transactionId,
-              currentAccount,
-              error.message,
-            ),
-          );
+        return response.status(200).type('html').send(html);
       }
       throw error;
     }
   }
 
-  private sendAuthorizationRedirect(response: Response, redirectUrl: string) {
+  private sendAuthorizationRedirect(
+    response: Response,
+    redirectUrl: string,
+    policyMessage?: string,
+  ) {
     const protocol = new URL(redirectUrl).protocol;
-    if (protocol !== 'http:' && protocol !== 'https:') {
+    if (!policyMessage && protocol !== 'http:' && protocol !== 'https:') {
       return response.redirect(redirectUrl);
     }
     // End form navigation before a callback redirects to another service origin.
+    const html = this.authorizeFlow.renderAuthorizationRedirectPage(
+      redirectUrl,
+      policyMessage,
+    );
     this.setHostedPageSecurityHeaders(response, redirectUrl);
-    return response
-      .status(200)
-      .type('html')
-      .send(this.authorizeFlow.renderAuthorizationRedirectPage(redirectUrl));
+    return response.status(200).type('html').send(html);
   }
 
   private async loadHostedLoginTransaction(
@@ -359,7 +379,7 @@ export class LoginController {
     if (safeReturnTo) {
       return response.redirect(safeReturnTo);
     }
-    return response.status(200).type('html').send(`<!doctype html>
+    const html = `<!doctype html>
 <html lang="ko">
   <head>
     <meta charset="utf-8" />
@@ -389,7 +409,10 @@ export class LoginController {
       <p>로그아웃되었습니다.</p>
     </main>
   </body>
-</html>`);
+</html>`;
+    const decorated = this.publicSite?.decorate(html, 'form') ?? html;
+    this.setHostedPageSecurityHeaders(response, this.config.issuerUrl);
+    return response.status(200).type('html').send(decorated);
   }
 
   @Post('password/complete-reset')
@@ -409,7 +432,7 @@ export class LoginController {
   }
 
   private async setSessionCookie(response: Response, account: AccountEntity) {
-    await this.sso.create(account, response);
+    await this.sso.create(account, response, 'local');
   }
 
   private clearHostedLoginTransactionCookie(

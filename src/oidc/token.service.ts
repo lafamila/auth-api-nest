@@ -16,6 +16,15 @@ import { TokenRecordEntity } from '../database/entities/token-record.entity';
 import { AppConfigService } from '../config/app-config.service';
 import { SigningKeyService } from './signing-key.service';
 import { EntityManager, Repository } from 'typeorm';
+import {
+  authenticationMethod,
+  AuthenticationMethod,
+  AUTHENTICATION_METHOD_CLAIM,
+  gameLoginDenial,
+  gameLoginPolicyCode,
+  SERVICE_CATEGORY_CLAIM,
+} from './authentication-method';
+import { OAuthError } from './oauth-error';
 
 export interface RefreshRecord {
   accountId: string;
@@ -23,6 +32,7 @@ export interface RefreshRecord {
   familyId: string;
   status: 'active' | 'used' | 'revoked';
   credentialVersion?: number;
+  authenticationMethod?: AuthenticationMethod;
   expiresAt: Date;
 }
 
@@ -61,7 +71,17 @@ export class TokenService implements OnModuleInit {
     familyId: string = randomUUID(),
     nonce?: string,
     manager?: EntityManager,
+    method: AuthenticationMethod = 'legacy',
   ) {
+    method = authenticationMethod(method);
+    const denied = gameLoginDenial(client.service.category, method);
+    if (denied)
+      throw new OAuthError(
+        'access_denied',
+        denied,
+        403,
+        gameLoginPolicyCode(method),
+      );
     const key = this.signingKeys.getActiveKey();
     const nowSeconds = Math.floor(Date.now() / 1000);
     const accessTtlSeconds =
@@ -84,6 +104,8 @@ export class TokenService implements OnModuleInit {
         name: account.name,
         preferred_username: account.loginId ?? account.email,
         'https://lafamila.xyz/claims/local_login_id': account.loginId,
+        [AUTHENTICATION_METHOD_CLAIM]: method,
+        [SERVICE_CATEGORY_CLAIM]: client.service.category ?? 'other',
         ...(nonce !== undefined ? { nonce } : {}),
       },
       key.privateKeyPem,
@@ -104,6 +126,8 @@ export class TokenService implements OnModuleInit {
         preferred_username: account.loginId ?? account.email,
         'https://lafamila.xyz/claims/local_login_id': account.loginId,
         'https://lafamila.xyz/claims/service': serviceClaim,
+        [AUTHENTICATION_METHOD_CLAIM]: method,
+        [SERVICE_CATEGORY_CLAIM]: client.service.category ?? 'other',
       },
       key.privateKeyPem,
       {
@@ -125,7 +149,10 @@ export class TokenService implements OnModuleInit {
       clientId: client.clientId,
       familyId,
       serviceId: client.service?.id ?? client.serviceId ?? null,
-      metadataJson: { credentialVersion: account.credentialVersion ?? 0 },
+      metadataJson: {
+        credentialVersion: account.credentialVersion ?? 0,
+        authenticationMethod: method,
+      },
       expiresAt,
     });
     return {
@@ -200,6 +227,9 @@ export class TokenService implements OnModuleInit {
           familyId: record.familyId ?? '',
           status: record.status,
           credentialVersion: credentialVersionFromMetadata(record.metadataJson),
+          authenticationMethod: authenticationMethod(
+            record.metadataJson?.authenticationMethod,
+          ),
           expiresAt: record.expiresAt,
         },
       };
@@ -319,6 +349,9 @@ function refreshRowToRecord(row: RefreshTokenRow): RefreshRecord {
     familyId: row.family_id ?? '',
     status: row.status,
     credentialVersion: credentialVersionFromMetadata(row.metadata_json),
+    authenticationMethod: authenticationMethod(
+      row.metadata_json?.authenticationMethod,
+    ),
     expiresAt:
       row.expires_at instanceof Date
         ? row.expires_at

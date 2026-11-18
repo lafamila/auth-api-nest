@@ -28,6 +28,14 @@ import { EmailVerificationEntity } from '../database/entities/email-verification
 import { SocialIdentityEntity } from '../database/entities/social-identity.entity';
 import { SocialLoginTransactionEntity } from '../database/entities/social-login-transaction.entity';
 import { AccountsService } from '../domain/accounts/accounts.service';
+import { AccountPoliciesService } from '../policies/account-policies.service';
+import { PolicyAcceptanceDto } from '../policies/policy-acceptance.dto';
+import {
+  AuthenticationMethod,
+  authenticationMethod,
+} from '../oidc/authentication-method';
+import { ProviderRevocationsService } from './provider-revocations.service';
+import { lockAccountLifecycle } from '../common/crypto/account-write-lock';
 import { AuditLogsService } from '../domain/audit-logs/audit-logs.service';
 import {
   AuthorizeFlowService,
@@ -52,12 +60,9 @@ export interface SocialBrowserContext {
   adminSessionHash?: string | null;
 }
 
-export interface SocialSignupInput {
+export interface SocialSignupInput extends PolicyAcceptanceDto {
   email: string;
   name: string;
-  loginId?: string;
-  password?: string;
-  passwordConfirm?: string;
 }
 
 export type SocialCallbackResult =
@@ -69,6 +74,7 @@ export type SocialCallbackResult =
       request: AuthorizeRequestInput | null;
       purpose?: 'portal';
       expectedAccountId?: string;
+      authenticationMethod: AuthenticationMethod;
     };
 
 @Injectable()
@@ -85,6 +91,8 @@ export class SocialLoginService {
     private readonly audit: AuditLogsService,
     private readonly emailDelivery: EmailDeliveryService,
     private readonly config: AppConfigService,
+    private readonly policies: AccountPoliciesService,
+    private readonly revocations: ProviderRevocationsService,
   ) {}
 
   cookieName(state: string): string {
@@ -153,6 +161,7 @@ export class SocialLoginService {
     provider: string,
     actor: PortalActor,
     context: SocialBrowserContext,
+    reconnectIdentityId?: string,
   ) {
     const providerClientId = this.providers.clientIdFor(provider);
     const stamp = actor.session.metadataJson?.authenticatedAt;
@@ -180,6 +189,7 @@ export class SocialLoginService {
           sessionAccountId: context.sessionAccountId,
           providerClientId,
           targetAccountId: actor.account.id,
+          ...(reconnectIdentityId ? { reconnectIdentityId } : {}),
           portalSessionHash: actor.session.tokenHash,
           credentialVersion: actor.account.credentialVersion ?? 0,
           encryptedVerifier: this.crypto.encrypt(verifier),
@@ -200,12 +210,43 @@ export class SocialLoginService {
       if (row.data.purpose !== 'link')
         throw new BadRequestException('Invalid social link');
       return this.providers.authorizationUrl(row.provider, {
+        ...(row.data.reconnectIdentityId ? { forceConsent: true } : {}),
         state,
         codeChallenge: createHash('sha256')
-          .update(this.crypto.decrypt(row.data.encryptedVerifier!))
+          .update(this.decryptVerifier(row.data.encryptedVerifier))
           .digest('base64url'),
       });
     });
+  }
+
+  async startReconnect(
+    provider: string,
+    actor: PortalActor,
+    context: SocialBrowserContext,
+  ) {
+    const clientId = this.providers.clientIdFor(provider);
+    const identities = await this.dataSource
+      .getRepository(SocialIdentityEntity)
+      .find({
+        where: {
+          accountId: actor.account.id,
+          provider,
+          providerClientId: clientId,
+        },
+        order: { createdAt: 'ASC' },
+      });
+    if (!identities.length)
+      throw new BadRequestException('연결된 소셜 계정이 없습니다');
+    let selected = identities[0];
+    for (const identity of identities) {
+      try {
+        this.revocations.prepare([identity]);
+      } catch {
+        selected = identity;
+        break;
+      }
+    }
+    return this.startLink(provider, actor, context, selected.id);
   }
 
   async callback(
@@ -239,7 +280,7 @@ export class SocialLoginService {
     const profile = await this.providers.exchangeCode(provider, {
       code,
       state,
-      codeVerifier: this.crypto.decrypt(transaction.data.encryptedVerifier!),
+      codeVerifier: this.decryptVerifier(transaction.data.encryptedVerifier),
     });
     if (
       profile.provider !== provider ||
@@ -250,6 +291,7 @@ export class SocialLoginService {
       );
     }
     return this.dataSource.transaction(async (manager) => {
+      await lockAccountLifecycle(manager);
       const row = await this.lockTransaction(
         manager,
         state,
@@ -274,6 +316,7 @@ export class SocialLoginService {
         await manager.delete(SocialLoginTransactionEntity, row.id);
         return {
           kind: 'authenticated',
+          authenticationMethod: authenticationMethod(row.provider),
           account,
           request: row.data.request,
           ...(row.data.purpose === 'portal'
@@ -306,6 +349,7 @@ export class SocialLoginService {
       const row = await this.lockTransaction(manager, state, context, 'signup');
       return {
         transaction: state,
+        policy: this.policies.current(),
         email: row.data.email ?? '',
         emailVerified: row.data.emailVerified === true,
         name: row.data.profile?.name || row.data.email?.split('@')[0] || '',
@@ -433,19 +477,18 @@ export class SocialLoginService {
     context: SocialBrowserContext,
     input: SocialSignupInput,
   ): Promise<Extract<SocialCallbackResult, { kind: 'authenticated' }>> {
-    const email = this.normalizeEmail(input.email);
     if (
-      (input.loginId?.trim() || input.password || input.passwordConfirm) &&
-      (!input.loginId?.trim() ||
-        !input.password ||
-        input.password !== input.passwordConfirm)
+      ['loginId', 'password', 'passwordConfirm'].some((field) => field in input)
     ) {
       throw new BadRequestException(
-        'Login ID and matching passwords are required together',
+        'Local credentials cannot be registered during social signup',
       );
     }
+    const email = this.normalizeEmail(input.email);
     try {
+      this.policies.validate(input);
       return await this.dataSource.transaction(async (manager) => {
+        await lockAccountLifecycle(manager);
         const row = await this.lockTransaction(
           manager,
           state,
@@ -470,9 +513,11 @@ export class SocialLoginService {
           row.data.expectedAccountId,
         );
         if (!account) throw new BadRequestException('Unable to create account');
+        await this.policies.record(manager, account.id, input, 'social_signup');
         await manager.delete(SocialLoginTransactionEntity, row.id);
         return {
           kind: 'authenticated',
+          authenticationMethod: authenticationMethod(row.provider),
           account,
           request: row.data.request,
           ...(row.data.purpose === 'portal'
@@ -490,11 +535,18 @@ export class SocialLoginService {
         'code' in error &&
         error.code === '23505'
       ) {
-        throw new ConflictException(
-          'Account or login ID changed. Check the ID and try again',
-        );
+        throw new ConflictException('Account changed. Try signing in again');
       }
       throw error;
+    }
+  }
+
+  private decryptVerifier(ciphertext?: string): string {
+    try {
+      if (!ciphertext) throw new Error('Missing verifier');
+      return this.crypto.decrypt(ciphertext);
+    } catch {
+      throw new BadRequestException('Invalid social login transaction');
     }
   }
 
@@ -506,6 +558,7 @@ export class SocialLoginService {
     signup?: SocialSignupInput,
     expectedAccountId?: string,
   ): Promise<AccountEntity | null> {
+    await this.revocations.assertConnectionAvailable(manager, profile);
     await this.lockKey(
       manager,
       `social-identity:${profile.provider}:${profile.providerClientId}:${profile.subject}`,
@@ -524,6 +577,13 @@ export class SocialLoginService {
         lock: { mode: 'pessimistic_write' },
       });
       this.assertAccount(account);
+      if (profile.encryptedRevocationGrant)
+        await identities.update(identity.id, {
+          encryptedRevocationGrant: this.revocations.mergeGrant(
+            identity.encryptedRevocationGrant,
+            profile.encryptedRevocationGrant,
+          ),
+        });
       account.lastLoginAt = new Date();
       await manager.update(AccountEntity, account.id, {
         lastLoginAt: account.lastLoginAt,
@@ -558,8 +618,6 @@ export class SocialLoginService {
         {
           email,
           name: signup.name,
-          loginId: signup.loginId,
-          password: signup.password,
         },
         manager,
       );
@@ -572,6 +630,14 @@ export class SocialLoginService {
         provider: profile.provider,
         providerClientId: profile.providerClientId,
         subject: profile.subject,
+        ...(profile.encryptedRevocationGrant
+          ? {
+              encryptedRevocationGrant: this.revocations.mergeGrant(
+                null,
+                profile.encryptedRevocationGrant,
+              ),
+            }
+          : {}),
       }),
     );
     await this.audit.record(
@@ -602,6 +668,7 @@ export class SocialLoginService {
     row: SocialLoginTransactionEntity,
     profile: SocialIdentityProfile,
   ) {
+    await this.revocations.assertConnectionAvailable(manager, profile);
     await this.lockKey(
       manager,
       `social-identity:${profile.provider}:${profile.providerClientId}:${profile.subject}`,
@@ -620,6 +687,20 @@ export class SocialLoginService {
     });
     if (existing && existing.accountId !== account.id)
       throw new ConflictException('이미 다른 계정에 연결된 소셜 계정입니다');
+    if (
+      row.data.reconnectIdentityId &&
+      existing?.id !== row.data.reconnectIdentityId
+    )
+      throw new ConflictException(
+        '기존에 연결된 같은 소셜 계정으로 다시 인증해주세요',
+      );
+    if (existing && profile.encryptedRevocationGrant)
+      await identities.update(existing.id, {
+        encryptedRevocationGrant: this.revocations.mergeGrant(
+          existing.encryptedRevocationGrant,
+          profile.encryptedRevocationGrant,
+        ),
+      });
     if (!existing) {
       await identities.save(
         identities.create({
@@ -627,6 +708,14 @@ export class SocialLoginService {
           providerClientId: profile.providerClientId,
           subject: profile.subject,
           accountId: account.id,
+          ...(profile.encryptedRevocationGrant
+            ? {
+                encryptedRevocationGrant: this.revocations.mergeGrant(
+                  null,
+                  profile.encryptedRevocationGrant,
+                ),
+              }
+            : {}),
         }),
       );
       await this.audit.record(

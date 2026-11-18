@@ -34,6 +34,11 @@ import {
 import { PortalProfileService } from './portal-profile.service';
 import { privatePageHeaders, renderOtpPage } from './portal-pages';
 import { PortalSessionService } from './portal-session.service';
+import { PublicSiteService } from '../public-site/public-site.service';
+import { AccountPoliciesService } from '../policies/account-policies.service';
+import { PolicyAcceptanceDto } from '../policies/policy-acceptance.dto';
+import { AccountLifecycleService } from './account-lifecycle.service';
+import { UnlinkProviderDto, WithdrawAccountDto } from './account-lifecycle.dto';
 
 class OtpDto {
   @IsString() @Length(1, 128) transaction!: string;
@@ -53,6 +58,9 @@ export class PortalController {
     private readonly social: SocialLoginService,
     private readonly sso: SsoSessionService,
     private readonly config: AppConfigService,
+    private readonly publicSite: PublicSiteService,
+    private readonly policies: AccountPoliciesService,
+    private readonly lifecycle: AccountLifecycleService,
   ) {}
 
   @Get('/')
@@ -127,7 +135,10 @@ export class PortalController {
     @Res() response: Response,
   ) {
     const page = await this.auth.mfaPage(transaction, request);
-    const html = renderOtpPage(page.transaction, page.name);
+    const html = this.publicSite.decorate(
+      renderOtpPage(page.transaction, page.name),
+      'form',
+    );
     response.set(privatePageHeaders(html));
     return response.type('html').send(html);
   }
@@ -151,7 +162,10 @@ export class PortalController {
     } catch (error) {
       if (!(error instanceof UnauthorizedException)) throw error;
       const page = await this.auth.mfaPage(body.transaction, request);
-      const html = renderOtpPage(body.transaction, page.name, error.message);
+      const html = this.publicSite.decorate(
+        renderOtpPage(body.transaction, page.name, error.message),
+        'form',
+      );
       response.set(privatePageHeaders(html));
       return response.status(401).type('html').send(html);
     }
@@ -279,6 +293,94 @@ export class PortalController {
     };
   }
 
+  @Get('api/portal/policies')
+  async policyStatus(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    response.set('Cache-Control', 'no-store');
+    return this.policies.status(await this.sessions.require(request));
+  }
+
+  @Post('api/portal/policies')
+  @HttpCode(200)
+  async acceptPolicies(
+    @Body() input: PolicyAcceptanceDto,
+    @Req() request: Request,
+  ) {
+    return this.policies.accept(
+      await this.sessions.require(request, true),
+      input,
+    );
+  }
+
+  @Get('api/portal/lifecycle')
+  async lifecycleStatus(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    response.set('Cache-Control', 'no-store');
+    return this.lifecycle.overview(await this.sessions.require(request));
+  }
+
+  @Post('api/portal/social/:provider/unlink')
+  @HttpCode(200)
+  async unlinkProvider(
+    @Param('provider') provider: string,
+    @Body() input: UnlinkProviderDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const actor = await this.sessions.require(request, true);
+    this.sessions.requireRecent(actor);
+    const result = await this.lifecycle.unlink(actor, provider, input);
+    await this.logoutCookies(request, response);
+    return result;
+  }
+
+  @Post('api/portal/withdraw')
+  @HttpCode(200)
+  async withdrawAccount(
+    @Body() input: WithdrawAccountDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const actor = await this.sessions.require(request, true);
+    this.sessions.requireRecent(actor);
+    const result = await this.lifecycle.withdraw(actor, input);
+    await this.logoutCookies(request, response);
+    return result;
+  }
+
+  @Post('api/portal/social/:provider/reconnect')
+  @HttpCode(200)
+  async reconnect(
+    @Param('provider') provider: string,
+    @Body() body: LinkDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    if (Object.keys(body ?? {}).length)
+      throw new BadRequestException('Unexpected social reconnect fields');
+    const actor = await this.sessions.require(request, true);
+    this.sessions.requireRecent(actor);
+    const result = await this.social.startReconnect(provider, actor, {
+      binding: '',
+      sessionAccountId: await this.sso.accountId(request),
+    });
+    response.cookie(this.social.cookieName(result.state), result.binding, {
+      httpOnly: true,
+      signed: true,
+      sameSite: 'lax',
+      secure: this.config.nodeEnv === 'production',
+      path: '/oauth/social',
+      maxAge: 20 * 60 * 1000,
+    });
+    return {
+      redirectUrl: `/oauth/social/continue?transaction=${encodeURIComponent(result.state)}`,
+    };
+  }
+
   @Post('api/portal/logout')
   @HttpCode(200)
   async logout(
@@ -326,9 +428,9 @@ export class PortalController {
   }
 
   private file(response: Response, filename: string) {
-    const html = readFileSync(
-      join(__dirname, '..', '..', 'public', filename),
-      'utf8',
+    const html = this.publicSite.decorate(
+      readFileSync(join(__dirname, '..', '..', 'public', filename), 'utf8'),
+      filename === 'bootstrap.html' ? 'form' : 'application',
     );
     response.set(privatePageHeaders(html));
     return response.type('html').send(html);

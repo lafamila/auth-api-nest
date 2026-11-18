@@ -47,7 +47,7 @@ describe('SsoSessionService', () => {
         tokenHash: hashToken(rawToken),
         type: 'sso_session',
         clientId: 'auth-sso',
-        metadataJson: { credentialVersion: 0 },
+        metadataJson: { credentialVersion: 0, authenticationMethod: 'local' },
       }),
     );
     expect(JSON.stringify(inserted)).not.toContain(rawToken);
@@ -76,7 +76,9 @@ describe('SsoSessionService', () => {
     await harness.service.create(account, harness.response);
 
     expect(harness.transactionTokens.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ metadataJson: { credentialVersion: 7 } }),
+      expect.objectContaining({
+        metadataJson: { credentialVersion: 7, authenticationMethod: 'local' },
+      }),
     );
   });
 
@@ -152,6 +154,29 @@ describe('SsoSessionService', () => {
     });
   });
 
+  it('preserves the authenticated credential version in the SSO context', async () => {
+    const rawToken = opaqueToken('v');
+    const account = versionedAccount(7);
+    const harness = createHarness({
+      account,
+      session: sessionRecord(rawToken, {
+        credentialVersion: 7,
+        authenticationMethod: 'google',
+      }),
+    });
+
+    const context = await harness.service.context(
+      signedRequest(ACTIVE_ACCOUNT.id, rawToken),
+    );
+    account.credentialVersion = 8;
+
+    expect(context).toEqual({
+      accountId: ACTIVE_ACCOUNT.id,
+      authenticationMethod: 'google',
+      credentialVersion: 7,
+    });
+  });
+
   it('accepts a signed legacy primary cookie only at credential version zero', async () => {
     const legacy = createHarness({ account: versionedAccount(0) });
     const changed = createHarness({ account: versionedAccount(1) });
@@ -161,8 +186,59 @@ describe('SsoSessionService', () => {
       ACTIVE_ACCOUNT.id,
     );
     await expect(changed.service.accountId(request)).resolves.toBeNull();
+    await expect(legacy.service.context(request)).resolves.toEqual({
+      accountId: ACTIVE_ACCOUNT.id,
+      authenticationMethod: 'legacy',
+      credentialVersion: 0,
+    });
     expect(legacy.tokenRecords.findOne).not.toHaveBeenCalled();
   });
+
+  it.each(['local', 'google', 'kakao', 'naver', 'legacy'] as const)(
+    'returns the persisted %s method, ignoring browser method hints',
+    async (method) => {
+      const raw = opaqueToken('m');
+      const h = createHarness({
+        account: ACTIVE_ACCOUNT,
+        session: sessionRecord(raw, {
+          credentialVersion: 0,
+          authenticationMethod: method,
+        }),
+      });
+      const request = signedRequest(ACTIVE_ACCOUNT.id, raw);
+      Object.assign(request, {
+        query: { authentication_method: 'local' },
+        headers: { 'x-authentication-method': 'local' },
+      });
+      await expect(h.service.context(request)).resolves.toEqual({
+        accountId: ACTIVE_ACCOUNT.id,
+        authenticationMethod: method,
+        credentialVersion: 0,
+      });
+    },
+  );
+
+  it.each([undefined, 'untrusted'])(
+    'treats missing or unknown stored provenance as legacy: %s',
+    async (method) => {
+      const raw = opaqueToken('m');
+      const h = createHarness({
+        account: ACTIVE_ACCOUNT,
+        session: sessionRecord(raw, {
+          credentialVersion: 0,
+          authenticationMethod: method,
+        }),
+      });
+      expect(
+        (await h.service.context(signedRequest(ACTIVE_ACCOUNT.id, raw)))
+          ?.authenticationMethod,
+      ).toBe('legacy');
+      expect(
+        (await h.service.context(signedRequest(ACTIVE_ACCOUNT.id)))
+          ?.authenticationMethod,
+      ).toBe('legacy');
+    },
+  );
 
   it.each([
     ['cookie-parser signature failure', false, undefined],

@@ -131,3 +131,132 @@ function superAdmin(): AccountEntity {
     updatedAt: new Date(),
   };
 }
+
+describe('PortalAuthService authentication provenance', () => {
+  function setup() {
+    const sessions = {
+      clear: jest.fn(),
+      read: jest.fn().mockResolvedValue(null),
+      create: jest.fn(),
+    };
+    const sso = {
+      create: jest.fn(),
+      clear: jest.fn(),
+      context: jest.fn().mockResolvedValue(null),
+    };
+    const admin = {
+      logout: jest.fn(),
+      verifyAccountOtp: jest.fn().mockResolvedValue(true),
+      issueVerifiedSession: jest.fn(
+        async (_account: AccountEntity, request: Request) => {
+          void _account;
+          Object.assign(request, { adminSession: { id: 'otp-session' } });
+        },
+      ),
+    };
+    const challenge: TokenRecordEntity = Object.assign(
+      new TokenRecordEntity(),
+      {
+        id: 'challenge',
+        accountId: 'account-1',
+        expiresAt: new Date(Date.now() + 60_000),
+        metadataJson: {
+          browserBindingHash: hashToken('browser'),
+          credentialVersion: 3,
+          method: 'kakao',
+          attempts: 0,
+        },
+      },
+    );
+    const manager = {
+      getRepository: () => ({ findOne: async () => challenge }),
+      findOneOrFail: async () => superAdmin(),
+      delete: jest.fn(),
+    };
+    const subject = new PortalAuthService(
+      {
+        transaction: async (work: (manager: unknown) => Promise<unknown>) =>
+          work(manager),
+      } as never,
+      { insert: jest.fn() } as never,
+      sessions as never,
+      admin as never,
+      { checkGuessAllowed: async () => throttleResult(true) } as never,
+      sso as never,
+      { nodeEnv: 'test' } as AppConfigService,
+    );
+    const request = {
+      signedCookies: { [subject.cookieName('transaction')]: 'browser' },
+    } as unknown as Request;
+    const response = { clearCookie: jest.fn() } as unknown as Response;
+    return { subject, sessions, sso, admin, challenge, request, response };
+  }
+
+  it.each(['local', 'google', 'kakao', 'naver'] as const)(
+    'propagates primary %s authentication to both portal and SSO sessions',
+    async (method) => {
+      const f = setup();
+      const account = { ...superAdmin(), isSuperAdmin: false };
+      await f.subject.completePrimary(
+        account,
+        f.request,
+        f.response,
+        undefined,
+        method,
+      );
+      expect(f.sessions.create).toHaveBeenCalledWith(account, f.response, {
+        method,
+      });
+      expect(f.sso.create).toHaveBeenCalledWith(account, f.response, method);
+    },
+  );
+
+  it.each(['kakao', undefined])(
+    'preserves OTP challenge provenance without a local fallback: %s',
+    async (method) => {
+      const f = setup();
+      f.challenge.metadataJson!.method = method;
+      await f.subject.verifyOtp('transaction', '123456', f.request, f.response);
+      expect(f.sso.create).toHaveBeenCalledWith(
+        expect.anything(),
+        f.response,
+        method ?? 'legacy',
+      );
+    },
+  );
+
+  it('clears only matching Kakao SSO and portal context, not an unrelated admin cookie', async () => {
+    const f = setup();
+    f.sso.context.mockResolvedValue({
+      accountId: 'account-1',
+      authenticationMethod: 'kakao',
+    });
+    f.sessions.read.mockResolvedValue({
+      account: { ...superAdmin(), isSuperAdmin: false },
+      session: { metadataJson: { method: 'kakao' } },
+    });
+    await f.subject.signOutKakao('account-1', f.request, f.response);
+    expect(f.sso.clear).toHaveBeenCalledWith(f.request, f.response);
+    expect(f.sessions.clear).toHaveBeenCalledWith(f.request, f.response);
+    expect(f.admin.logout).not.toHaveBeenCalled();
+  });
+
+  it.each(['local', 'google', 'legacy'])(
+    'preserves another/local P1 session on denied Kakao authentication: %s',
+    async (method) => {
+      const f = setup();
+      f.sso.context.mockResolvedValue({
+        accountId: 'other-account',
+        authenticationMethod: method,
+      });
+      f.sessions.read.mockResolvedValue({
+        account: superAdmin(),
+        session: { metadataJson: { method: 'local' } },
+      });
+      await f.subject.signOutKakao('denied-account', f.request, f.response);
+      expect(f.sso.clear).not.toHaveBeenCalled();
+      expect(f.sessions.clear).not.toHaveBeenCalled();
+      expect(f.admin.logout).not.toHaveBeenCalled();
+    },
+  );
+});

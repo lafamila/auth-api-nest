@@ -55,6 +55,19 @@
         font-size: 26px;
       }
 
+      .brand-heading {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .brand-heading img {
+        display: block;
+        flex: 0 0 24px;
+        width: 24px;
+        height: 24px;
+      }
+
       h2 {
         font-size: 20px;
       }
@@ -324,7 +337,10 @@
     <header>
       <div class="toolbar">
         <div>
-          <h1>Service Onboarding</h1>
+          <div class="brand-heading">
+            <img src="/brand/auth-logo-128.png" alt="Auth" width="24" height="24" />
+            <h1>Service Onboarding</h1>
+          </div>
           <div class="hint">
             Create or revise auth-side service integration requests.
           </div>
@@ -415,6 +431,10 @@
               <label>
                 Name
                 <input id="requestServiceName" autocomplete="off" />
+              </label>
+              <label>
+                Category
+                <select id="requestServiceCategory" disabled></select>
               </label>
               <label class="span-2">
                 Description
@@ -557,9 +577,11 @@
         adminSession: null,
         loggingOut: false,
         credentialScopeOptions: [],
+        serviceCategoryOptions: [],
         serviceRequestDraft: {
           serviceKey: '',
           name: '',
+          category: 'other',
           description: '',
           requesterName: '',
           requesterEmail: '',
@@ -651,6 +673,15 @@
         renderServiceRequestPreview();
       }
 
+      async function loadServiceCategoryOptions() {
+        state.serviceCategoryOptions = await requestJson('/api/service-categories');
+        $('requestServiceCategory').innerHTML = state.serviceCategoryOptions
+          .map((category) => `<option value="${escapeHtml(category.key)}">${escapeHtml(category.label)}</option>`)
+          .join('');
+        $('requestServiceCategory').value = state.serviceRequestDraft.category;
+        $('requestServiceCategory').disabled = false;
+      }
+
       function credentialScopeKeys() {
         return new Set(
           state.credentialScopeOptions
@@ -694,6 +725,7 @@
         $('requestServiceKey').value =
           state.serviceRequestDraft.serviceKey ?? '';
         $('requestServiceName').value = state.serviceRequestDraft.name ?? '';
+        $('requestServiceCategory').value = state.serviceRequestDraft.category;
         $('requestDescription').value =
           state.serviceRequestDraft.description ?? '';
         syncRequesterFromSession();
@@ -703,6 +735,9 @@
         state.serviceRequestDraft.serviceKey =
           $('requestServiceKey').value.trim();
         state.serviceRequestDraft.name = $('requestServiceName').value.trim();
+        if (state.serviceCategoryOptions.length) {
+          state.serviceRequestDraft.category = $('requestServiceCategory').value;
+        }
         state.serviceRequestDraft.description =
           $('requestDescription').value.trim();
         syncRequesterFromSession();
@@ -713,6 +748,7 @@
         const payload = {
           serviceKey: state.serviceRequestDraft.serviceKey,
           name: state.serviceRequestDraft.name,
+          category: state.serviceRequestDraft.category,
           permissions: state.serviceRequestDraft.permissions
             .map((permission) => ({
               key: permission.key.trim(),
@@ -820,6 +856,9 @@
         const supportedCredentialScopes = credentialScopeKeys();
         if (!payload.serviceKey) errors.push('Service key is required.');
         if (!payload.name) errors.push('Service name is required.');
+        if (!state.serviceCategoryOptions.some((item) => item.key === payload.category)) {
+          errors.push('A supported service category is required.');
+        }
         payload.permissions.forEach((permission, index) => {
           if (!permission.key || !permission.label) {
             errors.push(`Permission ${index + 1} needs key and label.`);
@@ -1062,6 +1101,7 @@
         return {
           serviceKey: '',
           name: '',
+          category: 'other',
           description: '',
           requesterName: requester.name,
           requesterEmail: requester.email,
@@ -1077,6 +1117,7 @@
         state.serviceRequestDraft = {
           serviceKey: draft.serviceKey ?? '',
           name: draft.name ?? '',
+          category: draft.category ?? 'other',
           description: draft.description ?? '',
           requesterName: draft.requesterName ?? '',
           requesterEmail: draft.requesterEmail ?? '',
@@ -1137,6 +1178,9 @@
           if (!state.credentialScopeOptions.length) {
             await loadCredentialScopeOptions();
           }
+          if (!state.serviceCategoryOptions.length) {
+            await loadServiceCategoryOptions();
+          }
           const helper = globalThis.ServiceRequestImport;
           if (!helper?.parseImportedServiceRequestText) {
             throw new Error('Import helper failed to load.');
@@ -1146,6 +1190,7 @@
             state.adminSession,
             {
               supportedCredentialScopes: state.credentialScopeOptions,
+              supportedServiceCategories: state.serviceCategoryOptions,
               source,
             },
           );
@@ -1240,6 +1285,7 @@
           const session = await requestJson('/api/admin/session', { cache: 'no-store' });
           state.adminSession = session.account;
           $('logoutAdmin').disabled = false;
+          await loadServiceCategoryOptions();
           await loadCredentialScopeOptions();
           showServiceMain(true);
           syncRequesterFromSession();
@@ -1312,6 +1358,7 @@
       ['requestServiceKey', 'requestServiceName', 'requestDescription'].forEach(
         (id) => $(id).addEventListener('input', renderServiceRequestPreview),
       );
+      $('requestServiceCategory').addEventListener('change', renderServiceRequestPreview);
       $('chooseServiceRequestImport').addEventListener('click', () => {
         $('serviceRequestImportInput').click();
       });

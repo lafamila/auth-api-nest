@@ -8,6 +8,7 @@ import {
   IsOptional,
   IsString,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -23,6 +24,10 @@ import {
   PermissionWebhookSecretSource,
 } from '../../../database/entities/permission-webhook-subscription.entity';
 import { OnboardingNotificationActionTargetDto } from '../../../notifications/dto/notification.dto';
+import {
+  SERVICE_CATEGORY_KEYS,
+  ServiceCategory,
+} from '../../../database/entities/service.entity';
 
 export class OnboardingPermissionDto {
   @IsString()
@@ -107,6 +112,10 @@ export class CreateServiceOnboardingRequestDto {
 
   @IsString()
   name!: string;
+
+  @ValidateIf((_object, value: unknown) => value !== undefined)
+  @IsIn(SERVICE_CATEGORY_KEYS)
+  category?: ServiceCategory;
 
   @IsOptional()
   @IsString()

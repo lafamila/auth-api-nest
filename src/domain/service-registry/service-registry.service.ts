@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -6,8 +7,12 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { ServicePermissionDefinitionEntity } from '../../database/entities/service-permission-definition.entity';
-import { ServiceEntity } from '../../database/entities/service.entity';
-import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import {
+  isServiceCategory,
+  ServiceCategory,
+  ServiceEntity,
+} from '../../database/entities/service.entity';
+import { AuditInput, AuditLogsService } from '../audit-logs/audit-logs.service';
 import {
   SUPERADMIN_PERMISSION,
   VISITOR_PERMISSION,
@@ -40,6 +45,7 @@ export class ServiceRegistryService {
   }
 
   async create(input: CreateServiceDto): Promise<ServiceEntity> {
+    this.assertCategory(input.category);
     if (await this.services.existsBy({ serviceKey: input.serviceKey })) {
       throw new ConflictException('Service key already exists');
     }
@@ -49,6 +55,7 @@ export class ServiceRegistryService {
           serviceKey: input.serviceKey,
           name: input.name,
           description: input.description ?? '',
+          category: input.category ?? 'other',
           status: 'active',
           permissionSchemaVersion: 1,
         }),
@@ -85,10 +92,14 @@ export class ServiceRegistryService {
   }
 
   async update(id: string, input: UpdateServiceDto): Promise<ServiceEntity> {
+    this.assertCategory(input.category);
     const service = await this.findById(id);
     const before = { ...service };
-    Object.assign(service, input);
-    const saved = await this.services.save(service);
+    // Only write submitted fields so an omitted category cannot undo an admin edit.
+    if (Object.values(input).some((value) => value !== undefined)) {
+      await this.services.update(id, input);
+    }
+    const saved = await this.findById(id);
     await this.auditLogs.record({
       action: 'service.update',
       targetType: 'service',
@@ -97,6 +108,43 @@ export class ServiceRegistryService {
       afterJson: saved as unknown as Record<string, unknown>,
     });
     return saved;
+  }
+
+  async updateCategory(
+    id: string,
+    category: ServiceCategory,
+    actor: Pick<AuditInput, 'actorAccountId' | 'ipAddress' | 'userAgent'>,
+  ): Promise<ServiceEntity> {
+    if (!isServiceCategory(category)) {
+      throw new BadRequestException('Unsupported service category');
+    }
+    return this.dataSource.transaction(async (manager) => {
+      const service = await manager.findOne(ServiceEntity, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!service) throw new NotFoundException('Service not found');
+      const before = service.category;
+      await manager.update(ServiceEntity, id, { category });
+      await this.auditLogs.record(
+        {
+          ...actor,
+          action: 'service.category.update',
+          targetType: 'service',
+          targetId: id,
+          beforeJson: { category: before },
+          afterJson: { category },
+        },
+        manager,
+      );
+      return manager.findOneByOrFail(ServiceEntity, { id });
+    });
+  }
+
+  private assertCategory(category: unknown): void {
+    if (category !== undefined && !isServiceCategory(category)) {
+      throw new BadRequestException('Unsupported service category');
+    }
   }
 
   async incrementPermissionSchemaVersion(id: string): Promise<ServiceEntity> {

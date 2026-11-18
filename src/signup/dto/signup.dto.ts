@@ -1,4 +1,5 @@
 import { IsEmail, IsString, MinLength } from 'class-validator';
+import { PolicyAcceptanceDto } from '../../policies/policy-acceptance.dto';
 
 export class SignupLoginIdCheckDto {
   @IsString()
@@ -18,7 +19,7 @@ export class SignupVerifyCodeDto {
   code!: string;
 }
 
-export class SignupCompleteDto {
+export class SignupCompleteDto extends PolicyAcceptanceDto {
   @IsString()
   loginId!: string;
 

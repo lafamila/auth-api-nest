@@ -8,15 +8,16 @@
 - **Status**: active
 - **Port**: 3032
 - **Auth**: provider — 이 서비스가 중앙 OIDC 제공자
+- **Icon**: A — public/brand (workspace `.icons/A` 원본)
 
 ## 워크스페이스 대원칙 (canonical)
 
 이 레포는 `../CLAUDE.md` 의 **DEVELOPMENT PRINCIPLES** 섹션을 따른다. 핵심 재진술:
 
-1. **인증** — 본 레포가 *중앙 인증 서버* 자체. 다른 서비스가 이 레포를 OIDC Provider 로 신뢰한다. `.idea/completed/oauth-blueprint.md` 의 결정(NestJS + oidc-provider + PostgreSQL, issuer `https://auth.lafamila.xyz`)을 따른다.
+1. **인증** — 본 레포가 _중앙 인증 서버_ 자체. 다른 서비스가 이 레포를 OIDC Provider 로 신뢰한다. `.idea/completed/oauth-blueprint.md` 의 결정(NestJS + oidc-provider + PostgreSQL, issuer `https://auth.lafamila.xyz`)을 따른다.
 2. **기능 단위 커밋** — 한 기능이 계획-구현-검토를 통과하면 즉시 1개의 커밋. 여러 기능을 묶지 않는다.
 3. **Agent co-author 제외** — Codex, Claude, OmX 등 agent/tool 저자를 `Co-authored-by` trailer 로 추가하지 않는다. 사용자가 명시적으로 요청한 경우만 예외.
-4. **계획 → 구현 → 검토** — 계획 단계에서 검토 통과 기준(어떤 테스트/명령이 통과해야 "done"인지)을 명시한다. auth 관련 변경은 *반드시* 머지 전 테스트.
+4. **계획 → 구현 → 검토** — 계획 단계에서 검토 통과 기준(어떤 테스트/명령이 통과해야 "done"인지)을 명시한다. auth 관련 변경은 _반드시_ 머지 전 테스트.
 5. **Docker 빌드 가능** — 독립 운영 배포 서비스다. Dockerfile 과 `.env.example` 를 이 레포의 배포 기준으로 유지하며, 루트 `docker-compose.yml` 앱 등록을 전제하지 않는다. issuer 도메인은 `https://auth.lafamila.xyz`.
 6. **서비스 통합 계약 유지** — 이 레포는 다른 서비스들이 참고하는 중앙 auth 계약의 소유자다. OIDC/OAuth2 endpoints, callback/redirect URI 검증, token claim, service permission claim, admin service/client/permission/credential API, service credential scope 정책을 바꿀 때는 consuming service 영향까지 검토한다.
 7. **신규 서비스 onboarding 지원** — admin console 과 문서는 새 서비스가 준비해야 할 항목을 계속 설명할 수 있어야 한다: `serviceKey`, permission definitions, OIDC client, redirect/callback URI, login/session/token 처리, access denied 정책, backend-to-auth service credential, env var, secret 비노출 원칙.
@@ -73,7 +74,7 @@ Use Jest. Name unit tests `*.spec.ts` and e2e tests `*.e2e-spec.ts`. Prioritize 
 
 ## Commit & Pull Request Guidelines
 
-There is no commit history yet. Use concise, imperative subjects explaining why the change exists, for example `Add OIDC client registry model`. Include verification notes for protocol, database, or security-sensitive changes.
+Use Conventional Commits, for example `feat(auth): add provider lifecycle controls`. Include verification notes for protocol, database, or security-sensitive changes. Do not add agent co-author trailers.
 
 Pull requests should include a summary, linked issue or decision note, test results, migration notes, and admin console screenshots.
 
@@ -111,11 +112,11 @@ When auth APIs, claims, admin console flows, or credential scope semantics chang
 
 `SERVICE_CREDENTIAL_SCOPE_DEFINITIONS` (`src/database/entities/service-credential.entity.ts`) 가 **단일 소스**다. admin scope 목록 API(`GET /api/admin/service-credential-scopes`), 공개 신청 화면용 목록 API(`GET /api/service-credential-scopes`), credential/onboarding DTO 검증(`@IsIn(SERVICE_CREDENTIAL_SCOPE_KEYS)`)이 모두 이 상수를 읽으므로 키를 추가하면 자동 반영된다. scope 는 기존 `service_credentials.scopes` 컬럼에 들어가는 **값**이므로 DB 마이그레이션이 필요하지 않다.
 
-| scope | 용도 |
-|---|---|
-| `account.search` | 서비스 백엔드의 auth 계정 검색 |
-| `permission.read` | 권한 상태·승급 요청 조회 |
-| `sync` | 같은 서비스의 다른 배포본과 데이터 push/pull (동기화 기기 credential) |
+| scope             | 용도                                                                  |
+| ----------------- | --------------------------------------------------------------------- |
+| `account.search`  | 서비스 백엔드의 auth 계정 검색                                        |
+| `permission.read` | 권한 상태·승급 요청 조회                                              |
+| `sync`            | 같은 서비스의 다른 배포본과 데이터 push/pull (동기화 기기 credential) |
 
 ### `POST /api/internal/service-credentials/verify`
 
@@ -248,8 +249,9 @@ Phase 1 게임 플랫폼 세션 안정화 작업으로 확정된 토큰/서명�
   Provider/client/session mismatch, expiry and replay fail closed.
 - OTP is transaction/purpose bound, valid 5 minutes, maximum 5 attempts,
   60-second resend cooldown, 5 emails/address/30 minutes and 10/IP/hour.
-  Production without SMTP fails closed and never logs OTPs. Provider access
-  and refresh tokens are neither persisted nor returned to clients.
+  Production without SMTP fails closed and never logs OTPs. Provider tokens
+  needed for unlink are encrypted server-side and never returned to clients;
+  failed disconnect-job ciphertext is wiped within 24 hours.
 - Linking and creation serialize identity/email races and lock account rows;
   timestamp-only updates cannot undo concurrent admin disable/reset. Existing
   account status/reset rules, `select_account` SSO isolation and admin OTP remain
@@ -262,6 +264,22 @@ Phase 1 게임 플랫폼 세션 안정화 작업으로 확정된 토큰/서명�
 - Source, setup, consent/review, secret rotation and native test procedures:
   [`docs/social-login.md`](./docs/social-login.md). Core provider and workflow
   coverage lives in `src/social/*.spec.ts` and `test/social-*.e2e-spec.ts`.
+
+## Social Production Readiness
+
+- Public legal/contact/about pages and letter A brand are shared across hosted login, signup and portal.
+- Social signup does not accept local credentials; optional ID/PW is added later in `/profile`.
+- Explicit version/digest-bound consent is transactional; existing accounts are never backfilled.
+- Auth-only withdrawal and provider unlink require recent session, CSRF and applicable current password.
+- Service category is operational metadata editable by superadmin. Current `kakao` + `game` is denied;
+  linked-provider membership alone never restricts local/Google sessions. Services must validate signed
+  authentication-method/category claims and preserve the policy error message.
+- Auth temporary data defaults to one hour, audit logs 30 days. NAS backup seven-day enforcement is
+  an operator task; Auth never deletes backup files. Provider revocation jobs have a 24-hour secret deadline.
+- Apply all migrations through `AddServiceCategories20261118000003`; schema and production secret
+  readiness fail closed. Never rotate the shared encryption key without re-encrypting existing data.
+- Canonical endpoints, claims, propagation limitations, envs, provider review and deployment checklist:
+  [`docs/social-production-readiness.md`](./docs/social-production-readiness.md).
 
 ## Security & Configuration Tips
 

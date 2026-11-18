@@ -16,6 +16,9 @@ import { SignupModule } from './signup/signup.module';
 import { InternalModule } from './internal/internal.module';
 import { ServicePageController } from './service-page.controller';
 import { NotificationModule } from './notifications/notification.module';
+import { PublicSiteModule } from './public-site/public-site.module';
+import { ProviderEventsModule } from './social/provider-events/provider-events.module';
+import { PrivacyRetentionModule } from './policies/privacy-retention.module';
 
 @Module({
   imports: [
@@ -34,6 +37,9 @@ import { NotificationModule } from './notifications/notification.module';
     ServiceOnboardingModule,
     SignupModule,
     NotificationModule,
+    PublicSiteModule,
+    ProviderEventsModule,
+    PrivacyRetentionModule,
   ],
   controllers: [HealthController, ServicePageController],
 })

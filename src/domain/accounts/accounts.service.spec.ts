@@ -26,6 +26,7 @@ describe('AccountsService', () => {
       save: jest.fn(),
     };
     const manager = {
+      query: jest.fn().mockResolvedValue(undefined),
       getRepository: jest.fn().mockReturnValue(accountRepository),
     } as unknown as EntityManager;
     const dataSource = {

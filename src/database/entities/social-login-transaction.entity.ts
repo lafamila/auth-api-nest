@@ -14,6 +14,7 @@ export interface SocialLoginData {
   purpose?: 'portal' | 'link';
   expectedAccountId?: string;
   targetAccountId?: string;
+  reconnectIdentityId?: string;
   portalSessionHash?: string;
   credentialVersion?: number;
   sessionAccountId: string | null;

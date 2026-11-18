@@ -13,20 +13,25 @@ import { join } from 'node:path';
 import { AdminAuthService } from './admin/admin-auth.service';
 import { SERVICE_CREDENTIAL_SCOPE_DEFINITIONS } from './database/entities/service-credential.entity';
 import { privatePageHeaders } from './portal/portal-pages';
+import { PublicSiteService } from './public-site/public-site.service';
 
 @Controller()
 export class ServicePageController {
-  constructor(private readonly adminAuth: AdminAuthService) {}
+  constructor(
+    private readonly adminAuth: AdminAuthService,
+    private readonly publicSite?: PublicSiteService,
+  ) {}
 
   @Get('service')
   async service(@Req() request: Request, @Res() response: Response) {
     await this.validateAdminRequest(request);
-    response.set(
-      privatePageHeaders(
-        readFileSync(join(process.cwd(), 'public', 'service.html'), 'utf8'),
-      ),
+    const source = readFileSync(
+      join(process.cwd(), 'public', 'service.html'),
+      'utf8',
     );
-    return response.sendFile(join(process.cwd(), 'public', 'service.html'));
+    const html = this.publicSite?.decorate(source, 'application') ?? source;
+    response.set(privatePageHeaders(html));
+    return response.type('html').send(html);
   }
 
   @Get('service-request-import.js')

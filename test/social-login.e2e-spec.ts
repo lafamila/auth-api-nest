@@ -17,6 +17,8 @@ import { TokenService } from '../src/oidc/token.service';
 import { EmailDeliveryService } from '../src/signup/email-delivery.service';
 import { SocialIdentityProfile } from '../src/social/social-provider.types';
 import { SocialProvidersService } from '../src/social/social-providers.service';
+import { AccountPoliciesService } from '../src/policies/account-policies.service';
+import { AccountPolicyConsentEntity } from '../src/database/entities/account-policy-consent.entity';
 import { hashToken } from '../src/common/crypto/token-hash';
 
 const describeIsolated = process.env.TEST_DATABASE_URL
@@ -38,14 +40,18 @@ describeIsolated('Social login (isolated e2e)', () => {
 
   beforeAll(async () => {
     process.env.NODE_ENV = 'test';
+    const databaseUrl = new URL(process.env.TEST_DATABASE_URL!);
     if (
-      !process.env.TEST_DATABASE_URL ||
-      !/(?:test|e2e|scratch)/i.test(
-        new URL(process.env.TEST_DATABASE_URL).pathname,
+      !['postgres:', 'postgresql:'].includes(databaseUrl.protocol) ||
+      !/^auth_portal_e2e(?:_[a-z0-9_]+)?$/.test(
+        decodeURIComponent(databaseUrl.pathname.replace(/^\/+/, '')),
+      ) ||
+      [...databaseUrl.searchParams.keys()].some((key) =>
+        ['database', 'dbname'].includes(key.toLowerCase()),
       )
     ) {
       throw new Error(
-        'TEST_DATABASE_URL must explicitly target an isolated test/e2e/scratch database',
+        'Social e2e requires the dedicated auth_portal_e2e PostgreSQL database without database query overrides',
       );
     }
     process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
@@ -74,6 +80,8 @@ describeIsolated('Social login (isolated e2e)', () => {
     );
     await app.listen(0, '127.0.0.1');
     db = app.get(DataSource);
+    // This guarded database is test-only; isolate shared-IP rate buckets between suites/reruns.
+    await db.getRepository(EmailVerificationEntity).clear();
     service = await db.getRepository(ServiceEntity).save({
       serviceKey: `social-e2e-${randomUUID()}`,
       name: 'Social E2E',
@@ -210,11 +218,41 @@ describeIsolated('Social login (isolated e2e)', () => {
       .type('form')
       .send({
         transaction: login.state,
-        email: profiles.get(provider)!.email,
+        ...agreement(),
+        email: profiles.get(provider)!.email!,
         name: 'Social User',
         ...extra,
       })
       .expect(status);
+  }
+
+  function agreement() {
+    const { termsVersion, privacyVersion, policyDigest } = app
+      .get(AccountPoliciesService)
+      .current();
+    return {
+      termsAccepted: true,
+      privacyAccepted: true,
+      termsVersion,
+      privacyVersion,
+      policyDigest,
+    };
+  }
+
+  async function verifySignupEmail(
+    login: Awaited<ReturnType<typeof begin>>,
+    provider: string,
+  ) {
+    if (profiles.get(provider)!.emailVerified) return;
+    await login.agent
+      .post('/oauth/social/email/start')
+      .send({ transaction: login.state, email: profiles.get(provider)!.email })
+      .expect(200);
+    const code = mail.mock.calls.at(-1)![1] as string;
+    await login.agent
+      .post('/oauth/social/email/verify')
+      .send({ transaction: login.state, code })
+      .expect(200);
   }
 
   async function tokens(response: request.Response, redirectUri = callback) {
@@ -276,39 +314,166 @@ describeIsolated('Social login (isolated e2e)', () => {
     return account;
   }
 
-  it('creates a genuinely social-only account and preserves downstream OIDC fields', async () => {
+  it.each(['google', 'kakao', 'naver'])(
+    'creates a genuinely social-only %s account and preserves downstream OIDC fields',
+    async (provider) => {
+      const login = await begin(provider);
+      await providerCallback(login, provider);
+      const page = await login.agent
+        .get('/oauth/social/signup')
+        .query({ transaction: login.state })
+        .expect(200);
+      for (const field of ['loginId', 'password', 'passwordConfirm'])
+        expect(page.text).not.toContain(`name="${field}"`);
+      for (const field of ['termsAccepted', 'privacyAccepted']) {
+        const checkbox = page.text.match(
+          new RegExp(`<input[^>]*id="${field}"[^>]*>`),
+        )![0];
+        expect(checkbox).toContain('required');
+        expect(checkbox).not.toMatch(/\schecked(?:[\s=>]|\/?>)/);
+      }
+      for (const field of [
+        'termsVersion',
+        'privacyVersion',
+        'policyDigest',
+      ] as const) {
+        expect(page.text).toContain(`value="${agreement()[field]}"`);
+      }
+      await verifySignupEmail(login, provider);
+      const response = await complete(login, provider);
+      const claims = await tokens(response);
+      const account = await db
+        .getRepository(AccountEntity)
+        .findOneByOrFail({ id: claims.sub as string });
+      expect(account.loginId).toBeNull();
+      expect(account.passwordHash).toBeNull();
+      expect(account.emailVerifiedAt).not.toBeNull();
+      expect(account.isSuperAdmin).toBe(false);
+      const { termsVersion, privacyVersion, policyDigest } = app
+        .get(AccountPoliciesService)
+        .current();
+      expect(
+        await db
+          .getRepository(AccountPolicyConsentEntity)
+          .findBy({ accountId: account.id }),
+      ).toEqual([
+        expect.objectContaining({
+          accountId: account.id,
+          termsVersion,
+          privacyVersion,
+          policyDigest,
+          source: 'social_signup',
+          acceptedAt: expect.any(Date),
+        }),
+      ]);
+      expect(claims.preferred_username).toBe(account.email);
+      await expect(
+        app.get(AccountsService).resetPassword(account.id),
+      ).rejects.toThrow('local');
+      await login.agent
+        .post('/oauth/social/complete')
+        .type('form')
+        .send({
+          transaction: login.state,
+          email: account.email,
+          name: account.name,
+        })
+        .expect(400);
+    },
+  );
+
+  it.each(['json', 'form'])(
+    'rejects missing, false and stale %s social agreement while preserving the verified transaction',
+    async (encoding) => {
+      const login = await begin('naver');
+      await providerCallback(login, 'naver');
+      await verifySignupEmail(login, 'naver');
+      const email = profiles.get('naver')!.email!;
+      const policy = agreement();
+      const candidates: Array<Record<string, unknown>> = [
+        {},
+        ...Object.keys(policy).map((field) => {
+          const missing: Record<string, unknown> = { ...policy };
+          delete missing[field];
+          return missing;
+        }),
+        { ...policy, termsAccepted: false },
+        { ...policy, privacyAccepted: false },
+        { ...policy, termsVersion: 'previous' },
+        { ...policy, privacyVersion: 'previous' },
+        { ...policy, policyDigest: '0'.repeat(64) },
+      ];
+      for (const fields of candidates) {
+        await login.agent
+          .post('/oauth/social/complete')
+          .type(encoding)
+          .send({
+            transaction: login.state,
+            name: 'Social User',
+            email,
+            ...fields,
+          })
+          .expect(400);
+        expect(await db.getRepository(AccountEntity).countBy({ email })).toBe(
+          0,
+        );
+        const transaction = await db
+          .getRepository(SocialLoginTransactionEntity)
+          .findOneByOrFail({
+            tokenHash: hashToken(login.state),
+            phase: 'signup',
+          });
+        expect(transaction.data.emailVerified).toBe(true);
+      }
+      const claims = await tokens(await complete(login, 'naver'));
+      expect(
+        await db.getRepository(AccountPolicyConsentEntity).countBy({
+          accountId: claims.sub as string,
+          source: 'social_signup',
+        }),
+      ).toBe(1);
+    },
+  );
+
+  it('rolls back social account, identity and agreement writes when consent persistence fails, then permits retry', async () => {
     const login = await begin();
     await providerCallback(login);
-    const page = await login.agent
-      .get('/oauth/social/signup')
-      .query({ transaction: login.state })
-      .expect(200);
-    expect(page.text).toContain('name="loginId"');
-    const response = await complete(login);
-    const claims = await tokens(response);
-    const account = await db
-      .getRepository(AccountEntity)
-      .findOneByOrFail({ id: claims.sub as string });
-    expect(account.loginId).toBeNull();
-    expect(account.passwordHash).toBeNull();
-    expect(account.emailVerifiedAt).not.toBeNull();
-    expect(account.isSuperAdmin).toBe(false);
-    expect(claims.preferred_username).toBe(account.email);
-    await expect(
-      app.get(AccountsService).resetPassword(account.id),
-    ).rejects.toThrow('local');
-    await login.agent
-      .post('/oauth/social/complete')
-      .type('form')
-      .send({
-        transaction: login.state,
-        email: account.email,
-        name: account.name,
-      })
-      .expect(400);
+    const policies = app.get(AccountPoliciesService);
+    const originalRecord = policies.record.bind(
+      policies,
+    ) as AccountPoliciesService['record'];
+    const record = jest
+      .spyOn(policies, 'record')
+      .mockImplementationOnce(async (...args) => {
+        await originalRecord(...args);
+        throw new Error('Injected social consent persistence failure');
+      });
+    try {
+      await complete(login, 'google', {}, 500);
+    } finally {
+      record.mockRestore();
+    }
+    expect(
+      await db
+        .getRepository(AccountEntity)
+        .countBy({ email: profiles.get('google')!.email! }),
+    ).toBe(0);
+    expect(
+      await db.getRepository(SocialIdentityEntity).countBy({
+        provider: 'google',
+        providerClientId: providerClientId('google'),
+        subject: profiles.get('google')!.subject,
+      }),
+    ).toBe(0);
+    expect(
+      await db
+        .getRepository(SocialLoginTransactionEntity)
+        .countBy({ tokenHash: hashToken(login.state), phase: 'signup' }),
+    ).toBe(1);
+    await complete(login);
   });
 
-  it('allows checked optional local ID with a matching password pair', async () => {
+  it('rejects checked local credentials and permits a social-only retry', async () => {
     const loginId = `social-local-${randomUUID()}`;
     await request(app.getHttpServer())
       .post('/api/signup/check-login-id')
@@ -317,37 +482,79 @@ describeIsolated('Social login (isolated e2e)', () => {
       .expect(({ body }) => expect(body.available).toBe(true));
     const login = await begin();
     await providerCallback(login);
-    const response = await complete(login, 'google', {
-      loginId,
-      password: 'Optional-password!',
-      passwordConfirm: 'Optional-password!',
-    });
-    const claims = await tokens(response);
-    const account = await app
-      .get(AccountsService)
-      .authenticate(loginId, 'Optional-password!');
-    expect(account.id).toBe(claims.sub);
-    expect(claims.preferred_username).toBe(loginId);
-  });
-
-  it('requires a matching password for an optional ID and retains the signup for retry', async () => {
-    const login = await begin();
-    await providerCallback(login);
-    await complete(login, 'google', { loginId: 'without-password' }, 400);
     await complete(
       login,
       'google',
       {
-        loginId: 'mismatch',
-        password: 'Long-password!',
-        passwordConfirm: 'Other-password!',
+        loginId,
+        password: 'Optional-password!',
+        passwordConfirm: 'Optional-password!',
       },
       400,
     );
-    await complete(login);
+    expect(await db.getRepository(AccountEntity).countBy({ loginId })).toBe(0);
+    const claims = await tokens(await complete(login));
+    expect(claims['https://lafamila.xyz/claims/local_login_id']).toBeNull();
+    await expect(
+      app.get(AccountsService).authenticate(loginId, 'Optional-password!'),
+    ).rejects.toThrow('Invalid credentials');
   });
 
-  it('rechecks ID uniqueness even after the availability check succeeded', async () => {
+  it.each(['google', 'kakao', 'naver'])(
+    'rejects literal credential fields in form and JSON %s signup without consuming it',
+    async (provider) => {
+      const login = await begin(provider);
+      await providerCallback(login, provider);
+      await verifySignupEmail(login, provider);
+      for (const type of ['form', 'json']) {
+        for (const extra of [
+          { loginId: 'without-password' },
+          { password: 'Long-password!' },
+          { passwordConfirm: 'Long-password!' },
+          { loginId: '' },
+          { password: '' },
+          { passwordConfirm: '' },
+          {
+            loginId: 'blocked-local',
+            password: 'Long-password!',
+            passwordConfirm: 'Long-password!',
+          },
+          {
+            loginId: 'mismatch',
+            password: 'Long-password!',
+            passwordConfirm: 'Other-password!',
+          },
+        ]) {
+          await login.agent
+            .post('/oauth/social/complete')
+            .type(type)
+            .send({
+              ...agreement(),
+              transaction: login.state,
+              email: profiles.get(provider)!.email!,
+              name: 'Social User',
+              ...extra,
+            })
+            .expect(400);
+          expect(
+            await db.getRepository(SocialLoginTransactionEntity).countBy({
+              tokenHash: hashToken(login.state),
+              phase: 'signup',
+            }),
+          ).toBe(1);
+          expect(
+            await db.getRepository(AccountEntity).countBy({
+              email: profiles.get(provider)!.email!,
+            }),
+          ).toBe(0);
+        }
+      }
+      const claims = await tokens(await complete(login, provider));
+      expect(claims['https://lafamila.xyz/claims/local_login_id']).toBeNull();
+    },
+  );
+
+  it('rejects credentials for an existing local ID without changing that account', async () => {
     const login = await begin();
     await providerCallback(login);
     const existing = await localAccount(`${randomUUID()}@example.test`);
@@ -359,7 +566,7 @@ describeIsolated('Social login (isolated e2e)', () => {
         password: 'New-password!',
         passwordConfirm: 'New-password!',
       },
-      409,
+      400,
     );
     await complete(login);
     await expect(
@@ -378,6 +585,11 @@ describeIsolated('Social login (isolated e2e)', () => {
       const login = await begin(provider);
       const response = await providerCallback(login, provider, 200);
       expect((await tokens(response)).sub).toBe(existing.id);
+      expect(
+        await db
+          .getRepository(AccountPolicyConsentEntity)
+          .countBy({ accountId: existing.id }),
+      ).toBe(0);
     }
     const naver = await begin('naver');
     await providerCallback(naver, 'naver');
@@ -576,8 +788,9 @@ describeIsolated('Social login (isolated e2e)', () => {
           .post('/oauth/social/complete')
           .type('form')
           .send({
+            ...agreement(),
             transaction: login.state,
-            email: profiles.get('google')!.email,
+            email: profiles.get('google')!.email!,
             name: 'Concurrent',
           }),
       ),

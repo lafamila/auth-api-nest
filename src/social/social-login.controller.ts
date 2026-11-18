@@ -34,6 +34,12 @@ import { PortalAuthService } from '../portal/portal-auth.service';
 import { PortalSessionService } from '../portal/portal-session.service';
 import { SsoSessionService } from '../oidc/sso-session.service';
 import { hashSecret } from '../common/crypto/secret-hash';
+import {
+  authenticationMethod,
+  gameLoginDenial,
+  gameLoginPolicyCode,
+} from '../oidc/authentication-method';
+import { PublicSiteService } from '../public-site/public-site.service';
 
 @Controller()
 export class SocialLoginController {
@@ -46,6 +52,7 @@ export class SocialLoginController {
     private readonly portal: PortalAuthService,
     private readonly portalSessions: PortalSessionService,
     private readonly sso: SsoSessionService,
+    private readonly publicSite?: PublicSiteService,
   ) {}
 
   @Get('api/social/providers')
@@ -65,11 +72,64 @@ export class SocialLoginController {
         request,
         this.hosted.cookieName(body.login_transaction),
       );
+      const current = await this.sso.context(request);
+      if (provider === 'kakao') {
+        const transaction = await this.hosted.find(
+          body.login_transaction,
+          nonce,
+        );
+        if (
+          !transaction ||
+          transaction.sessionAccountId !== (current?.accountId ?? null)
+        )
+          throw new BadRequestException('Invalid or expired login transaction');
+        if (transaction.request) {
+          const validated = await this.authorizeFlow.validateRequest(
+            transaction.request,
+          );
+          const denial =
+            validated.kind === 'validated'
+              ? gameLoginDenial(validated.client.service.category, 'kakao')
+              : null;
+          if (validated.kind === 'validated' && denial) {
+            if (!(await this.hosted.consume(body.login_transaction, nonce)))
+              throw new BadRequestException(
+                'Invalid or expired login transaction',
+              );
+            response.clearCookie(
+              this.hosted.cookieName(body.login_transaction),
+              {
+                httpOnly: true,
+                secure: this.config.nodeEnv === 'production',
+                sameSite: 'strict',
+                path: '/oauth/login',
+              },
+            );
+            if (current?.authenticationMethod === 'kakao')
+              await this.portal.signOutKakao(
+                current.accountId,
+                request,
+                response,
+              );
+            return this.navigate(
+              response,
+              this.authorizeFlow.buildErrorRedirectUrl(
+                validated.request.redirectUri,
+                validated.request.state,
+                'access_denied',
+                denial,
+                gameLoginPolicyCode('kakao'),
+              ),
+              denial,
+            );
+          }
+        }
+      }
       const result = await this.social.start(
         provider,
         body.login_transaction,
         nonce,
-        await this.sso.accountId(request),
+        current?.accountId ?? null,
       );
       response.clearCookie(this.hosted.cookieName(body.login_transaction), {
         httpOnly: true,
@@ -152,8 +212,9 @@ export class SocialLoginController {
         state,
         await this.context(state, request),
       );
+      const html = this.decorate(renderSocialSignupPage(page));
       this.pageHeaders(response);
-      return response.type('html').send(renderSocialSignupPage(page));
+      return response.type('html').send(html);
     } catch (error) {
       return this.failure(response, error);
     }
@@ -238,13 +299,14 @@ export class SocialLoginController {
           body.transaction,
           await this.context(body.transaction, request),
         );
+        const html = this.decorate(
+          renderSocialSignupPage({ ...page, error: this.message(error) }),
+        );
         this.pageHeaders(response);
         return response
-          .status(error instanceof HttpException ? error.getStatus() : 400)
+          .status(error instanceof HttpException ? error.getStatus() : 500)
           .type('html')
-          .send(
-            renderSocialSignupPage({ ...page, error: this.message(error) }),
-          );
+          .send(html);
       } catch {
         return this.failure(response, error);
       }
@@ -265,7 +327,7 @@ export class SocialLoginController {
         request,
         response,
         result.expectedAccountId,
-        'social',
+        result.authenticationMethod,
       );
       response.clearCookie(this.social.cookieName(state), {
         path: '/oauth/social',
@@ -285,9 +347,16 @@ export class SocialLoginController {
       validated,
       result.account.id,
       result.account.credentialVersion ?? 0,
+      authenticationMethod(result.authenticationMethod),
     );
-    if (!result.request.prompt) {
-      await this.sso.create(result.account, response);
+    if (authorized.policyDenied && result.authenticationMethod === 'kakao') {
+      await this.portal.signOutKakao(result.account.id, request, response);
+    } else if (!authorized.policyDenied && !result.request.prompt) {
+      await this.sso.create(
+        result.account,
+        response,
+        authenticationMethod(result.authenticationMethod),
+      );
     }
     response.clearCookie(this.social.cookieName(state), {
       path: '/oauth/social',
@@ -295,25 +364,32 @@ export class SocialLoginController {
       sameSite: 'lax',
       secure: this.config.nodeEnv === 'production',
     });
-    return this.navigate(response, authorized.redirectUrl);
+    return this.navigate(
+      response,
+      authorized.redirectUrl,
+      authorized.policyDenied,
+    );
   }
 
-  private navigate(response: Response, url: string) {
-    this.pageHeaders(response);
+  private navigate(response: Response, url: string, policyMessage?: string) {
     const protocol = new URL(url).protocol;
-    if (protocol !== 'http:' && protocol !== 'https:')
+    if (!policyMessage && protocol !== 'http:' && protocol !== 'https:') {
+      this.pageHeaders(response);
       return response.redirect(url);
-    return response
-      .status(200)
-      .type('html')
-      .send(this.authorizeFlow.renderAuthorizationRedirectPage(url));
+    }
+    const html = this.authorizeFlow.renderAuthorizationRedirectPage(
+      url,
+      policyMessage,
+    );
+    this.pageHeaders(response);
+    return response.status(200).type('html').send(html);
   }
 
   private pageHeaders(response: Response) {
     response.set({
       'Cache-Control': 'no-store',
       'Content-Security-Policy':
-        "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+        "default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self'; style-src 'self' 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
       'Referrer-Policy': 'no-referrer',
       'X-Frame-Options': 'DENY',
     });
@@ -379,10 +455,15 @@ export class SocialLoginController {
   }
 
   private failure(response: Response, error: unknown) {
+    const html = this.decorate(renderSocialErrorPage(this.message(error)));
     this.pageHeaders(response);
     return response
-      .status(error instanceof HttpException ? error.getStatus() : 400)
+      .status(error instanceof HttpException ? error.getStatus() : 500)
       .type('html')
-      .send(renderSocialErrorPage(this.message(error)));
+      .send(html);
+  }
+
+  private decorate(html: string) {
+    return this.publicSite?.decorate(html, 'form') ?? html;
   }
 }

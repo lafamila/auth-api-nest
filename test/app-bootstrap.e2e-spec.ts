@@ -15,7 +15,10 @@ import { OidcClientEntity } from '../src/database/entities/oidc-client.entity';
 import { ServiceCredentialEntity } from '../src/database/entities/service-credential.entity';
 import { ServiceOnboardingRequestEntity } from '../src/database/entities/service-onboarding-request.entity';
 import { ServicePermissionDefinitionEntity } from '../src/database/entities/service-permission-definition.entity';
-import { ServiceEntity } from '../src/database/entities/service.entity';
+import {
+  SERVICE_CATEGORIES,
+  ServiceEntity,
+} from '../src/database/entities/service.entity';
 import { AccountsService } from '../src/domain/accounts/accounts.service';
 import { AccountPermissionsService } from '../src/domain/account-permissions/account-permissions.service';
 import { ServiceApplicationsService } from '../src/domain/service-applications/service-applications.service';
@@ -1831,7 +1834,43 @@ describe('App bootstrap (e2e)', () => {
       .patch(`/api/admin/services/${serviceId}`)
       .set('Cookie', adminCookie)
       .send({})
-      .expect(404);
+      .expect(400);
+    await request(app.getHttpServer())
+      .patch(`/api/admin/services/${serviceId}`)
+      .set('Cookie', adminCookie)
+      .send({ name: 'Core spec cannot be changed directly' })
+      .expect(403);
+    await request(app.getHttpServer())
+      .patch(`/api/admin/services/${serviceId}`)
+      .set('Cookie', adminCookie)
+      .send({ category: 'game', name: 'Core spec cannot be changed directly' })
+      .expect(403);
+    await request(app.getHttpServer())
+      .get('/api/service-categories')
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual(SERVICE_CATEGORIES);
+      });
+    await request(app.getHttpServer())
+      .patch(`/api/admin/services/${serviceId}`)
+      .send({ category: 'game' })
+      .expect(401);
+    for (const category of [null, '', 'unknown']) {
+      await request(app.getHttpServer())
+        .patch(`/api/admin/services/${serviceId}`)
+        .set('Cookie', adminCookie)
+        .send({ category })
+        .expect(400);
+    }
+    await request(app.getHttpServer())
+      .patch(`/api/admin/services/${serviceId}`)
+      .set('Cookie', adminCookie)
+      .send({ category: 'productivity' })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.category).toBe('productivity');
+        expect(response.body.name).toBe(approved.service.name);
+      });
     await request(app.getHttpServer())
       .post(`/api/admin/services/${serviceId}/permissions`)
       .set('Cookie', adminCookie)

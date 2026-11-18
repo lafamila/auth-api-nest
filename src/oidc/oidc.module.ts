@@ -27,6 +27,10 @@ import { AuthSessionModule } from './auth-session.module';
 import { PortalModule } from '../portal/portal.module';
 import { PortalController } from '../portal/portal.controller';
 import { AdminSessionModule } from '../admin/admin-session.module';
+import { AccountPoliciesModule } from '../policies/account-policies.module';
+import { PublicSiteModule } from '../public-site/public-site.module';
+import { AccountLifecycleModule } from '../portal/account-lifecycle.module';
+import { ProviderRevocationsModule } from '../social/provider-revocations.module';
 
 @Module({
   imports: [
@@ -40,6 +44,10 @@ import { AdminSessionModule } from '../admin/admin-session.module';
     PortalModule,
     SocialProvidersModule,
     AdminSessionModule,
+    AccountPoliciesModule,
+    PublicSiteModule,
+    AccountLifecycleModule,
+    ProviderRevocationsModule,
     TypeOrmModule.forFeature([
       TokenRecordEntity,
       SigningKeyEntity,

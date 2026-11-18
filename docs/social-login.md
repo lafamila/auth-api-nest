@@ -1,6 +1,9 @@
 # 소셜 로그인 등록 및 운영 가이드
 
-공식 자료 확인일: **2026-11-04**. Google, Kakao, Naver의 공식 문서와 공지만 참고했다. 콘솔의 언어, 계정 유형, 권한, 개편 시점에 따라 메뉴 이름과 위치가 다를 수 있으므로 각 절의 공식 링크도 함께 확인한다.
+공식 자료 확인일: **2026-11-18**. Google, Kakao, Naver의 공식 문서와 공지만 참고했다. 콘솔의 언어, 계정 유형, 권한, 개편 시점에 따라 메뉴 이름과 위치가 다를 수 있으므로 각 절의 공식 링크도 함께 확인한다.
+
+현행 공개 페이지·동의·탈퇴·암호화 토큰·서비스 종류/카카오 제한·추가 migration은
+[운영 준비 계약](./social-production-readiness.md)이 우선한다. 외부 심사와 실계정 검증은 별도다.
 
 이 문서는 운영자가 제공자 계정과 개발자 앱을 등록하고, 발급받은 값을 **중앙 `auth-api-nest` 백엔드**에 설정하기 위한 안내다. 아래 가입 정책은 2026-11-04 사용자 승인 사항이며, 제공자가 모든 이메일의 현재 소유권을 보증한다는 의미는 아니다. 배포와 실계정 테스트 절차는 수행할 작업을 설명한 것으로, 키 발급, 검수 승인, migration 실행 또는 실제 제공자 smoke test 완료 보고가 아니다.
 
@@ -30,15 +33,15 @@
 
 처음 보는 소셜 identity는 다음 정책으로 이메일 소유 확인을 마친 후 기존 계정을 찾거나 새 계정을 만든다. 제공자 응답은 중앙 Auth가 서버에서 검증하며, 브라우저가 제출한 이메일이나 인증 플래그를 그대로 신뢰하지 않는다.
 
-| 제공자 응답 | 서비스의 신뢰 판정 | 첫 연결/가입 시 처리 |
-| --- | --- | --- |
-| Google: 이메일 존재, `email_verified === true`, `@gmail.com` 주소 | 신뢰 가능 | 별도 이메일 OTP 없이 같은 이메일의 기존 계정에 자동 연결, 없으면 신규 가입 |
-| Google: 이메일 존재, `email_verified === true`, 응답의 `hd` 존재 | 신뢰 가능 | 위와 동일. `hd` 요청 힌트나 이메일 도메인 추측으로 대신하지 않음 |
-| Google: 비-Gmail이고 `hd` 없음 | 기본 `false` | `email_verified`가 참이어도 자체 이메일 OTP 후 연결/가입 |
+| 제공자 응답                                                                            | 서비스의 신뢰 판정      | 첫 연결/가입 시 처리                                                       |
+| -------------------------------------------------------------------------------------- | ----------------------- | -------------------------------------------------------------------------- |
+| Google: 이메일 존재, `email_verified === true`, `@gmail.com` 주소                      | 신뢰 가능               | 별도 이메일 OTP 없이 같은 이메일의 기존 계정에 자동 연결, 없으면 신규 가입 |
+| Google: 이메일 존재, `email_verified === true`, 응답의 `hd` 존재                       | 신뢰 가능               | 위와 동일. `hd` 요청 힌트나 이메일 도메인 추측으로 대신하지 않음           |
+| Google: 비-Gmail이고 `hd` 없음                                                         | 기본 `false`            | `email_verified`가 참이어도 자체 이메일 OTP 후 연결/가입                   |
 | Kakao: 이메일 존재, `is_email_valid === true`와 `is_email_verified === true` 모두 충족 | 승인된 정책상 신뢰 가능 | 별도 이메일 OTP 없이 같은 이메일의 기존 계정에 자동 연결, 없으면 신규 가입 |
-| Kakao: 둘 중 하나가 거짓, 누락 또는 문자열 등 올바른 boolean이 아님 | `false` | 자체 이메일 OTP 후 연결/가입 |
-| Naver: 프로필 이메일 수신 여부와 무관 | 기본 `false` | 자체 이메일 OTP 후 연결/가입. `@naver.com`만으로 예외 처리하지 않음 |
-| 모든 제공자: 이메일 없음 | `false` | 사용자가 이메일을 입력하고 자체 OTP를 완료한 뒤 연결/가입 |
+| Kakao: 둘 중 하나가 거짓, 누락 또는 문자열 등 올바른 boolean이 아님                    | `false`                 | 자체 이메일 OTP 후 연결/가입                                               |
+| Naver: 프로필 이메일 수신 여부와 무관                                                  | 기본 `false`            | 자체 이메일 OTP 후 연결/가입. `@naver.com`만으로 예외 처리하지 않음        |
+| 모든 제공자: 이메일 없음                                                               | `false`                 | 사용자가 이메일을 입력하고 자체 OTP를 완료한 뒤 연결/가입                  |
 
 Google은 Gmail 또는 검증된 Workspace `hd` 조합에서 이메일에 대한 권위를 가진다고 설명한다. 외부 이메일은 최초 확인 이후 소유자가 바뀌었을 수 있다. [Google ID 토큰 검증 가이드](https://developers.google.com/identity/gsi/web/guides/verify-google-id-token)를 기준으로 한다.
 
@@ -46,13 +49,13 @@ Kakao는 이메일 유효/인증 여부를 별도로 제공하지만 이메일�
 
 Naver 프로필 명세에는 이메일 인증 여부가 없고, 이메일은 외부 주소로 바뀔 수 있다. 이는 "Naver가 이메일을 전혀 인증하지 않는다"는 단정이 아니라 **이 연동에서 사용할 검증 증명이 노출되지 않는다**는 뜻이다. [Naver 프로필 명세](https://developers.naver.com/docs/login/profile/profile.md)를 참고한다.
 
-### 2.2 선택 ID와 비밀번호
+### 2.2 소셜 가입과 선택 로컬 자격 증명
 
-- **새 계정에서 ID를 비우면** 소셜 전용 계정을 만든다. `login_id`와 `password_hash`는 모두 `NULL`이며, 숨겨진 임의 ID나 임의 비밀번호를 생성하지 않는다.
-- **ID를 입력한 경우에만** ID 중복 확인, 비밀번호, 비밀번호 확인이 필요하다. 두 비밀번호가 일치하고 기존 비밀번호 정책을 만족해야 한다.
-- ID와 비밀번호를 만들지 않아도 소셜 가입을 끝낼 수 있어야 한다. 일반 ID/PW 가입 화면의 필수 조건을 소셜 가입에 그대로 적용하지 않는다.
+- 소셜 신규 가입은 ID·비밀번호를 받지 않는다. `login_id`와 `password_hash`는 모두 `NULL`이며, 숨겨진 임의 ID나 임의 비밀번호를 생성하지 않는다.
+- 가입 후 `/profile`에서 ID/PW를 선택적으로 추가할 수 있다. 이 경우 ID 중복 확인과 두 비밀번호 일치·기존 비밀번호 정책을 요구한다.
+- 소셜 가입에는 약관·개인정보처리방침 확인이 필요하다. 일반 ID/PW 가입 화면의 자격 증명 필수 조건을 소셜 가입에 적용하지 않는다.
 - 같은 이메일의 기존 계정에 연결할 때 기존 ID, 비밀번호, 권한을 새 가입 입력값으로 덮어쓰지 않는다.
-- 소셜 전용 계정은 로컬 ID/PW 로그인을 사용할 수 없다. 이후 로컬 자격 증명을 추가하는 기능이 별도로 없다면 이 문서를 그 기능의 제공 약속으로 해석하지 않는다.
+- 로컬 자격 증명을 추가하기 전까지 소셜 전용 계정은 ID/PW 로그인을 사용할 수 없다.
 
 이는 이 서비스의 승인된 계약이다. 특히 Naver의 별도 비밀번호 요구 금지 기준과 검수 자료 구성은 [Naver 사전 검수 가이드](https://developers.naver.com/docs/login/verify/verify.md)에 따른다.
 
@@ -72,11 +75,11 @@ Naver 프로필 명세에는 이메일 인증 여부가 없고, 이메일은 외
 
 callback은 `ISSUER_URL`을 기준으로 Auth가 결정한다. 제공자별 별도 callback env는 사용하지 않는다. `{provider}`나 `{google|kakao|naver}`를 문자 그대로 등록하지 말고, 아래의 실제 제공자 경로를 등록한다.
 
-| 제공자 | 운영: `ISSUER_URL=https://auth.lafamila.xyz` | 로컬 예시: `ISSUER_URL=http://localhost:3032` |
-| --- | --- | --- |
+| 제공자 | 운영: `ISSUER_URL=https://auth.lafamila.xyz`             | 로컬 예시: `ISSUER_URL=http://localhost:3032`        |
+| ------ | -------------------------------------------------------- | ---------------------------------------------------- |
 | Google | `https://auth.lafamila.xyz/oauth/social/google/callback` | `http://localhost:3032/oauth/social/google/callback` |
-| Kakao | `https://auth.lafamila.xyz/oauth/social/kakao/callback` | `http://localhost:3032/oauth/social/kakao/callback` |
-| Naver | `https://auth.lafamila.xyz/oauth/social/naver/callback` | `http://localhost:3032/oauth/social/naver/callback` |
+| Kakao  | `https://auth.lafamila.xyz/oauth/social/kakao/callback`  | `http://localhost:3032/oauth/social/kakao/callback`  |
+| Naver  | `https://auth.lafamila.xyz/oauth/social/naver/callback`  | `http://localhost:3032/oauth/social/naver/callback`  |
 
 프로토콜, 호스트, 포트, 경로와 trailing slash를 실제 요청과 맞춘다. `localhost`와 `127.0.0.1`을 섞지 않는다. `/api` 접두사나 `/`를 임의로 덧붙이지 않는다. 리버스 프록시는 위 Auth 경로를 그대로 백엔드로 전달해야 한다.
 
@@ -94,11 +97,11 @@ callback은 `ISSUER_URL`을 기준으로 Auth가 결정한다. 제공자별 별�
 
 ## 4. Auth 백엔드 환경 변수
 
-| 제공자 | Client ID 환경 변수 | Client Secret 환경 변수 |
-| --- | --- | --- |
+| 제공자 | Client ID 환경 변수       | Client Secret 환경 변수       |
+| ------ | ------------------------- | ----------------------------- |
 | Google | `SOCIAL_GOOGLE_CLIENT_ID` | `SOCIAL_GOOGLE_CLIENT_SECRET` |
-| Kakao | `SOCIAL_KAKAO_CLIENT_ID` | `SOCIAL_KAKAO_CLIENT_SECRET` |
-| Naver | `SOCIAL_NAVER_CLIENT_ID` | `SOCIAL_NAVER_CLIENT_SECRET` |
+| Kakao  | `SOCIAL_KAKAO_CLIENT_ID`  | `SOCIAL_KAKAO_CLIENT_SECRET`  |
+| Naver  | `SOCIAL_NAVER_CLIENT_ID`  | `SOCIAL_NAVER_CLIENT_SECRET`  |
 
 발급값을 넣기 전의 운영 설정 형태는 다음과 같다. 아래 빈 값은 가짜 자격 증명이 아니라 **제공자 비활성 상태**다.
 
@@ -268,10 +271,10 @@ Naver는 신규 가입 시 별도 비밀번호 요구를 금지하며 전체 가
 
 2026-11-04 기준 공식 가이드는 OIDC와 **S256 PKCE**도 제공한다. 기존 OAuth와 경로를 구분해야 한다.
 
-| 방식 | 인가 endpoint | token endpoint |
-| --- | --- | --- |
+| 방식           | 인가 endpoint                              | token endpoint                         |
+| -------------- | ------------------------------------------ | -------------------------------------- |
 | 기존 OAuth 2.0 | `https://nid.naver.com/oauth2.0/authorize` | `https://nid.naver.com/oauth2.0/token` |
-| OIDC | `https://nid.naver.com/oauth2/authorize` | `https://nid.naver.com/oauth2/token` |
+| OIDC           | `https://nid.naver.com/oauth2/authorize`   | `https://nid.naver.com/oauth2/token`   |
 
 OIDC는 `openid`, `nonce`, `code_challenge`/`code_verifier`와 S256을 지원한다. ID 토큰은 서명, `iss`, `aud`, `exp`, 요청 nonce를 검증해야 하며 이메일은 담기지 않는다. 프로필 조회가 별도로 필요하고 OIDC를 켰다고 이메일 OTP를 생략할 수 없다. 실제 Auth 어댑터가 선택한 방식과 endpoint를 일치시키며, 콘솔 작업만으로 구현을 OIDC로 전환하거나 기존 OAuth endpoint의 PKCE 지원을 가정하지 않는다. [공식 OIDC 절차 §3.5](https://developers.naver.com/docs/login/devguide/devguide.md), [현재 discovery](https://nid.naver.com/.well-known/openid-configuration)를 참고한다.
 
@@ -300,10 +303,10 @@ Auth를 배포한다. Chat 기동 DDL은 실제 로컬 ID의 unique 제약을 �
 2. 운영 Auth DB의 정상 백업과 복구 절차를 확인한다. 로컬/테스트 DB에서 먼저 migration 호환성을 검증한다.
 3. 배포할 소셜 로그인 버전에 다음 migration **둘 다** 포함되었는지 확인한다. 문서에 이름이 있다는 것만으로 파일 포함/실행을 대신하지 않는다.
 
-| Migration 이름 | 목적 |
-| --- | --- |
+| Migration 이름                          | 목적                                               |
+| --------------------------------------- | -------------------------------------------------- |
 | `AllowSocialOnlyAccounts20261104000000` | ID/비밀번호 없는 계정 허용과 자격 증명 쌍의 일관성 |
-| `AddSocialLogin20261104000001` | 소셜 identity 및 로그인 트랜잭션 저장 구조 |
+| `AddSocialLogin20261104000001`          | 소셜 identity 및 로그인 트랜잭션 저장 구조         |
 
 4. 기존 환경 변수에 실제 제공자 키 쌍을 추가하고 `RUN_MIGRATIONS=true`를 설정한다. 기존 보안 키를 유지하고 미설정 제공자는 빈 쌍으로 둔다.
 5. 운영 OTP 이메일이 실제로 도착하는지 확인한다. 로컬의 메일 로그 대체 동작을 운영 SMTP 성공으로 간주하지 않는다.
@@ -348,23 +351,23 @@ npm run start:dev
 
 아래 항목은 **실행 전 체크리스트**다. 완료 표시나 성공 결과를 미리 넣지 않는다. 계정 UUID와 권한은 관리자/테스트 도구로 확인하되 개인정보나 token을 문서에 기록하지 않는다.
 
-| 시나리오 | 확인할 결과 |
-| --- | --- |
-| 신규 사용자, 선택 ID 비움 | 비밀번호 입력 없이 완료, `login_id`/`password_hash` 모두 `NULL` |
-| 신규 사용자, 선택 ID 입력 | 중복 확인, 비밀번호 및 확인 필요. 중복/불일치 시 가입 안 됨 |
-| Google Gmail 또는 검증된 Workspace 이메일 | 2.1절 조건 충족 시 자체 OTP 생략 |
-| Google 외부 이메일 | Google 검증 값이 참이어도 자체 OTP 필요 |
-| Kakao strict flag 충족/미충족 | 둘 다 boolean 참일 때만 생략, 나머지는 OTP 필요 |
-| Naver 이메일 수신 | 이메일 도메인과 무관하게 자체 OTP 필요 |
-| 제공자 이메일 누락/마스킹 | 사용 가능한 이메일 입력 및 OTP 전에는 계정 연결 안 됨 |
-| 같은 검증 이메일의 기존 계정 | 기존 UUID로 연결, 기존 ID/PW/권한 유지 |
-| 여러 제공자에서 같은 검증 이메일 | 첫 연결 이후 모두 같은 중앙 UUID로 로그인 |
-| 이미 연결된 identity의 이메일 변경 | subject 매핑의 원래 UUID 유지, 다른 계정으로 이동하지 않음 |
-| 취소, 만료, 다른 브라우저, callback 재사용 | 계정 생성/연결/세션 성공 없이 안전하게 종료 |
-| 잠금/비활성/비밀번호 재설정 요구 계정 | 기존 제한을 소셜 로그인으로 우회하지 못함 |
-| 가입만 완료/서비스 최초 진입 | 가입 때 권한 선생성 없음, 정상 authorize 때 기존 lazy visitor 적용 |
-| 기존 서비스 로그인 복귀 | 서비스 고유 callback/state/PKCE와 token `sub` 계약 유지 |
-| 기존 ID/PW 및 관리자 로그인 | 소셜 기능으로 기존 ID/PW/관리자 OTP 계약이 바뀌지 않음 |
+| 시나리오                                   | 확인할 결과                                                        |
+| ------------------------------------------ | ------------------------------------------------------------------ |
+| 신규 사용자, 선택 ID 비움                  | 비밀번호 입력 없이 완료, `login_id`/`password_hash` 모두 `NULL`    |
+| 신규 사용자, 선택 ID 입력                  | 중복 확인, 비밀번호 및 확인 필요. 중복/불일치 시 가입 안 됨        |
+| Google Gmail 또는 검증된 Workspace 이메일  | 2.1절 조건 충족 시 자체 OTP 생략                                   |
+| Google 외부 이메일                         | Google 검증 값이 참이어도 자체 OTP 필요                            |
+| Kakao strict flag 충족/미충족              | 둘 다 boolean 참일 때만 생략, 나머지는 OTP 필요                    |
+| Naver 이메일 수신                          | 이메일 도메인과 무관하게 자체 OTP 필요                             |
+| 제공자 이메일 누락/마스킹                  | 사용 가능한 이메일 입력 및 OTP 전에는 계정 연결 안 됨              |
+| 같은 검증 이메일의 기존 계정               | 기존 UUID로 연결, 기존 ID/PW/권한 유지                             |
+| 여러 제공자에서 같은 검증 이메일           | 첫 연결 이후 모두 같은 중앙 UUID로 로그인                          |
+| 이미 연결된 identity의 이메일 변경         | subject 매핑의 원래 UUID 유지, 다른 계정으로 이동하지 않음         |
+| 취소, 만료, 다른 브라우저, callback 재사용 | 계정 생성/연결/세션 성공 없이 안전하게 종료                        |
+| 잠금/비활성/비밀번호 재설정 요구 계정      | 기존 제한을 소셜 로그인으로 우회하지 못함                          |
+| 가입만 완료/서비스 최초 진입               | 가입 때 권한 선생성 없음, 정상 authorize 때 기존 lazy visitor 적용 |
+| 기존 서비스 로그인 복귀                    | 서비스 고유 callback/state/PKCE와 token `sub` 계약 유지            |
+| 기존 ID/PW 및 관리자 로그인                | 소셜 기능으로 기존 ID/PW/관리자 OTP 계약이 바뀌지 않음             |
 
 이 표의 기대 동작은 승인된 서비스 정책이다. 이메일 판정의 원천 필드는 [Google 검증 문서](https://developers.google.com/identity/gsi/web/guides/verify-google-id-token), [Kakao 응답 필드](https://developers.kakao.com/docs/ko/kakaologin/rest-api), [Naver 프로필 명세](https://developers.naver.com/docs/login/profile/profile.md)를 따른다.
 
@@ -436,18 +439,18 @@ Google의 미사용 OAuth client 6개월 정책은 client 자동 삭제에 관�
 
 ### 10.3 자주 확인할 장애
 
-| 증상 | 우선 확인할 항목 |
-| --- | --- |
-| 소셜 제공자가 표시되지 않음 | 해당 ID/Secret 쌍과 런타임 재기동 여부, 빈 쌍의 비활성 정책 |
-| callback 불일치 | 실제 `ISSUER_URL`, 포트/호스트/trailing slash, 중앙 Auth 경로 등록 여부 |
-| Google `invalid_client` | 정확한 Web client의 Secret, 회전/비활성화 상태, 개발/운영 값 혼용 |
-| Google 테스트 계정만 로그인 가능 | Audience, 테스트 사용자와 운영 공개 상태 |
-| Kakao `KOE004` / `KOE006` | 로그인 ON 여부 / 사용 중인 REST 키 아래 redirect URI |
-| Kakao token 교환 실패 | 해당 REST 키와 일치하는 Secret 및 기본 활성화 상태 |
-| Kakao 이메일 없음 | 앱의 이메일 권한, 동의/수집 옵션, 실제 계정 정보 존재 여부 |
-| Naver 일부 계정만 로그인 가능 | 등록자/멤버 여부와 사전 검수 승인 상태 |
-| Naver 교체 후 나중에 실패 | 이전 Secret 30일 종료와 미교체 Auth 인스턴스 |
-| Naver/외부 Google 이메일에 OTP 표시 | 정상 보안 정책인지 확인. 이메일 수신만으로 검증을 생략하지 않음 |
-| 네이티브 앱에서만 실패 | 내장 WebView 차단, 실기기 localhost, 기존 앱/BFF 복귀 경로 |
+| 증상                                | 우선 확인할 항목                                                        |
+| ----------------------------------- | ----------------------------------------------------------------------- |
+| 소셜 제공자가 표시되지 않음         | 해당 ID/Secret 쌍과 런타임 재기동 여부, 빈 쌍의 비활성 정책             |
+| callback 불일치                     | 실제 `ISSUER_URL`, 포트/호스트/trailing slash, 중앙 Auth 경로 등록 여부 |
+| Google `invalid_client`             | 정확한 Web client의 Secret, 회전/비활성화 상태, 개발/운영 값 혼용       |
+| Google 테스트 계정만 로그인 가능    | Audience, 테스트 사용자와 운영 공개 상태                                |
+| Kakao `KOE004` / `KOE006`           | 로그인 ON 여부 / 사용 중인 REST 키 아래 redirect URI                    |
+| Kakao token 교환 실패               | 해당 REST 키와 일치하는 Secret 및 기본 활성화 상태                      |
+| Kakao 이메일 없음                   | 앱의 이메일 권한, 동의/수집 옵션, 실제 계정 정보 존재 여부              |
+| Naver 일부 계정만 로그인 가능       | 등록자/멤버 여부와 사전 검수 승인 상태                                  |
+| Naver 교체 후 나중에 실패           | 이전 Secret 30일 종료와 미교체 Auth 인스턴스                            |
+| Naver/외부 Google 이메일에 OTP 표시 | 정상 보안 정책인지 확인. 이메일 수신만으로 검증을 생략하지 않음         |
+| 네이티브 앱에서만 실패              | 내장 WebView 차단, 실기기 localhost, 기존 앱/BFF 복귀 경로              |
 
 공식 오류/설정 확인은 [Google 웹 OAuth 오류](https://developers.google.com/identity/protocols/oauth2/web-server), [Kakao 설정 가이드](https://developers.kakao.com/docs/ko/kakaologin/prerequisite), [Naver 검수/테스트 가이드](https://developers.naver.com/docs/login/verify/verify.md)를 참고한다. 이 문서 작성만으로 실제 키 발급, 검수 승인 또는 운영/네이티브 smoke test가 완료된 것은 아니다.

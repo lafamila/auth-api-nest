@@ -1,8 +1,22 @@
 import 'reflect-metadata';
-import { join } from 'node:path';
+import { readdirSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { DataSource, MigrationExecutor } from 'typeorm';
 
 const PORTAL_MIGRATION = 'AddAccountCredentialVersion20261116000000';
+const PORTAL_MIGRATION_CUTOFF = '20261116000000';
+
+function migrationPaths(): string[] {
+  const directory = join(__dirname, '../src/database/migrations');
+  return readdirSync(directory)
+    .filter(
+      (file) =>
+        /^\d{14}-.*\.ts$/.test(file) &&
+        file.slice(0, 14) <= PORTAL_MIGRATION_CUTOFF,
+    )
+    .sort()
+    .map((file) => join(directory, file));
+}
 
 function isolatedDatabase(value: string | undefined) {
   if (!value) return null;
@@ -26,6 +40,15 @@ function isolatedDatabase(value: string | undefined) {
 }
 
 describe('Portal migration database safety gate', () => {
+  it('pins both baseline and upgrade manifests to the historical portal cutoff', () => {
+    const files = migrationPaths().map((file) => basename(file));
+    expect(files.length).toBeGreaterThan(1);
+    expect(files.at(-1)).toContain(
+      '20261116000000-AddAccountCredentialVersion.ts',
+    );
+    expect(files.some((file) => /20261118/.test(file))).toBe(false);
+  });
+
   it.each([
     undefined,
     '',
@@ -72,7 +95,7 @@ describeDatabase('Portal credential version real migration (e2e)', () => {
       url: database.url,
       schema: 'public',
       entities: [],
-      migrations: [join(__dirname, '../src/database/migrations/*.ts')],
+      migrations: migrationPaths(),
       synchronize: false,
       migrationsRun: false,
       dropSchema: false,

@@ -29,6 +29,10 @@ import { NotificationSubscriptionEntity } from './entities/notification-subscrip
 import { NotificationEntity } from './entities/notification.entity';
 import { SocialIdentityEntity } from './entities/social-identity.entity';
 import { SocialLoginTransactionEntity } from './entities/social-login-transaction.entity';
+import { AccountPolicyConsentEntity } from './entities/account-policy-consent.entity';
+import { ProviderRevocationJobEntity } from './entities/provider-revocation-job.entity';
+import { ProviderEventEntity } from './entities/provider-event.entity';
+import { AuthSchemaReadinessService } from './auth-schema-readiness.service';
 
 export const AUTH_ENTITIES = [
   AccountEntity,
@@ -57,10 +61,15 @@ export const AUTH_ENTITIES = [
   NotificationIdempotencyEntity,
   SocialIdentityEntity,
   SocialLoginTransactionEntity,
+  AccountPolicyConsentEntity,
+  ProviderRevocationJobEntity,
+  ProviderEventEntity,
 ];
 
 @Module({
+  providers: [AuthSchemaReadinessService],
   imports: [
+    AppConfigModule,
     TypeOrmModule.forRootAsync({
       imports: [AppConfigModule],
       inject: [AppConfigService],

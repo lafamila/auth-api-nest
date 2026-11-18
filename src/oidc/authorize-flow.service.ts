@@ -5,6 +5,14 @@ import { OidcClientsService } from '../domain/oidc-clients/oidc-clients.service'
 import { AuthorizationCodeService } from './authorization-code.service';
 import { OAuthError } from './oauth-error';
 import { SocialProvidersService } from '../social/social-providers.service';
+import {
+  authenticationMethod,
+  AuthenticationMethod,
+  gameLoginDenial,
+  gameLoginPolicyCode,
+  KAKAO_GAME_DENIED_MESSAGE,
+} from './authentication-method';
+import { PublicSiteService } from '../public-site/public-site.service';
 
 export const SELECT_ACCOUNT_PROMPT = 'select_account';
 
@@ -23,6 +31,7 @@ export interface AuthorizeRequestInput {
 export interface AuthorizeRedirectResult {
   kind: 'redirect';
   redirectUrl: string;
+  policyDenied?: string;
 }
 
 export interface ValidatedAuthorizeRequest {
@@ -39,6 +48,7 @@ export class AuthorizeFlowService {
     private readonly accountPermissions: AccountPermissionsService,
     private readonly codes: AuthorizationCodeService,
     private readonly socialProviders?: SocialProvidersService,
+    private readonly publicSite?: PublicSiteService,
   ) {}
 
   async validateRequest(
@@ -119,7 +129,22 @@ export class AuthorizeFlowService {
     validated: ValidatedAuthorizeRequest,
     accountId: string,
     expectedCredentialVersion?: number,
+    method: AuthenticationMethod = 'legacy',
   ): Promise<AuthorizeRedirectResult> {
+    method = authenticationMethod(method);
+    const denial = gameLoginDenial(validated.client.service.category, method);
+    if (denial)
+      return {
+        kind: 'redirect',
+        redirectUrl: this.buildErrorRedirectUrl(
+          validated.request.redirectUri,
+          validated.request.state,
+          'access_denied',
+          denial,
+          gameLoginPolicyCode(method),
+        ),
+        policyDenied: denial,
+      };
     const account = await this.accounts.findById(accountId);
     const credentialVersion = account.credentialVersion ?? 0;
     if (
@@ -179,6 +204,7 @@ export class AuthorizeFlowService {
       scope: validated.request.scope,
       nonce: validated.request.nonce,
       credentialVersion,
+      authenticationMethod: method,
     });
     return {
       kind: 'redirect',
@@ -205,7 +231,7 @@ export class AuthorizeFlowService {
       request ? this.buildSignupUrl(request) : '/signup?return_to=%2Flogin',
     );
     const social = this.renderSocialLogin(loginTransaction);
-    return `<!doctype html>
+    return this.decorate(`<!doctype html>
 <html lang="ko">
   <head>
     <meta charset="utf-8" />
@@ -351,7 +377,7 @@ export class AuthorizeFlowService {
     </form>
     ${social.forms}
   </body>
-</html>`;
+</html>`);
   }
 
   renderAccountSelectionPage(
@@ -377,7 +403,7 @@ export class AuthorizeFlowService {
       </button>
     </form>`
       : '';
-    return `<!doctype html>
+    return this.decorate(`<!doctype html>
 <html lang="ko">
   <head>
     <meta charset="utf-8" />
@@ -513,7 +539,7 @@ export class AuthorizeFlowService {
     </main>
     ${social.forms}
   </body>
-</html>`;
+</html>`);
   }
 
   private renderSocialLogin(transaction: string) {
@@ -547,27 +573,32 @@ export class AuthorizeFlowService {
     return { buttons: `<div class="social-logins">${buttons}</div>`, forms };
   }
 
-  renderAuthorizationRedirectPage(redirectUrl: string) {
+  renderAuthorizationRedirectPage(redirectUrl: string, policyMessage?: string) {
     const target = this.escapeHtml(redirectUrl);
-    return `<!doctype html>
-<html lang="en">
+    return this.decorate(`<!doctype html>
+<html lang="ko">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta http-equiv="refresh" content="0;url=${target}" />
+    <meta http-equiv="refresh" content="${policyMessage ? '3' : '0'};url=${target}" />
     <title>Continue</title>
   </head>
   <body>
+    ${policyMessage ? `<main><h1>${policyMessage === KAKAO_GAME_DENIED_MESSAGE ? '다른 로그인 방식이 필요합니다' : '재인증이 필요합니다'}</h1><p role="alert">${this.escapeHtml(policyMessage)}</p><a href="/login">다른 방식으로 로그인</a></main>` : ''}
     <a id="authorization-redirect" href="${target}">Continue</a>
   </body>
-</html>`;
+</html>`);
+  }
+
+  private decorate(html: string): string {
+    return this.publicSite?.decorate(html, 'form') ?? html;
   }
 
   hostedPageContentSecurityPolicy(redirectUri: string) {
     const redirect = new URL(redirectUri);
     const redirectSource =
       redirect.origin === 'null' ? redirect.protocol : redirect.origin;
-    return `default-src 'none'; script-src 'self'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self' ${redirectSource}; frame-ancestors 'none'; base-uri 'none'`;
+    return `default-src 'none'; script-src 'self'; img-src 'self'; style-src 'self' 'unsafe-inline'; form-action 'self' ${redirectSource}; frame-ancestors 'none'; base-uri 'none'`;
   }
 
   buildErrorRedirectUrl(
@@ -575,10 +606,12 @@ export class AuthorizeFlowService {
     state: string | undefined,
     error: string,
     errorDescription: string,
+    errorCode?: string,
   ) {
     const redirect = new URL(redirectUri);
     redirect.searchParams.set('error', error);
     redirect.searchParams.set('error_description', errorDescription);
+    if (errorCode) redirect.searchParams.set('error_code', errorCode);
     if (state) {
       redirect.searchParams.set('state', state);
     }

@@ -7,32 +7,27 @@
 
   const name = $('name');
   const email = $('email');
-  const loginId = $('loginId');
-  const password = $('password');
-  const confirm = $('passwordConfirm');
   const code = $('code');
   const sendButton = $('sendEmailButton');
   const verifyButton = $('verifyCodeButton');
-  const checkButton = $('checkLoginIdButton');
   const continueButton = $('continueButton');
+  const initialPolicy = {
+    termsVersion: $('termsVersion').value,
+    privacyVersion: $('privacyVersion').value,
+    policyDigest: $('policyDigest').value,
+  };
   const state = {
+    policy: initialPolicy.termsVersion && initialPolicy.privacyVersion && /^[a-f0-9]{64}$/.test(initialPolicy.policyDigest) ? initialPolicy : null,
     verifiedEmail:
       form.dataset.emailVerified === 'true' ? email.value.trim() : '',
     sentEmail: '',
-    checkedId: '',
-    passwordValid: false,
-    confirmValid: false,
-    checking: false,
     sending: false,
     verifying: false,
     submitting: false,
-    idRevision: 0,
     emailRevision: 0,
     codeRevision: 0,
     cooldownUntil: 0,
   };
-  let passwordTimer;
-  let confirmTimer;
   let cooldownTimer;
 
   function feedback(id, text = '', tone = '') {
@@ -56,35 +51,24 @@
     return email.value.trim() !== '' && email.checkValidity();
   }
 
-  function passwordValid() {
-    return password.value.length >= 8 && /[^A-Za-z0-9]/.test(password.value);
-  }
-
   function busy() {
-    return (
-      state.checking || state.sending || state.verifying || state.submitting
-    );
+    return state.sending || state.verifying || state.submitting;
   }
 
   function ready() {
-    const id = loginId.value.trim();
     return (
       !busy() &&
+      state.policy !== null &&
+      $('termsAccepted').checked &&
+      $('privacyAccepted').checked &&
       name.value.trim() !== '' &&
       name.checkValidity() &&
       emailValid() &&
-      state.verifiedEmail === email.value.trim() &&
-      (!id ||
-        (state.checkedId === id &&
-          state.passwordValid &&
-          state.confirmValid &&
-          passwordValid() &&
-          password.value === confirm.value))
+      state.verifiedEmail === email.value.trim()
     );
   }
 
   function render() {
-    const id = loginId.value.trim();
     const verified = emailValid() && state.verifiedEmail === email.value.trim();
     const cooldown = Math.max(
       0,
@@ -98,13 +82,7 @@
     form.setAttribute('aria-busy', String(busy()));
     mark('nameCheck', name.value.trim() !== '' && name.checkValidity());
     mark('emailCheck', verified);
-    mark('loginIdCheck', Boolean(id) && state.checkedId === id);
-    mark('passwordCheck', Boolean(id) && state.passwordValid);
-    mark('passwordConfirmCheck', Boolean(id) && state.confirmValid);
     mark('codeCheck', verified);
-    checkButton.disabled = busy() || !id || state.checkedId === id;
-    checkButton.textContent = state.checking ? 'Checking...' : 'Check';
-    checkButton.setAttribute('aria-busy', String(state.checking));
     if (sendButton) {
       sendButton.hidden = verified;
       sendButton.disabled = busy() || !emailValid() || verified || cooldown > 0;
@@ -192,33 +170,6 @@
       : 'Request failed. Please try again.';
   }
 
-  function validateConfirm() {
-    state.confirmValid =
-      state.passwordValid &&
-      confirm.value !== '' &&
-      confirm.value === password.value;
-    invalid(confirm, confirm.value !== '' && !state.confirmValid);
-    feedback(
-      'passwordConfirmFeedback',
-      confirm.value && !state.confirmValid ? 'Passwords do not match.' : '',
-      'error',
-    );
-    render();
-  }
-
-  function validatePassword() {
-    state.passwordValid = passwordValid();
-    invalid(password, !state.passwordValid);
-    feedback(
-      'passwordFeedback',
-      state.passwordValid
-        ? ''
-        : 'At least 8 characters and 1 special character.',
-      'error',
-    );
-    render();
-  }
-
   name.addEventListener('input', () => {
     invalid(name, name.value.trim() === '');
     feedback(
@@ -227,75 +178,6 @@
       'error',
     );
     feedback('message');
-    render();
-  });
-
-  loginId.addEventListener('input', () => {
-    state.idRevision += 1;
-    state.checkedId = '';
-    invalid(loginId, false);
-    feedback('loginIdFeedback');
-    feedback('message');
-    const optionalCredentials = loginId.value.trim() !== '';
-    $('passwordFields').hidden = !optionalCredentials;
-    password.disabled = confirm.disabled = !optionalCredentials;
-    password.required = confirm.required = optionalCredentials;
-    if (!optionalCredentials) {
-      clearTimeout(passwordTimer);
-      clearTimeout(confirmTimer);
-      password.value = confirm.value = '';
-      state.passwordValid = state.confirmValid = false;
-      invalid(password, false);
-      invalid(confirm, false);
-      feedback('passwordFeedback');
-      feedback('passwordConfirmFeedback');
-    }
-    render();
-  });
-
-  checkButton.addEventListener('click', async () => {
-    const id = loginId.value.trim();
-    if (busy() || !id || state.checkedId === id) return;
-    const revision = state.idRevision;
-    state.checking = true;
-    feedback('loginIdFeedback', 'Checking...');
-    feedback('message');
-    render();
-    try {
-      const result = await post('/api/signup/check-login-id', { loginId: id });
-      if (revision !== state.idRevision) return;
-      state.checkedId = result && result.available === true ? id : '';
-      invalid(loginId, !state.checkedId);
-      feedback(
-        'loginIdFeedback',
-        state.checkedId ? 'Available.' : 'ID is already in use.',
-        state.checkedId ? 'success' : 'error',
-      );
-    } catch (error) {
-      if (revision === state.idRevision)
-        feedback('loginIdFeedback', errorMessage(error), 'error');
-    } finally {
-      state.checking = false;
-      render();
-    }
-  });
-
-  password.addEventListener('input', () => {
-    state.passwordValid = state.confirmValid = false;
-    clearTimeout(passwordTimer);
-    clearTimeout(confirmTimer);
-    feedback('passwordFeedback');
-    feedback('passwordConfirmFeedback');
-    passwordTimer = setTimeout(validatePassword, 1000);
-    confirmTimer = setTimeout(validateConfirm, 1000);
-    render();
-  });
-
-  confirm.addEventListener('input', () => {
-    state.confirmValid = false;
-    clearTimeout(confirmTimer);
-    feedback('passwordConfirmFeedback');
-    confirmTimer = setTimeout(validateConfirm, 1000);
     render();
   });
 
@@ -398,18 +280,36 @@
     }
     name.value = name.value.trim();
     email.value = email.value.trim();
-    loginId.value = loginId.value.trim();
-    if (!loginId.value) {
-      password.value = confirm.value = '';
-      password.disabled = confirm.disabled = false;
-    }
     state.submitting = true;
     // Read-only controls remain successful controls in the native form POST.
-    for (const input of [name, email, loginId, password, confirm])
-      input.readOnly = true;
+    for (const input of [name, email]) input.readOnly = true;
     feedback('message', 'Continuing...');
     render();
   });
 
+  async function loadPolicies() {
+    state.policy = null;
+    $('termsAccepted').checked = $('privacyAccepted').checked = false;
+    $('loadPoliciesButton').hidden = true;
+    feedback('policyFeedback', '정책 확인 중...');
+    render();
+    try {
+      const response = await fetch('/api/public/policies', {cache: 'no-store', credentials: 'same-origin'});
+      if (!response.ok) throw new Error('정책을 불러오지 못했습니다.');
+      const policy = await response.json();
+      if (typeof policy.termsVersion !== 'string' || typeof policy.privacyVersion !== 'string' || !/^[a-f0-9]{64}$/.test(policy.policyDigest)) throw new Error('정책 응답을 확인할 수 없습니다.');
+      for (const key of ['termsVersion', 'privacyVersion', 'policyDigest']) $(key).value = policy[key];
+      state.policy = policy;
+      feedback('policyFeedback');
+    } catch (error) {
+      feedback('policyFeedback', errorMessage(error), 'error');
+      $('loadPoliciesButton').hidden = false;
+    } finally { render(); }
+  }
+  $('termsAccepted').addEventListener('change', render);
+  $('privacyAccepted').addEventListener('change', render);
+  $('loadPoliciesButton').addEventListener('click', () => void loadPolicies());
+
   render();
+  if (!state.policy) void loadPolicies();
 })();

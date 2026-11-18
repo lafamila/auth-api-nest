@@ -17,6 +17,10 @@ import { TokenRecordEntity } from '../database/entities/token-record.entity';
 import { SsoSessionService } from '../oidc/sso-session.service';
 import { PortalSessionService } from './portal-session.service';
 import { PORTAL_CLIENT_ID } from './portal.types';
+import {
+  authenticationMethod,
+  AuthenticationMethod,
+} from '../oidc/authentication-method';
 
 const MFA_MS = 5 * 60 * 1000;
 
@@ -38,8 +42,9 @@ export class PortalAuthService {
     request: Request,
     response: Response,
     expectedAccountId?: string,
-    method = 'local',
+    method: AuthenticationMethod = 'local',
   ) {
+    method = authenticationMethod(method);
     if (expectedAccountId && expectedAccountId !== account.id)
       throw new UnauthorizedException('같은 계정으로 다시 인증해 주세요');
     if (account.status !== 'active' || account.passwordResetRequired)
@@ -86,7 +91,7 @@ export class PortalAuthService {
       return `/login/otp?transaction=${encodeURIComponent(raw)}`;
     }
     await this.sessions.create(account, response, { method });
-    await this.sso.create(account, response);
+    await this.sso.create(account, response, authenticationMethod(method));
     return expectedAccountId ? '/profile' : '/';
   }
 
@@ -157,10 +162,7 @@ export class PortalAuthService {
       return {
         status: 'success' as const,
         account,
-        method:
-          typeof challenge.metadataJson?.method === 'string'
-            ? challenge.metadataJson.method
-            : 'local',
+        method: authenticationMethod(challenge.metadataJson?.method),
         afterLogin:
           challenge.metadataJson?.afterLogin === '/profile' ? '/profile' : '/',
       };
@@ -184,7 +186,11 @@ export class PortalAuthService {
       method: result.method,
       adminSessionId: adminSession?.id,
     });
-    await this.sso.create(result.account, response);
+    await this.sso.create(
+      result.account,
+      response,
+      authenticationMethod(result.method),
+    );
     response.clearCookie(this.cookieName(transaction), {
       path: '/login/otp',
       httpOnly: true,
@@ -192,6 +198,28 @@ export class PortalAuthService {
       secure: this.config.nodeEnv === 'production',
     });
     return result.afterLogin;
+  }
+
+  async signOutKakao(
+    accountId: string,
+    request: Request,
+    response: Response,
+  ): Promise<void> {
+    const context = await this.sso.context(request);
+    const actor = await this.sessions.read(request);
+    if (
+      context?.accountId === accountId &&
+      context.authenticationMethod === 'kakao'
+    )
+      await this.sso.clear(request, response);
+    if (
+      actor?.account.id === accountId &&
+      actor.session.metadataJson?.method === 'kakao'
+    ) {
+      await this.sessions.clear(request, response);
+      if (actor.account.isSuperAdmin)
+        await this.admin.logout(request, response);
+    }
   }
 
   cookieName(transaction: string) {

@@ -10,6 +10,9 @@ import { SocialProvidersModule } from '../social/social-providers.module';
 import { PortalAuthService } from './portal-auth.service';
 import { PortalProfileService } from './portal-profile.service';
 import { PortalSessionService } from './portal-session.service';
+import { PublicSiteModule } from '../public-site/public-site.module';
+import { AccountPoliciesModule } from '../policies/account-policies.module';
+import { AccountLifecycleModule } from './account-lifecycle.module';
 
 @Module({
   imports: [
@@ -19,6 +22,9 @@ import { PortalSessionService } from './portal-session.service';
     AuthSessionModule,
     SignupModule,
     SocialProvidersModule,
+    PublicSiteModule,
+    AccountPoliciesModule,
+    AccountLifecycleModule,
     TypeOrmModule.forFeature([TokenRecordEntity]),
   ],
   providers: [PortalAuthService, PortalProfileService, PortalSessionService],

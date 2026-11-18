@@ -8,6 +8,9 @@ import {
   AuthorizeRequestInput,
   SELECT_ACCOUNT_PROMPT,
 } from './authorize-flow.service';
+import { KAKAO_GAME_DENIED_MESSAGE } from './authentication-method';
+import { PublicSiteService } from '../public-site/public-site.service';
+import { ConfigService } from '@nestjs/config';
 
 describe('AuthorizeFlowService prompt handling', () => {
   const client = {
@@ -326,5 +329,122 @@ describe('AuthorizeFlowService prompt handling', () => {
     });
     expect(html).toContain('Social User');
     expect(html).not.toContain('<small>null</small>');
+  });
+
+  it.each(['kakao', 'legacy'] as const)(
+    'denies game %s before permission or code creation',
+    async (method) => {
+      const permissions = { findActiveOrCreateVisitorForFirstLogin: jest.fn() };
+      const codes = { create: jest.fn() };
+      service = new AuthorizeFlowService(
+        {} as never,
+        {} as never,
+        permissions as never,
+        codes as never,
+      );
+      const result = await service.authorizeWithAccount(
+        {
+          kind: 'validated',
+          client: { ...client, service: { category: 'game' } },
+          request,
+        } as never,
+        'account',
+        0,
+        method,
+      );
+      expect(result.policyDenied).toBeTruthy();
+      expect(new URL(result.redirectUrl).searchParams.get('state')).toBe(
+        request.state,
+      );
+      expect(new URL(result.redirectUrl).searchParams.get('error')).toBe(
+        'access_denied',
+      );
+      expect(new URL(result.redirectUrl).searchParams.get('error_code')).toBe(
+        method === 'kakao'
+          ? 'AUTHENTICATION_METHOD_NOT_ALLOWED'
+          : 'AUTHENTICATION_METHOD_REAUTHENTICATION_REQUIRED',
+      );
+      if (method === 'kakao')
+        expect(result.policyDenied).toBe(KAKAO_GAME_DENIED_MESSAGE);
+      expect(
+        permissions.findActiveOrCreateVisitorForFirstLogin,
+      ).not.toHaveBeenCalled();
+      expect(codes.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['local', 'google', 'naver'] as const)(
+    'allows game %s without inspecting linked identities',
+    async (method) => {
+      const codes = { create: jest.fn().mockResolvedValue('single-use') };
+      service = new AuthorizeFlowService(
+        {
+          findById: async () => ({
+            id: 'account',
+            status: 'active',
+            credentialVersion: 0,
+            linkedProviders: ['kakao'],
+          }),
+        } as never,
+        {} as never,
+        {
+          findActiveOrCreateVisitorForFirstLogin: async () => ({
+            status: 'active',
+          }),
+        } as never,
+        codes as never,
+      );
+      await service.authorizeWithAccount(
+        {
+          kind: 'validated',
+          client: { ...client, service: { category: 'game' } },
+          request,
+        } as never,
+        'account',
+        0,
+        method,
+      );
+      expect(codes.create).toHaveBeenCalledWith(
+        expect.objectContaining({ authenticationMethod: method }),
+      );
+    },
+  );
+
+  it('decorates all three form pages with public branding and allows same-origin styles/images', () => {
+    service = new AuthorizeFlowService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      undefined,
+      new PublicSiteService(new ConfigService()),
+    );
+    for (const html of [
+      service.renderHostedLoginPage(request, 'transaction'),
+      service.renderAccountSelectionPage(request, 'transaction'),
+      service.renderAuthorizationRedirectPage(
+        'https://play.example.com/callback?error=access_denied',
+        KAKAO_GAME_DENIED_MESSAGE,
+      ),
+    ]) {
+      expect(html).toContain('data-auth-site-layout="form"');
+      expect(html).toContain('/brand/');
+      expect(html).toContain('/public/assets/site.css');
+      expect(html).toContain('/privacy');
+    }
+    const redirect = service.renderAuthorizationRedirectPage(
+      'https://play.example.com/callback?error=access_denied',
+      KAKAO_GAME_DENIED_MESSAGE,
+    );
+    expect(redirect).toContain('content="3;url=');
+    expect(redirect).toContain('<h1>다른 로그인 방식이 필요합니다</h1>');
+    expect(redirect).not.toContain('로그아웃되었습니다');
+    expect(redirect).toContain(KAKAO_GAME_DENIED_MESSAGE);
+    expect(
+      service.hostedPageContentSecurityPolicy(request.redirectUri),
+    ).toContain("style-src 'self'");
+    expect(
+      service.hostedPageContentSecurityPolicy(request.redirectUri),
+    ).toContain("img-src 'self'");
   });
 });

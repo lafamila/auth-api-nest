@@ -32,6 +32,9 @@ export class SocialIdentityEntity {
   @Column({ type: 'varchar', length: 255 })
   subject!: string;
 
+  @Column({ name: 'encrypted_revocation_grant', type: 'text', nullable: true })
+  encryptedRevocationGrant!: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 }

@@ -11,6 +11,11 @@ import { SigningKeyEntity } from '../database/entities/signing-key.entity';
 import { TokenRecordEntity } from '../database/entities/token-record.entity';
 import { hashToken } from '../common/crypto/token-hash';
 import * as jwt from 'jsonwebtoken';
+import {
+  AUTHENTICATION_METHOD_CLAIM,
+  KAKAO_GAME_DENIED_MESSAGE,
+  SERVICE_CATEGORY_CLAIM,
+} from './authentication-method';
 
 const config = {
   issuerUrl: 'http://localhost:3032',
@@ -87,6 +92,7 @@ describe('TokenService', () => {
     const first = await service.issueTokens(account, client, permission);
     expect(tokenRecords.metadataFor(first.refresh_token)).toEqual({
       credentialVersion: 4,
+      authenticationMethod: 'legacy',
     });
     const consumed = await service.consumeRefreshToken(first.refresh_token);
     expect(consumed.credentialVersion).toBe(4);
@@ -128,6 +134,122 @@ describe('TokenService', () => {
         credentialVersion: 1,
       } as AccountEntity),
     ).toBe(false);
+  });
+
+  it.each(['local', 'google', 'naver'] as const)(
+    'issues game tokens only with known %s provenance',
+    async (method) => {
+      const records = new FakeTokenRecordRepository();
+      const tokenService = new TokenService(
+        config,
+        await buildSigningKeyService(),
+        records as never,
+      );
+      const game = {
+        ...client,
+        service: { ...client.service, category: 'game' },
+      } as OidcClientEntity;
+      const issued = await tokenService.issueTokens(
+        account,
+        game,
+        permission,
+        undefined,
+        'nonce',
+        undefined,
+        method,
+      );
+      expect(
+        tokenService.verifyAccessToken(issued.access_token)[
+          AUTHENTICATION_METHOD_CLAIM
+        ],
+      ).toBe(method);
+      expect(jwt.decode(issued.id_token)).toMatchObject({
+        [AUTHENTICATION_METHOD_CLAIM]: method,
+        [SERVICE_CATEGORY_CLAIM]: 'game',
+        nonce: 'nonce',
+      });
+      expect(
+        tokenService.verifyAccessToken(issued.access_token)[
+          SERVICE_CATEGORY_CLAIM
+        ],
+      ).toBe('game');
+      expect(
+        (await tokenService.consumeRefreshToken(issued.refresh_token))
+          .authenticationMethod,
+      ).toBe(method);
+    },
+  );
+
+  it.each(['kakao', 'legacy', 'unknown'] as const)(
+    'does not issue game tokens with %s provenance',
+    async (method) => {
+      const insert = jest.fn();
+      const tokenService = new TokenService(
+        config,
+        {} as SigningKeyService,
+        { insert } as never,
+      );
+      const game = {
+        ...client,
+        service: { ...client.service, category: 'game' },
+      } as OidcClientEntity;
+      await expect(
+        tokenService.issueTokens(
+          account,
+          game,
+          permission,
+          undefined,
+          undefined,
+          undefined,
+          method as never,
+        ),
+      ).rejects.toMatchObject({
+        error: 'access_denied',
+        ...(method === 'kakao'
+          ? { errorDescription: KAKAO_GAME_DENIED_MESSAGE }
+          : {}),
+      });
+      expect(insert).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps non-game Kakao provenance through rotation grace rather than upgrading it to local', async () => {
+    const records = new FakeTokenRecordRepository();
+    const tokenService = new TokenService(
+      { ...config, refreshRotationGraceSeconds: 60 } as AppConfigService,
+      await buildSigningKeyService(),
+      records as never,
+    );
+    const issued = await tokenService.issueTokens(
+      account,
+      client,
+      permission,
+      undefined,
+      undefined,
+      undefined,
+      'kakao',
+    );
+    expect(
+      tokenService.verifyAccessToken(issued.access_token)[
+        AUTHENTICATION_METHOD_CLAIM
+      ],
+    ).toBe('kakao');
+    expect(
+      tokenService.verifyAccessToken(issued.access_token)[
+        SERVICE_CATEGORY_CLAIM
+      ],
+    ).toBe('other');
+    expect(jwt.decode(issued.id_token)).toMatchObject({
+      [SERVICE_CATEGORY_CLAIM]: 'other',
+    });
+    expect(
+      (await tokenService.consumeRefreshToken(issued.refresh_token))
+        .authenticationMethod,
+    ).toBe('kakao');
+    expect(
+      (await tokenService.consumeRefreshToken(issued.refresh_token))
+        .authenticationMethod,
+    ).toBe('kakao');
   });
 
   it('allows a duplicate refresh within the grace window without revoking the family', async () => {

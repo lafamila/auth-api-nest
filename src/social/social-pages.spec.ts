@@ -46,6 +46,7 @@ class FakeEvent {
 type FakeEventListener = (event: FakeEvent) => unknown;
 
 class FakeElement {
+  checked = false;
   value = '';
   textContent = '';
   disabled = false;
@@ -160,25 +161,21 @@ const elementIds = [
   'codeField',
   'code',
   'verifyCodeButton',
-  'loginId',
-  'checkLoginIdButton',
-  'passwordFields',
-  'password',
-  'passwordConfirm',
   'continueButton',
   'nameCheck',
   'emailCheck',
   'codeCheck',
-  'loginIdCheck',
-  'passwordCheck',
-  'passwordConfirmCheck',
   'nameFeedback',
   'emailFeedback',
   'codeFeedback',
-  'loginIdFeedback',
-  'passwordFeedback',
-  'passwordConfirmFeedback',
   'message',
+  'termsAccepted',
+  'privacyAccepted',
+  'termsVersion',
+  'privacyVersion',
+  'policyDigest',
+  'policyFeedback',
+  'loadPoliciesButton',
 ] as const;
 
 function response(body: unknown = {}, ok = true): FakeResponse {
@@ -199,7 +196,10 @@ function deferred<T>() {
   return { promise, resolve: resolvePromise };
 }
 
-function loadSignupScript(emailVerified = false): ScriptHarness {
+function loadSignupScript(
+  emailVerified = false,
+  options: { agreed?: boolean; policy?: Record<string, string> } = {},
+): ScriptHarness {
   const elements = new Map<string, FakeElement>();
   const verifiedProviderOmissions = new Set([
     'sendEmailButton',
@@ -227,21 +227,19 @@ function loadSignupScript(emailVerified = false): ScriptHarness {
   if (!emailVerified) {
     element('codeField').hidden = true;
   }
-  element('passwordFields').hidden = true;
-  element('password').disabled = true;
-  element('passwordConfirm').disabled = true;
   element('continueButton').disabled = true;
   element('email').readOnly = emailVerified;
   element('email').value = 'social@example.com';
   element('name').value = 'Social User';
-  for (const id of [
-    'nameCheck',
-    'emailCheck',
-    'codeCheck',
-    'loginIdCheck',
-    'passwordCheck',
-    'passwordConfirmCheck',
-  ]) {
+  element('termsVersion').value = element('privacyVersion').value =
+    '2026-11-18';
+  element('policyDigest').value = 'a'.repeat(64);
+  element('termsAccepted').checked = element('privacyAccepted').checked =
+    options.agreed ?? true;
+  for (const [key, value] of Object.entries(options.policy ?? {})) {
+    element(key).value = value;
+  }
+  for (const id of ['nameCheck', 'emailCheck', 'codeCheck']) {
     if (elements.has(id)) {
       element(id).hidden = true;
     }
@@ -298,11 +296,51 @@ function signupInput(
     email: 'social@example.com',
     emailVerified: false,
     name: 'Social User',
+    policy: {
+      termsVersion: '2026-11-18',
+      privacyVersion: '2026-11-18',
+      policyDigest: 'a'.repeat(64),
+    },
     ...overrides,
   };
 }
 
 describe('renderSocialSignupPage', () => {
+  it('renders required, unchecked agreement controls and the exact server policy metadata', () => {
+    const html = renderSocialSignupPage(signupInput());
+    for (const id of ['termsAccepted', 'privacyAccepted']) {
+      const input = html.match(new RegExp(`<input[^>]*id="${id}"[^>]*>`))![0];
+      expect(input).toContain('type="checkbox"');
+      expect(input).toContain('value="true"');
+      expect(input).toMatch(/\srequired(?:\s|\/?>)/);
+      expect(input).not.toMatch(/\schecked(?:[\s=>]|\/?>)/);
+    }
+    for (const [key, value] of Object.entries(signupInput().policy!)) {
+      expect(html).toMatch(
+        new RegExp(
+          `id="${key}"[^>]*name="${key}"[^>]*type="hidden"[^>]*value="${value}"`,
+        ),
+      );
+    }
+    expect(html).not.toMatch(/name="(?:termsUrl|privacyUrl)"/);
+  });
+
+  it('escapes policy metadata attributes instead of allowing hidden-field injection', () => {
+    const value = '"><img src=x onerror=policy()>';
+    const html = renderSocialSignupPage(
+      signupInput({
+        policy: {
+          termsVersion: value,
+          privacyVersion: value,
+          policyDigest: value,
+        },
+      }),
+    );
+    expect(html).not.toContain('<img src=x onerror=policy()>');
+    expect(
+      html.match(/value="&quot;&gt;&lt;img src=x onerror=policy\(\)&gt;"/g),
+    ).toHaveLength(3);
+  });
   it('escapes every caller-controlled value including the transaction attribute', () => {
     const html = renderSocialSignupPage(
       signupInput({
@@ -354,14 +392,7 @@ describe('renderSocialSignupPage', () => {
     expect(html).toMatch(
       /id="transaction"[^>]*type="hidden"[^>]*name="transaction"[^>]*value="social-transaction"/,
     );
-    for (const name of [
-      'transaction',
-      'name',
-      'email',
-      'loginId',
-      'password',
-      'passwordConfirm',
-    ]) {
+    for (const name of ['transaction', 'name', 'email']) {
       expect(html).toMatch(new RegExp(`name="${name}"`));
     }
     for (const id of elementIds) {
@@ -369,21 +400,22 @@ describe('renderSocialSignupPage', () => {
     }
   });
 
-  it('keeps optional credentials inactive until a login ID is supplied', () => {
-    const html = renderSocialSignupPage(signupInput());
+  it.each([false, true])(
+    'omits every credential control with emailVerified=%s',
+    (emailVerified) => {
+      const html = renderSocialSignupPage(signupInput({ emailVerified }));
 
-    const loginId = html.match(/<input[^>]*id="loginId"[^>]*>/)?.[0] ?? '';
-    const password = html.match(/<input[^>]*id="password"[^>]*>/)?.[0] ?? '';
-    const passwordConfirm =
-      html.match(/<input[^>]*id="passwordConfirm"[^>]*>/)?.[0] ?? '';
-    expect(loginId).not.toContain('required');
-    expect(password).toContain('disabled');
-    expect(password).not.toContain('required');
-    expect(passwordConfirm).toContain('disabled');
-    expect(passwordConfirm).not.toContain('required');
-    expect(html).toMatch(/id="passwordFields"[^>]*hidden/);
-    expect(html).toMatch(/id="continueButton"[^>]*disabled/);
-  });
+      for (const field of ['loginId', 'password', 'passwordConfirm']) {
+        expect(html).not.toContain(`name="${field}"`);
+        expect(html).not.toContain(`id="${field}"`);
+      }
+      expect(html).not.toContain('id="passwordFields"');
+      expect(html).not.toContain('id="checkLoginIdButton"');
+      expect(html).not.toContain('autocomplete="username"');
+      expect(html).not.toContain('autocomplete="new-password"');
+      expect(html).toMatch(/id="continueButton"[^>]*disabled/);
+    },
+  );
 
   it('loads one deferred external script without inline JavaScript or event attributes', () => {
     const html = renderSocialSignupPage(signupInput());
@@ -422,6 +454,94 @@ describe('social signup browser behavior', () => {
     jest.useRealTimers();
   });
 
+  it('does not fetch or overwrite valid initial hidden policy metadata', () => {
+    const page = loadSignupScript(true, { agreed: false });
+    expect(page.fetchCalls).toEqual([]);
+    expect(page.element('termsVersion').value).toBe('2026-11-18');
+    expect(page.element('privacyVersion').value).toBe('2026-11-18');
+    expect(page.element('policyDigest').value).toBe('a'.repeat(64));
+    expect(page.element('continueButton').disabled).toBe(true);
+  });
+
+  it('requires both explicitly checked boxes and blocks submit again when either is unchecked', async () => {
+    const page = loadSignupScript(true, { agreed: false });
+    expect(
+      (await page.element('socialSignupForm').dispatch('submit'))
+        .defaultPrevented,
+    ).toBe(true);
+    page.element('termsAccepted').checked = true;
+    await page.element('termsAccepted').dispatch('change');
+    expect(page.element('continueButton').disabled).toBe(true);
+    page.element('privacyAccepted').checked = true;
+    await page.element('privacyAccepted').dispatch('change');
+    expect(page.element('continueButton').disabled).toBe(false);
+    for (const id of ['termsAccepted', 'privacyAccepted']) {
+      page.element(id).checked = false;
+      await page.element(id).dispatch('change');
+      expect(page.element('continueButton').disabled).toBe(true);
+      expect(
+        (await page.element('socialSignupForm').dispatch('submit'))
+          .defaultPrevented,
+      ).toBe(true);
+      page.element(id).checked = true;
+      await page.element(id).dispatch('change');
+    }
+    expect(
+      (await page.element('socialSignupForm').dispatch('submit'))
+        .defaultPrevented,
+    ).toBe(false);
+    expect(page.fetchCalls).toEqual([]);
+  });
+
+  it('keeps stale-looking hidden metadata intact for server validation instead of silently changing the agreed version', () => {
+    const policy = {
+      termsVersion: 'old-version',
+      privacyVersion: 'old-version',
+      policyDigest: 'b'.repeat(64),
+    };
+    const page = loadSignupScript(true, { agreed: false, policy });
+    expect(page.fetchCalls).toEqual([]);
+    for (const [key, value] of Object.entries(policy))
+      expect(page.element(key).value).toBe(value);
+    expect(page.element('continueButton').disabled).toBe(true);
+  });
+
+  it.each(['termsVersion', 'privacyVersion', 'policyDigest'])(
+    'blocks completion and clears agreement when initial %s is invalid',
+    async (field) => {
+      const page = loadSignupScript(true, { policy: { [field]: '' } });
+      expect(page.element('continueButton').disabled).toBe(true);
+      expect(page.element('termsAccepted').checked).toBe(false);
+      expect(page.element('privacyAccepted').checked).toBe(false);
+      expect(page.fetchCalls).toHaveLength(1);
+      expect(page.fetchCalls[0].url).toBe('/api/public/policies');
+      expect(
+        (await page.element('socialSignupForm').dispatch('submit'))
+          .defaultPrevented,
+      ).toBe(true);
+    },
+  );
+
+  it('clears old checkbox agreement when policy metadata is explicitly refreshed', async () => {
+    const page = loadSignupScript(true);
+    page.queueResponse(
+      response({
+        termsVersion: 'next-version',
+        privacyVersion: 'next-version',
+        policyDigest: 'b'.repeat(64),
+        termsUrl: '/terms',
+        privacyUrl: '/privacy',
+      }),
+    );
+    await page.element('loadPoliciesButton').dispatch('click');
+    await jest.advanceTimersByTimeAsync(0);
+    expect(page.element('termsAccepted').checked).toBe(false);
+    expect(page.element('privacyAccepted').checked).toBe(false);
+    expect(page.element('termsVersion').value).toBe('next-version');
+    expect(page.element('policyDigest').value).toBe('b'.repeat(64));
+    expect(page.element('continueButton').disabled).toBe(true);
+  });
+
   it.each([
     { email: 'x@localhost', valid: true },
     { email: 'user@example.com', valid: true },
@@ -441,70 +561,6 @@ describe('social signup browser behavior', () => {
       await page.element('sendEmailButton').dispatch('click');
       expect(page.fetchCalls).toHaveLength(0);
     }
-  });
-
-  it('posts a trimmed login ID to the availability endpoint on the same origin', async () => {
-    const page = loadSignupScript();
-    page.element('loginId').value = '  social-user  ';
-    page.queueResponse(response({ available: true }));
-
-    await page.element('checkLoginIdButton').dispatch('click');
-
-    expect(page.fetchCalls).toHaveLength(1);
-    expect(page.fetchCalls[0]).toMatchObject({
-      url: '/api/signup/check-login-id',
-      options: {
-        method: 'POST',
-        mode: 'same-origin',
-        credentials: 'same-origin',
-        redirect: 'error',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({ loginId: 'social-user' }),
-      },
-    });
-    expect(page.element('loginIdCheck').hidden).toBe(false);
-  });
-
-  it('ignores an availability response after the login ID changes', async () => {
-    const page = loadSignupScript();
-    const pending = deferred<FakeResponse>();
-    page.element('loginId').value = 'first-id';
-    page.queueResponse(pending.promise);
-    const request = page.element('checkLoginIdButton').dispatch('click');
-
-    page.element('loginId').value = 'second-id';
-    await page.element('loginId').dispatch('input');
-    pending.resolve(response({ available: true }));
-    await request;
-
-    expect(page.element('loginIdCheck').hidden).toBe(true);
-    expect(page.element('checkLoginIdButton').disabled).toBe(false);
-  });
-
-  it('shows request loading state until an availability response settles', async () => {
-    const page = loadSignupScript();
-    const pending = deferred<FakeResponse>();
-    page.element('loginId').value = 'social-user';
-    page.queueResponse(pending.promise);
-
-    const request = page.element('checkLoginIdButton').dispatch('click');
-
-    expect(page.element('checkLoginIdButton').disabled).toBe(true);
-    expect(page.element('checkLoginIdButton').getAttribute('aria-busy')).toBe(
-      'true',
-    );
-    expect(page.element('loginIdFeedback').textContent.length).toBeGreaterThan(
-      0,
-    );
-
-    pending.resolve(response({ available: false }));
-    await request;
-    expect(page.element('checkLoginIdButton').getAttribute('aria-busy')).toBe(
-      'false',
-    );
   });
 
   it('starts email verification with the social transaction and email', async () => {
@@ -687,17 +743,6 @@ describe('social signup browser behavior', () => {
 
   it.each([
     {
-      action: 'login ID check',
-      buttonId: 'checkLoginIdButton',
-      feedbackId: 'loginIdFeedback',
-      editableAfter: [] as string[],
-      visibleAfter: [] as string[],
-      prepare: async (page: ScriptHarness) => {
-        page.element('loginId').value = 'social-user';
-        await page.element('loginId').dispatch('input');
-      },
-    },
-    {
       action: 'email send',
       buttonId: 'sendEmailButton',
       feedbackId: 'emailFeedback',
@@ -743,122 +788,83 @@ describe('social signup browser behavior', () => {
     },
   );
 
-  it('enables credential fields when a login ID is entered', async () => {
-    const page = loadSignupScript();
-    page.element('loginId').value = 'social-user';
+  it('normalizes social fields and leaves completion to the native form POST', async () => {
+    const page = loadSignupScript(true);
+    page.element('name').value = '  Social User  ';
+    page.element('email').value = '  social@example.com  ';
 
-    await page.element('loginId').dispatch('input');
+    const submit = await page.element('socialSignupForm').dispatch('submit');
 
-    expect(page.element('passwordFields').hidden).toBe(false);
-    expect(page.element('password').disabled).toBe(false);
-    expect(page.element('password').required).toBe(true);
-    expect(page.element('passwordConfirm').disabled).toBe(false);
-    expect(page.element('passwordConfirm').required).toBe(true);
+    expect(submit.defaultPrevented).toBe(false);
+    expect(page.element('name').value).toBe('Social User');
+    expect(page.element('email').value).toBe('social@example.com');
+    expect(page.fetchCalls).toHaveLength(0);
   });
 
-  it('clears and disables credential fields when the login ID is removed', async () => {
-    const page = loadSignupScript();
-    page.element('loginId').value = 'social-user';
-    await page.element('loginId').dispatch('input');
-    page.element('password').value = 'password!';
-    page.element('passwordConfirm').value = 'password!';
+  it('submits once without credential controls and keeps social fields successful', async () => {
+    const page = loadSignupScript(true);
 
-    page.element('loginId').value = '   ';
-    await page.element('loginId').dispatch('input');
+    const submit = await page.element('socialSignupForm').dispatch('submit');
 
-    expect(page.element('password').value).toBe('');
-    expect(page.element('passwordConfirm').value).toBe('');
-    expect(page.element('password').disabled).toBe(true);
-    expect(page.element('password').required).toBe(false);
-    expect(page.element('passwordConfirm').disabled).toBe(true);
-    expect(page.element('passwordConfirm').required).toBe(false);
-    expect(page.element('passwordFields').hidden).toBe(true);
+    expect(submit.defaultPrevented).toBe(false);
+    for (const id of ['transaction', 'name', 'email']) {
+      expect(page.element(id).disabled).toBe(false);
+    }
+    expect(page.element('name').readOnly).toBe(true);
+    expect(page.element('email').readOnly).toBe(true);
+    expect(page.element('continueButton').disabled).toBe(true);
+    expect(page.element('socialSignupForm').getAttribute('aria-busy')).toBe(
+      'true',
+    );
+    expect(
+      (await page.element('socialSignupForm').dispatch('submit'))
+        .defaultPrevented,
+    ).toBe(true);
+    expect(page.fetchCalls).toHaveLength(0);
   });
 
-  it('validates a password only after the one-second debounce', async () => {
+  it('blocks unverified signup and permits submission only after email OTP succeeds', async () => {
     const page = loadSignupScript();
-    page.element('loginId').value = 'social-user';
-    await page.element('loginId').dispatch('input');
-    page.element('password').value = 'password!';
+    expect(
+      (await page.element('socialSignupForm').dispatch('submit'))
+        .defaultPrevented,
+    ).toBe(true);
+    await page.element('sendEmailButton').dispatch('click');
+    expect(page.element('continueButton').disabled).toBe(true);
+    page.element('code').value = 'A1B2C3';
+    await page.element('code').dispatch('input');
+    await page.element('verifyCodeButton').dispatch('click');
 
-    await page.element('password').dispatch('input');
-    expect(page.element('passwordCheck').hidden).toBe(true);
-    jest.advanceTimersByTime(999);
-    expect(page.element('passwordCheck').hidden).toBe(true);
-    jest.advanceTimersByTime(1);
-    expect(page.element('passwordCheck').hidden).toBe(false);
+    expect(page.element('continueButton').disabled).toBe(false);
+    expect(
+      (await page.element('socialSignupForm').dispatch('submit'))
+        .defaultPrevented,
+    ).toBe(false);
+    expect(page.fetchCalls.map((call) => call.url)).toEqual([
+      '/oauth/social/email/start',
+      '/oauth/social/email/verify',
+    ]);
   });
 
-  it.each(['short!', 'password1'])(
-    'rejects password %s after the debounce',
-    async (password) => {
-      const page = loadSignupScript();
-      page.element('loginId').value = 'social-user';
-      await page.element('loginId').dispatch('input');
-      page.element('password').value = password;
+  it.each([
+    { field: 'name', value: '', valid: true },
+    { field: 'name', value: '   ', valid: true },
+    { field: 'name', value: 'Social User', valid: false },
+    { field: 'email', value: 'invalid', valid: false },
+  ])(
+    'blocks invalid $field without requesting credentials',
+    async ({ field, value, valid }) => {
+      const page = loadSignupScript(true);
+      page.element(field).value = value;
+      page.element(field).checkValidity.mockReturnValue(valid);
+      await page.element(field).dispatch('input');
 
-      await page.element('password').dispatch('input');
-      jest.advanceTimersByTime(1_000);
-
-      expect(page.element('passwordCheck').hidden).toBe(true);
+      expect(page.element('continueButton').disabled).toBe(true);
       expect(
-        page.element('passwordFeedback').textContent.length,
-      ).toBeGreaterThan(0);
+        (await page.element('socialSignupForm').dispatch('submit'))
+          .defaultPrevented,
+      ).toBe(true);
+      expect(page.fetchCalls).toHaveLength(0);
     },
   );
-
-  it('runs password and confirmation validation on independent debounces', async () => {
-    const page = loadSignupScript();
-    page.element('loginId').value = 'social-user';
-    await page.element('loginId').dispatch('input');
-    page.element('password').value = 'password!';
-    await page.element('password').dispatch('input');
-    jest.advanceTimersByTime(500);
-    page.element('passwordConfirm').value = 'password!';
-    await page.element('passwordConfirm').dispatch('input');
-
-    jest.advanceTimersByTime(500);
-    expect(page.element('passwordCheck').hidden).toBe(false);
-    expect(page.element('passwordConfirmCheck').hidden).toBe(true);
-    jest.advanceTimersByTime(499);
-    expect(page.element('passwordConfirmCheck').hidden).toBe(true);
-    jest.advanceTimersByTime(1);
-
-    expect(page.element('passwordConfirmCheck').hidden).toBe(false);
-    expect(page.element('passwordConfirmFeedback').textContent).toBe('');
-  });
-
-  it('normalizes the login ID and leaves completion to the native form POST', async () => {
-    const page = loadSignupScript(true);
-    page.element('loginId').value = '  social-user  ';
-    await page.element('loginId').dispatch('input');
-    page.queueResponse(response({ available: true }));
-    await page.element('checkLoginIdButton').dispatch('click');
-    page.element('password').value = 'password!';
-    page.element('passwordConfirm').value = 'password!';
-    await page.element('password').dispatch('input');
-    await page.element('passwordConfirm').dispatch('input');
-    jest.advanceTimersByTime(1_000);
-
-    const submit = await page.element('socialSignupForm').dispatch('submit');
-
-    expect(submit.defaultPrevented).toBe(false);
-    expect(page.element('loginId').value).toBe('social-user');
-    expect(
-      page.fetchCalls.some((call) => call.url === '/oauth/social/complete'),
-    ).toBe(false);
-  });
-
-  it('submits empty optional password fields as successful native controls', async () => {
-    const page = loadSignupScript(true);
-
-    const submit = await page.element('socialSignupForm').dispatch('submit');
-
-    expect(submit.defaultPrevented).toBe(false);
-    expect(page.element('loginId').value).toBe('');
-    expect(page.element('password').value).toBe('');
-    expect(page.element('password').disabled).toBe(false);
-    expect(page.element('passwordConfirm').value).toBe('');
-    expect(page.element('passwordConfirm').disabled).toBe(false);
-  });
 });

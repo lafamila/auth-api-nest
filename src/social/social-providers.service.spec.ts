@@ -1,6 +1,7 @@
 import { BadGatewayException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
+import { AesGcmService } from '../common/crypto/aes-gcm.service';
 import { AppConfigService } from '../config/app-config.service';
 import { SocialProvidersService } from './social-providers.service';
 
@@ -101,6 +102,7 @@ describe('SocialProvidersService', () => {
     const module = await Test.createTestingModule({
       providers: [
         SocialProvidersService,
+        AesGcmService,
         { provide: AppConfigService, useValue: config() },
       ],
     }).compile();
@@ -146,6 +148,7 @@ describe('SocialProvidersService', () => {
         state: STATE,
         code_challenge: CHALLENGE,
         code_challenge_method: 'S256',
+        ...(provider.key === 'google' ? { access_type: 'offline' } : {}),
       });
       expect(url.toString()).not.toContain('secret');
       expect(url.toString()).not.toContain(VERIFIER);
@@ -170,6 +173,7 @@ describe('SocialProvidersService', () => {
         provider: provider.key,
         providerClientId: `${provider.key}-client`,
         ...provider.identity,
+        encryptedRevocationGrant: expect.any(String),
       });
       expect(fetchMock).toHaveBeenCalledTimes(2);
       const [tokenUrl, tokenRequest] = fetchMock.mock.calls[0];
@@ -358,7 +362,10 @@ describe('SocialProvidersService', () => {
     async (url) => {
       const settings = config();
       jest.spyOn(settings, 'socialCallbackUrl').mockReturnValue(url);
-      const adapter = new SocialProvidersService(settings);
+      const adapter = new SocialProvidersService(
+        settings,
+        new AesGcmService(settings),
+      );
       expect(() =>
         adapter.authorizationUrl('google', {
           state: STATE,
@@ -415,6 +422,7 @@ describe('SocialProvidersService', () => {
         email: email || null,
         emailVerified: expected,
         name: 'Google user',
+        encryptedRevocationGrant: expect.any(String),
       });
     });
 
@@ -646,6 +654,7 @@ describe('SocialProvidersService', () => {
         email: null,
         emailVerified: false,
         name: 'Google user',
+        encryptedRevocationGrant: expect.any(String),
       });
     });
 
@@ -857,6 +866,91 @@ describe('SocialProvidersService', () => {
     expect(jest.getTimerCount()).toBe(0);
   });
 
+  it('requests fresh Google consent only for an explicit reconnect', () => {
+    for (const provider of PROVIDER_CASES) {
+      const url = new URL(
+        service().authorizationUrl(provider.key, {
+          state: STATE,
+          codeChallenge: CHALLENGE,
+          forceConsent: true,
+        }),
+      );
+      expect(url.searchParams.get('prompt')).toBe(
+        provider.key === 'google' ? 'consent' : null,
+      );
+      expect(
+        new URL(
+          service().authorizationUrl(provider.key, {
+            state: STATE,
+            codeChallenge: CHALLENGE,
+          }),
+        ).searchParams.has('prompt'),
+      ).toBe(false);
+    }
+  });
+
+  it.each(PROVIDER_CASES)(
+    'encrypts only current revocation credentials for $key',
+    async (provider) => {
+      jest.useFakeTimers().setSystemTime(new Date('2026-11-18T00:00:00Z'));
+      fetchMock.mockResolvedValueOnce(
+        json({ ...TOKEN, expires_in: '3600', refresh_token_expires_in: 7200 }),
+      );
+      fetchMock.mockResolvedValueOnce(json(provider.payload));
+      const profile = await service().exchangeCode(provider.key, INPUT);
+      expect(JSON.stringify(profile)).not.toContain(TOKEN.access_token);
+      expect(JSON.stringify(profile)).not.toContain(TOKEN.refresh_token);
+      const decrypted: unknown = JSON.parse(
+        new AesGcmService(config()).decrypt(profile.encryptedRevocationGrant!),
+      );
+      expect(decrypted).toEqual({
+        provider: provider.key,
+        clientId: `${provider.key}-client`,
+        subject: provider.identity.subject,
+        accessToken: TOKEN.access_token,
+        refreshToken: TOKEN.refresh_token,
+        accessTokenExpiresAt: Date.now() + 3_600_000,
+        refreshTokenExpiresAt: Date.now() + 7_200_000,
+      });
+    },
+  );
+
+  it('does not fabricate refresh credentials or expiry when the vendor omits them', async () => {
+    fetchMock.mockResolvedValueOnce(
+      json({ access_token: TOKEN.access_token, token_type: 'Bearer' }),
+    );
+    fetchMock.mockResolvedValueOnce(json({ sub: 'server-subject' }));
+    const profile = await service().exchangeCode('google', INPUT);
+    expect(
+      JSON.parse(
+        new AesGcmService(config()).decrypt(profile.encryptedRevocationGrant!),
+      ),
+    ).toMatchObject({
+      refreshToken: null,
+      refreshTokenExpiresAt: null,
+      accessTokenExpiresAt: null,
+    });
+  });
+
+  it.each([
+    { refresh_token: '' },
+    { refresh_token: 'secret\r\nheader' },
+    { refresh_token: 42 },
+    { expires_in: -1 },
+    { expires_in: 'not-a-duration' },
+    { expires_in: 1.5 },
+    { refresh_token_expires_in: 'Infinity' },
+  ])(
+    'rejects malformed revocation metadata without leaking it: %j',
+    async (metadata) => {
+      fetchMock.mockResolvedValueOnce(json({ ...TOKEN, ...metadata }));
+      fetchMock.mockResolvedValueOnce(json({ sub: 'server-subject' }));
+      await expect(service().exchangeCode('google', INPUT)).rejects.toThrow(
+        FAILURE,
+      );
+    },
+  );
+
   function queueProfile(payload: unknown): void {
     fetchMock.mockResolvedValueOnce(json(TOKEN));
     fetchMock.mockResolvedValueOnce(json(payload));
@@ -878,6 +972,7 @@ function config(overrides: Record<string, string> = {}): AppConfigService {
       SOCIAL_KAKAO_CLIENT_SECRET: 'kakao-private-secret',
       SOCIAL_NAVER_CLIENT_ID: 'naver-client',
       SOCIAL_NAVER_CLIENT_SECRET: 'naver-private-secret',
+      ADMIN_OTP_ENCRYPTION_KEY: 'test-provider-encryption-key',
       ...overrides,
     }),
   );
@@ -886,7 +981,8 @@ function config(overrides: Record<string, string> = {}): AppConfigService {
 function service(
   overrides: Record<string, string> = {},
 ): SocialProvidersService {
-  return new SocialProvidersService(config(overrides));
+  const settings = config(overrides);
+  return new SocialProvidersService(settings, new AesGcmService(settings));
 }
 
 function callback(provider: string): string {

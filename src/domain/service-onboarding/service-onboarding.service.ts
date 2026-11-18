@@ -26,6 +26,7 @@ import {
 } from './dto/service-onboarding.dto';
 import { NotificationActionTargetsService } from '../../notifications/notification-action-targets.service';
 import { assertPublicClientPkce } from '../oidc-clients/public-client-pkce';
+import { isServiceCategory } from '../../database/entities/service.entity';
 
 const PUBLIC_REQUEST_WINDOW_MS = 60 * 60 * 1000;
 const PUBLIC_REQUEST_IP_LIMIT = 10;
@@ -53,7 +54,7 @@ export class ServiceOnboardingService {
     input: CreateServiceOnboardingRequestDto,
     requestIp: string | null,
   ) {
-    this.assertOidcClientSecurity(input);
+    this.assertSpecSecurity(input);
     this.webhooks.validateRequestedSpec(input.permissionWebhook);
     this.notificationActions.validateRequestedSpec(
       input.notificationActionTargets,
@@ -91,7 +92,7 @@ export class ServiceOnboardingService {
     requestIp: string | null,
     headerSecret?: string,
   ) {
-    this.assertOidcClientSecurity(input);
+    this.assertSpecSecurity(input);
     this.webhooks.validateRequestedSpec(input.permissionWebhook);
     this.notificationActions.validateRequestedSpec(
       input.notificationActionTargets,
@@ -162,7 +163,7 @@ export class ServiceOnboardingService {
     const request = await this.findPending(id);
     const spec =
       request.requestedSpecJson as unknown as CreateServiceOnboardingRequestDto;
-    this.assertOidcClientSecurity(spec);
+    this.assertSpecSecurity(spec);
     const service = await this.upsertService(spec);
     const createdSecrets: Record<string, unknown>[] = [];
 
@@ -253,6 +254,7 @@ export class ServiceOnboardingService {
     request.status = 'approved';
     request.approvedSnapshotJson = {
       ...spec,
+      category: service.category,
       serviceId: service.id,
       approvedAt: new Date().toISOString(),
     };
@@ -300,6 +302,7 @@ export class ServiceOnboardingService {
         serviceKey: spec.serviceKey,
         name: spec.name,
         description: spec.description,
+        category: spec.category,
       });
     }
     existing.name = spec.name;
@@ -309,6 +312,7 @@ export class ServiceOnboardingService {
       name: existing.name,
       description: existing.description,
       status: 'active',
+      ...(spec.category !== undefined ? { category: spec.category } : {}),
     });
   }
 
@@ -366,6 +370,7 @@ export class ServiceOnboardingService {
     return {
       serviceKey: input.serviceKey,
       name: input.name,
+      ...(input.category !== undefined ? { category: input.category } : {}),
       description: input.description ?? '',
       requesterName: input.requesterName ?? null,
       requesterEmail: input.requesterEmail ?? null,
@@ -381,9 +386,10 @@ export class ServiceOnboardingService {
     };
   }
 
-  private assertOidcClientSecurity(
-    input: CreateServiceOnboardingRequestDto,
-  ): void {
+  private assertSpecSecurity(input: CreateServiceOnboardingRequestDto): void {
+    if (input.category !== undefined && !isServiceCategory(input.category)) {
+      throw new BadRequestException('Unsupported service category');
+    }
     for (const client of input.oidcClients ?? []) {
       assertPublicClientPkce(client.clientType, client.requirePkce ?? true);
     }

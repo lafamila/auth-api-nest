@@ -30,6 +30,8 @@ describe('ServicePageController', () => {
     const response = {
       sendFile,
       set: jest.fn(),
+      type: jest.fn().mockReturnThis(),
+      send: sendFile,
     } as unknown as Response;
 
     return {
@@ -53,7 +55,9 @@ describe('ServicePageController', () => {
 
       expect(validateRequest).toHaveBeenCalledWith(request);
       expect(sendFile).toHaveBeenCalledWith(
-        expect.stringMatching(new RegExp(`/public/${filename}$`)),
+        method === 'service'
+          ? expect.stringContaining('Create Service Onboarding Request')
+          : expect.stringMatching(new RegExp(`/public/${filename}$`)),
       );
       expect(validateRequest.mock.invocationCallOrder[0]).toBeLessThan(
         sendFile.mock.invocationCallOrder[0],

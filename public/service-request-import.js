@@ -2,6 +2,7 @@
   const KNOWN_TOP_LEVEL_FIELDS = new Set([
     'serviceKey',
     'name',
+    'category',
     'description',
     'permissions',
     'oidcClients',
@@ -334,10 +335,25 @@
         : '';
     ensureOptionalString(root.requesterName, 'requesterName');
     ensureOptionalString(root.requesterEmail, 'requesterEmail');
+    const category = root.category === undefined ? 'other' : root.category;
+    if (root.category !== undefined) {
+      const supportedCategories = new Set(
+        (options && Array.isArray(options.supportedServiceCategories)
+          ? options.supportedServiceCategories
+          : []
+        ).map(function categoryKey(item) {
+          return typeof item === 'string' ? item : item && item.key;
+        }),
+      );
+      if (typeof category !== 'string' || !supportedCategories.has(category)) {
+        throw new Error('category must be a supported service category.');
+      }
+    }
     return {
       draft: {
         serviceKey: ensureOptionalString(root.serviceKey, 'serviceKey'),
         name: ensureOptionalString(root.name, 'name'),
+        category: category,
         description: ensureOptionalString(root.description, 'description'),
         requesterName: sessionName,
         requesterEmail: sessionEmail,

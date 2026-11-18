@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { readdirSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { DataSource, MigrationExecutor, QueryRunner, Table } from 'typeorm';
 import { AddSocialLogin20261104000001 } from '../src/database/migrations/20261104000001-AddSocialLogin';
 
@@ -8,6 +9,19 @@ const SOCIAL_MIGRATIONS = [
   'AllowSocialOnlyAccounts20261104000000',
   'AddSocialLogin20261104000001',
 ];
+const SOCIAL_MIGRATION_CUTOFF = '20261104000001';
+
+function migrationPaths(): string[] {
+  const directory = join(__dirname, '../src/database/migrations');
+  return readdirSync(directory)
+    .filter(
+      (file) =>
+        /^\d{14}-.*\.ts$/.test(file) &&
+        file.slice(0, 14) <= SOCIAL_MIGRATION_CUTOFF,
+    )
+    .sort()
+    .map((file) => join(directory, file));
+}
 
 function isolatedDatabase(value: string | undefined) {
   if (!value) return null;
@@ -31,6 +45,13 @@ function isolatedDatabase(value: string | undefined) {
 }
 
 describe('Social migration database safety gate', () => {
+  it('pins both baseline and upgrade manifests to the historical social cutoff', () => {
+    const files = migrationPaths().map((file) => basename(file));
+    expect(files.length).toBeGreaterThan(2);
+    expect(files.at(-1)).toContain('20261104000001-AddSocialLogin.ts');
+    expect(files.every((file) => !/202611(?:16|18)/.test(file))).toBe(true);
+  });
+
   it.each([
     undefined,
     '',
@@ -93,7 +114,7 @@ describeDatabase('Social login real migrations (e2e)', () => {
       url: database.url,
       schema: 'public',
       entities: [],
-      migrations: [join(__dirname, '../src/database/migrations/*.ts')],
+      migrations: migrationPaths(),
       synchronize: false,
       migrationsRun: false,
       dropSchema: false,

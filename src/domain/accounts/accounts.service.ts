@@ -151,8 +151,11 @@ export class AccountsService {
       emailVerifiedAt?: Date | null;
       passwordResetRequired?: boolean;
     },
+    transactionManager?: EntityManager,
   ): Promise<AccountEntity> {
-    const exists = await this.accounts.exists({
+    const repository =
+      transactionManager?.getRepository(AccountEntity) ?? this.accounts;
+    const exists = await repository.exists({
       where: [{ loginId: input.loginId }, { email: input.email }],
     });
     if (exists) {
@@ -160,7 +163,7 @@ export class AccountsService {
     }
     validateNormalPassword(input.password);
     const passwordHash = await this.passwordService.hash(input.password);
-    return this.dataSource.transaction(async (manager) => {
+    const create = async (manager: EntityManager) => {
       const account = await manager.save(
         manager.create(AccountEntity, {
           loginId: input.loginId,
@@ -184,7 +187,10 @@ export class AccountsService {
         manager,
       );
       return account;
-    });
+    };
+    return transactionManager
+      ? create(transactionManager)
+      : this.dataSource.transaction(create);
   }
 
   async createSocialAccount(
@@ -250,6 +256,10 @@ export class AccountsService {
 
   async update(id: string, input: UpdateAccountDto): Promise<AccountEntity> {
     const saved = await this.dataSource.transaction(async (manager) => {
+      await manager.query(
+        'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+        ['auth:last-active-superadmin'],
+      );
       const accountRepository = manager.getRepository(AccountEntity);
       const account = await accountRepository.findOne({
         where: { id },

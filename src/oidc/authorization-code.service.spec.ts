@@ -14,6 +14,7 @@ describe('AuthorizationCodeService', () => {
     scope: 'openid',
     nonce: 'appauth-generated-nonce',
     credentialVersion: 3,
+    authenticationMethod: 'google' as const,
   };
 
   it('consumes authorization codes only once', async () => {
@@ -26,6 +27,7 @@ describe('AuthorizationCodeService', () => {
     expect(first?.codeChallenge).toBe('challenge');
     expect(first?.nonce).toBe('appauth-generated-nonce');
     expect(first?.credentialVersion).toBe(3);
+    expect(first?.authenticationMethod).toBe('google');
     expect(await service.consume(code)).toBeNull();
   });
 
@@ -34,6 +36,15 @@ describe('AuthorizationCodeService', () => {
     const code = await service.create(input);
     repo.expire(code);
     expect(await service.consume(code)).toBeNull();
+  });
+
+  it('does not infer a method for legacy or malformed provenance', async () => {
+    const { service } = setup();
+    const code = await service.create({
+      ...input,
+      authenticationMethod: undefined,
+    });
+    expect((await service.consume(code))?.authenticationMethod).toBe('legacy');
   });
 
   it('locks the account before storing its credential version snapshot', async () => {

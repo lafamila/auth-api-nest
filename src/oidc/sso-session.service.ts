@@ -7,6 +7,10 @@ import { hashToken } from '../common/crypto/token-hash';
 import { AppConfigService } from '../config/app-config.service';
 import { AccountEntity } from '../database/entities/account.entity';
 import { TokenRecordEntity } from '../database/entities/token-record.entity';
+import {
+  authenticationMethod,
+  AuthenticationMethod,
+} from './authentication-method';
 
 const PRIMARY_COOKIE = 'tas_session';
 const SESSION_COOKIE = 'tas_session_id';
@@ -30,7 +34,12 @@ export class SsoSessionService {
     private readonly config: AppConfigService,
   ) {}
 
-  async create(account: AccountEntity, response: Response): Promise<void> {
+  async create(
+    account: AccountEntity,
+    response: Response,
+    method: AuthenticationMethod = 'local',
+  ): Promise<void> {
+    method = authenticationMethod(method);
     const authenticatedVersion =
       account.credentialVersion === undefined ? 0 : account.credentialVersion;
     if (!Number.isInteger(authenticatedVersion) || authenticatedVersion < 0) {
@@ -61,7 +70,10 @@ export class SsoSessionService {
         accountId: freshAccount.id,
         clientId: SESSION_CLIENT_ID,
         serviceId: null,
-        metadataJson: { credentialVersion: authenticatedVersion },
+        metadataJson: {
+          credentialVersion: authenticatedVersion,
+          authenticationMethod: method,
+        },
         usedAt: null,
         expiresAt,
       });
@@ -72,6 +84,14 @@ export class SsoSessionService {
   }
 
   async accountId(request: Request): Promise<string | null> {
+    return (await this.context(request))?.accountId ?? null;
+  }
+
+  async context(request: Request): Promise<{
+    accountId: string;
+    authenticationMethod: AuthenticationMethod;
+    credentialVersion: number;
+  } | null> {
     const sessionRequest = request as SessionRequest;
     const primaryAccountId = this.validSignedCookie(
       sessionRequest,
@@ -88,7 +108,13 @@ export class SsoSessionService {
 
     if (!sessionCookiePresent) {
       const account = await this.accounts.findOneBy({ id: primaryAccountId });
-      return this.isCurrentAccount(account, 0) ? primaryAccountId : null;
+      return this.isCurrentAccount(account, 0)
+        ? {
+            accountId: primaryAccountId,
+            authenticationMethod: 'legacy',
+            credentialVersion: 0,
+          }
+        : null;
     }
 
     if (
@@ -119,7 +145,13 @@ export class SsoSessionService {
 
     const account = await this.accounts.findOneBy({ id: primaryAccountId });
     return this.isCurrentAccount(account, credentialVersion)
-      ? primaryAccountId
+      ? {
+          accountId: primaryAccountId,
+          authenticationMethod: authenticationMethod(
+            session.metadataJson?.authenticationMethod,
+          ),
+          credentialVersion,
+        }
       : null;
   }
 

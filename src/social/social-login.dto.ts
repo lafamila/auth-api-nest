@@ -1,10 +1,5 @@
-import {
-  IsEmail,
-  IsOptional,
-  IsString,
-  Length,
-  MaxLength,
-} from 'class-validator';
+import { Equals, IsEmail, IsString, Length, MaxLength } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class SocialStartDto {
   @IsString()
@@ -31,22 +26,20 @@ export class SocialEmailVerifyDto extends SocialTransactionDto {
 }
 
 export class SocialCompleteDto extends SocialEmailStartDto {
+  @Transform(({ value }: { value: unknown }) =>
+    value === 'true' ? true : value,
+  )
+  @Equals(true)
+  termsAccepted!: true;
+  @Transform(({ value }: { value: unknown }) =>
+    value === 'true' ? true : value,
+  )
+  @Equals(true)
+  privacyAccepted!: true;
+  @IsString() @MaxLength(64) termsVersion!: string;
+  @IsString() @MaxLength(64) privacyVersion!: string;
+  @IsString() @Length(64, 64) policyDigest!: string;
   @IsString()
   @Length(1, 255)
   name!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(128)
-  loginId?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(1024)
-  password?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(1024)
-  passwordConfirm?: string;
 }

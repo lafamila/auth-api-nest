@@ -50,7 +50,10 @@ function setup(overrides: Partial<AccountEntity> = {}) {
     if (entity === AdminSessionEntity) return admins;
     throw new Error('Unexpected repository');
   });
-  const manager = { getRepository } as unknown as EntityManager;
+  const manager = {
+    getRepository,
+    query: jest.fn().mockResolvedValue(undefined),
+  } as unknown as EntityManager;
   const dataSource = {
     getRepository,
     transaction: jest.fn(

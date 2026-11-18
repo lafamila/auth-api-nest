@@ -6,6 +6,76 @@
     <meta name="color-scheme" content="light" />
     <title>Teddy Auth</title>
     <link rel="stylesheet" href="/portal/assets/portal.css" />
+    <style>
+      #lifecycleSection .lifecycle-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px 20px;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      #lifecycleSection .lifecycle-details {
+        flex: 1;
+        min-width: 160px;
+        overflow-wrap: anywhere;
+      }
+      #lifecycleSection .lifecycle-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      #lifecycleSection .danger-command,
+      #lifecycleDialog .danger-command {
+        color: var(--danger);
+        border-color: var(--danger);
+        background: var(--panel);
+        padding: 7px 10px;
+      }
+      #lifecycleSection .danger-command:disabled,
+      #lifecycleDialog .danger-command:disabled {
+        color: var(--muted);
+        border-color: var(--line);
+      }
+      #lifecycleSection .lifecycle-withdraw {
+        margin-top: 20px;
+      }
+      #lifecycleDialogDescription {
+        margin-bottom: 18px;
+        overflow-wrap: anywhere;
+      }
+      #lifecycleDialog .lifecycle-dialog-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      #policySection .policy-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 18px;
+        margin-bottom: 12px;
+      }
+      #policySection .policy-links a {
+        color: var(--accent);
+        text-decoration: underline;
+      }
+      #policySection .policy-option {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin: 8px 0;
+        font-size: 13px;
+      }
+      #policySection .policy-option input {
+        width: 18px;
+        min-height: 18px;
+        height: 18px;
+        flex-shrink: 0;
+        margin: 1px 0;
+      }
+    </style>
     <script src="/portal/assets/portal.js" defer></script>
   </head>
   <body>
@@ -13,12 +83,7 @@
     <header id="portalHeader" class="site-header" hidden>
       <div class="header-inner">
         <a class="brand" href="/" aria-label="Teddy Auth 홈">
-          <img
-            src="/portal/assets/icons/shield-check.svg"
-            alt=""
-            width="23"
-            height="23"
-          />
+          <img src="/brand/auth-logo-128.png" alt="" width="32" height="32" />
           <span>Teddy <strong>Auth</strong></span>
         </a>
         <div class="header-account">
@@ -269,6 +334,126 @@
                 연결 가능한 소셜 계정이 없습니다.
               </p>
             </section>
+            <section
+              id="policySection"
+              class="profile-section"
+              aria-labelledby="policyTitle"
+              aria-busy="false"
+              hidden
+            >
+              <div class="section-heading">
+                <h2 id="policyTitle">정책 동의</h2>
+              </div>
+              <div class="policy-links">
+                <a
+                  id="termsPolicyLink"
+                  href="/terms"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  >이용약관</a
+                >
+                <a
+                  id="privacyPolicyLink"
+                  href="/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  >개인정보처리방침</a
+                >
+              </div>
+              <p
+                id="policyStatus"
+                class="feedback"
+                role="status"
+                aria-live="polite"
+              ></p>
+              <form id="policyForm" hidden>
+                <label class="policy-option" for="termsPolicyAccepted"
+                  ><input
+                    id="termsPolicyAccepted"
+                    type="checkbox"
+                    required
+                    disabled
+                  /><span>이용약관에 동의합니다. (필수)</span></label
+                >
+                <label class="policy-option" for="privacyPolicyAccepted"
+                  ><input
+                    id="privacyPolicyAccepted"
+                    type="checkbox"
+                    required
+                    disabled
+                  /><span>개인정보처리방침에 동의합니다. (필수)</span></label
+                >
+                <button
+                  id="savePolicyButton"
+                  class="secondary-button"
+                  type="submit"
+                  disabled
+                >
+                  동의 저장
+                </button>
+              </form>
+              <p
+                id="policyNotice"
+                class="feedback"
+                role="status"
+                aria-live="polite"
+              ></p>
+              <button
+                id="reloadPolicyButton"
+                class="quiet-button"
+                type="button"
+                hidden
+              >
+                현재 정책 다시 불러오기
+              </button>
+            </section>
+            <section
+              id="lifecycleSection"
+              class="profile-section"
+              aria-labelledby="lifecycleTitle"
+              aria-busy="false"
+              hidden
+            >
+              <div class="section-heading">
+                <h2 id="lifecycleTitle">연결 해제 및 탈퇴</h2>
+              </div>
+              <p
+                id="lifecycleNotice"
+                class="feedback"
+                role="status"
+                aria-live="polite"
+              ></p>
+              <button
+                id="retryLifecycleButton"
+                class="secondary-button"
+                type="button"
+                hidden
+              >
+                다시 불러오기
+              </button>
+              <div id="connectionList"></div>
+              <p id="connectionsEmpty" class="muted" hidden>
+                해제할 소셜 연결이 없습니다.
+              </p>
+              <div class="lifecycle-withdraw">
+                <h3>Auth 계정 탈퇴</h3>
+                <p class="muted">
+                  Auth 계정과 인증 데이터만 삭제됩니다. Todo, BodyLab, Chat 등
+                  다른 서비스의 데이터는 별도로 관리되며, 각 서비스에 삭제를
+                  요청해야 합니다. 제공자 연결 철회는 대기열에서 처리될 수
+                  있습니다.
+                </p>
+                <p id="withdrawBlockedReason" class="feedback" hidden></p>
+                <button
+                  id="withdrawButton"
+                  class="quiet-button danger-command"
+                  type="button"
+                  disabled
+                >
+                  Auth 계정 탈퇴
+                </button>
+              </div>
+            </section>
           </div>
         </div>
       </main>
@@ -349,6 +534,82 @@
       <p id="emailNotice" class="feedback" role="status" aria-live="polite"></p>
       <a
         id="emailReauthButton"
+        class="secondary-button"
+        href="/login?reauth=1"
+        hidden
+        >다시 인증</a
+      >
+    </dialog>
+    <dialog
+      id="lifecycleDialog"
+      aria-labelledby="lifecycleDialogTitle"
+      aria-describedby="lifecycleDialogDescription"
+      aria-busy="false"
+    >
+      <div class="dialog-heading">
+        <h2 id="lifecycleDialogTitle"></h2>
+        <button
+          id="closeLifecycleButton"
+          class="icon-button"
+          type="button"
+          aria-label="닫기"
+          title="닫기"
+        >
+          <img src="/portal/assets/icons/x.svg" alt="" width="20" height="20" />
+        </button>
+      </div>
+      <p id="lifecycleDialogDescription" class="muted"></p>
+      <form id="lifecycleForm">
+        <div id="lifecyclePasswordField" class="field" hidden>
+          <label for="lifecyclePassword">현재 비밀번호</label>
+          <input
+            id="lifecyclePassword"
+            type="password"
+            autocomplete="current-password"
+            aria-describedby="lifecycleNoticeInDialog"
+            disabled
+          />
+        </div>
+        <div id="withdrawConfirmationField" class="field" hidden>
+          <label for="withdrawConfirmation"
+            >탈퇴하려면 DELETE를 입력해 주세요.</label
+          >
+          <input
+            id="withdrawConfirmation"
+            type="text"
+            autocomplete="off"
+            autocapitalize="none"
+            spellcheck="false"
+            aria-describedby="lifecycleDialogDescription lifecycleNoticeInDialog"
+            disabled
+          />
+        </div>
+        <div class="lifecycle-dialog-actions">
+          <button
+            id="cancelLifecycleButton"
+            class="secondary-button"
+            type="button"
+          >
+            취소
+          </button>
+          <button
+            id="confirmLifecycleButton"
+            class="quiet-button danger-command"
+            type="submit"
+            disabled
+          >
+            확인
+          </button>
+        </div>
+      </form>
+      <p
+        id="lifecycleNoticeInDialog"
+        class="feedback"
+        role="alert"
+        aria-live="assertive"
+      ></p>
+      <a
+        id="lifecycleReauthButton"
         class="secondary-button"
         href="/login?reauth=1"
         hidden

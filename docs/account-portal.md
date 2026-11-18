@@ -4,15 +4,15 @@ Auth 자체 사이트의 포털이며 서비스의 OIDC client 등록과 분리�
 
 ## 화면
 
-| 경로 | 동작 |
-| --- | --- |
-| `/` | 미인증 → `/login`. 일반 계정은 본인 서비스/등급, superadmin은 관리 콘솔 |
-| `/login` | 기존 서비스 OIDC와 동일한 hosted login, ID/PW 및 설정된 소셜 제공자 |
-| `/login/otp` | Auth 사이트 superadmin의 추가 Google OTP, 기본 인증 후에만 접근 가능 |
-| `/profile` | 본인 정보, 이메일/PW 변경, ID/PW 등록, 소셜 추가 연결 |
-| `/service` | 유효한 admin session이 없으면 404 |
-| `/admin`, `/admin/`, `/admin/index.html` | UI 제거, 404. `/api/admin/**`는 유지 |
-| `/bootstrap` | 활성 superadmin이 없는 경우에만 초기 OTP 등록, 그 외 404 |
+| 경로                                     | 동작                                                                    |
+| ---------------------------------------- | ----------------------------------------------------------------------- |
+| `/`                                      | 미인증 → `/login`. 일반 계정은 본인 서비스/등급, superadmin은 관리 콘솔 |
+| `/login`                                 | 기존 서비스 OIDC와 동일한 hosted login, ID/PW 및 설정된 소셜 제공자     |
+| `/login/otp`                             | Auth 사이트 superadmin의 추가 Google OTP, 기본 인증 후에만 접근 가능    |
+| `/profile`                               | 본인 정보, 이메일/PW 변경, ID/PW 등록, 소셜 추가 연결                   |
+| `/service`                               | 유효한 admin session이 없으면 404                                       |
+| `/admin`, `/admin/`, `/admin/index.html` | UI 제거, 404. `/api/admin/**`는 유지                                    |
+| `/bootstrap`                             | 활성 superadmin이 없는 경우에만 초기 OTP 등록, 그 외 404                |
 
 본인의 활성 서비스/assignment만 표시한다. `visitor`/`guest`와 removed permission은 제외한다.
 OTP는 Auth 사이트/관리 콘솔 전용이다. 서비스의 callback/state/PKCE/nonce/UUID `sub`/권한
@@ -37,14 +37,20 @@ signed HttpOnly portal cookie로 본인 UUID를 결정한다. password hash, OTP
 provider token을 응답에 넣지 않는다. POST는 `/me`의 `csrfToken`을 `X-CSRF-Token`으로
 보내야 하고 present Origin은 `ISSUER_URL` 출처와 일치해야 한다.
 
-| 메서드/경로 | 요청 → 응답 |
-| --- | --- |
-| `GET /api/portal/me` | → `{account, services, socialProviders, csrfToken}` |
-| `POST /api/portal/email/start` | `{email,currentPassword}` → `{verificationId,email,expiresAt}` |
-| `POST /api/portal/email/complete` | `{verificationId,code}` → `{reauthenticate:true}` |
-| `POST /api/portal/password` | `{password,passwordConfirm,currentPassword?,loginId?}` → `{reauthenticate:true}` |
-| `POST /api/portal/social/:provider/link` | `{}` → 같은 출처의 `{redirectUrl}` |
-| `POST /api/portal/logout` | `{}` → `{ok:true}` |
+| 메서드/경로                                   | 요청 → 응답                                                                      |
+| --------------------------------------------- | -------------------------------------------------------------------------------- |
+| `GET /api/portal/me`                          | → `{account, services, socialProviders, csrfToken}`                              |
+| `POST /api/portal/email/start`                | `{email,currentPassword}` → `{verificationId,email,expiresAt}`                   |
+| `POST /api/portal/email/complete`             | `{verificationId,code}` → `{reauthenticate:true}`                                |
+| `POST /api/portal/password`                   | `{password,passwordConfirm,currentPassword?,loginId?}` → `{reauthenticate:true}` |
+| `POST /api/portal/social/:provider/link`      | `{}` → 같은 출처의 `{redirectUrl}`                                               |
+| `POST /api/portal/social/:provider/reconnect` | `{}` → 같은 identity 재인증 `{redirectUrl}`                                      |
+| `GET /api/portal/lifecycle`                   | → 연결 해제·Auth 탈퇴 가능 여부                                                  |
+| `POST /api/portal/social/:provider/unlink`    | `{confirmation:"UNLINK",currentPassword?}` → 해제·외부 처리 상태                 |
+| `POST /api/portal/withdraw`                   | `{confirmation:"DELETE",currentPassword?}` → Auth 소유 계정 삭제                 |
+| `GET /api/portal/policies`                    | → 현재 정책과 본인 확인 여부                                                     |
+| `POST /api/portal/policies`                   | 현재 버전·digest와 두 명시적 동의 → 확인 이력                                    |
+| `POST /api/portal/logout`                     | `{}` → `{ok:true}`                                                               |
 
 - 세션 만료: 401 → 로그인.
 - `invalid_current_password` / `invalid_email_verification`: 401이지만 필드 오류로 재시도 가능.
@@ -67,6 +73,8 @@ provider token을 응답에 넣지 않는다. POST는 `/me`의 `csrfToken`을 `X
 4. 실제 소셜 연동/키 설정/운영 배포는 별도 작업이다. 임시 키로 버튼을 강제 노출하지 않는다.
 
 네이버 검수 후속 작업은 [체크리스트](./naver-review-checklist.md)에 구현과 분리해 기록한다.
+2026-11-18 업데이트의 추가 migration·공개 방침·개인정보 보관·탈퇴 범위는
+[소셜 운영 준비](./social-production-readiness.md)를 우선 적용한다. 기존 계정의 과거 동의를 생성하지 않는다.
 
 ## 검증 범위
 

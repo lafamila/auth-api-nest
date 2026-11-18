@@ -15,7 +15,11 @@ export class AdminSessionEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @ManyToOne(() => AccountEntity, { eager: true, nullable: false })
+  @ManyToOne(() => AccountEntity, {
+    eager: true,
+    nullable: false,
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'account_id' })
   account!: AccountEntity;
 

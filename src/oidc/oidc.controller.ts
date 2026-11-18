@@ -4,6 +4,7 @@ import {
   Get,
   Headers,
   HttpCode,
+  NotFoundException,
   Post,
   Query,
   Req,
@@ -33,6 +34,15 @@ import { SigningKeyService } from './signing-key.service';
 import { RefreshTokenReuseError, TokenService } from './token.service';
 import { HostedLoginTransactionService } from './hosted-login-transaction.service';
 import { SsoSessionService } from './sso-session.service';
+import {
+  authenticationMethod,
+  AUTHENTICATION_METHOD_CLAIM,
+  gameLoginDenial,
+  gameLoginPolicyCode,
+  SERVICE_CATEGORY_CLAIM,
+} from './authentication-method';
+import { PortalAuthService } from '../portal/portal-auth.service';
+import { ServiceEntity } from '../database/entities/service.entity';
 
 type SignedCookieRequest = Request & {
   signedCookies?: Record<string, string | undefined>;
@@ -59,6 +69,7 @@ export class OidcController {
     private readonly hostedLoginTransactions: HostedLoginTransactionService,
     private readonly sso: SsoSessionService,
     private readonly dataSource: DataSource,
+    private readonly portal?: PortalAuthService,
   ) {}
 
   @Get('.well-known/openid-configuration')
@@ -120,11 +131,39 @@ export class OidcController {
       if (validated.kind === 'redirect') {
         return response.redirect(validated.redirectUrl);
       }
-      const accountId = await this.sso.accountId(request);
+      const context = await this.sso.context(request);
+      const accountId = context?.accountId ?? null;
+      const method = context?.authenticationMethod ?? 'legacy';
+      if (
+        accountId &&
+        gameLoginDenial(validated.client.service.category, method) &&
+        method === 'kakao'
+      ) {
+        const denied = await this.authorizeFlow.authorizeWithAccount(
+          validated,
+          accountId,
+          context?.credentialVersion,
+          method,
+        );
+        await this.portal!.signOutKakao(accountId, request, response);
+        const html = this.authorizeFlow.renderAuthorizationRedirectPage(
+          denied.redirectUrl,
+          denied.policyDenied,
+        );
+        this.setHostedPageSecurityHeaders(
+          response,
+          validated.request.redirectUri,
+        );
+        return response.status(200).type('html').send(html);
+      }
+      const requiresFreshLogin = Boolean(
+        gameLoginDenial(validated.client.service.category, method),
+      );
       if (validated.request.prompt === SELECT_ACCOUNT_PROMPT) {
-        const currentAccount = accountId
-          ? await this.accounts.findById(accountId)
-          : undefined;
+        const currentAccount =
+          accountId && !requiresFreshLogin
+            ? await this.accounts.findById(accountId)
+            : undefined;
         const transaction = await this.hostedLoginTransactions.create({
           request: validated.request,
           sessionAccountId: accountId ?? null,
@@ -134,48 +173,42 @@ export class OidcController {
           transaction.id,
           transaction.browserNonce,
         );
+        const html = this.authorizeFlow.renderAccountSelectionPage(
+          validated.request,
+          transaction.id,
+          currentAccount,
+        );
         this.setHostedPageSecurityHeaders(
           response,
           validated.request.redirectUri,
         );
-        return response
-          .status(200)
-          .type('html')
-          .send(
-            this.authorizeFlow.renderAccountSelectionPage(
-              validated.request,
-              transaction.id,
-              currentAccount,
-            ),
-          );
+        return response.status(200).type('html').send(html);
       }
-      if (!accountId) {
+      if (!accountId || requiresFreshLogin) {
         const transaction = await this.hostedLoginTransactions.create({
           request: validated.request,
-          sessionAccountId: null,
+          sessionAccountId: accountId,
         });
         this.setHostedLoginTransactionCookie(
           response,
           transaction.id,
           transaction.browserNonce,
         );
+        const html = this.authorizeFlow.renderHostedLoginPage(
+          validated.request,
+          transaction.id,
+        );
         this.setHostedPageSecurityHeaders(
           response,
           validated.request.redirectUri,
         );
-        return response
-          .status(200)
-          .type('html')
-          .send(
-            this.authorizeFlow.renderHostedLoginPage(
-              validated.request,
-              transaction.id,
-            ),
-          );
+        return response.status(200).type('html').send(html);
       }
       const authorizeResult = await this.authorizeFlow.authorizeWithAccount(
         validated,
         accountId,
+        context?.credentialVersion,
+        method,
       );
       return response.redirect(authorizeResult.redirectUrl);
     } catch (error) {
@@ -183,6 +216,7 @@ export class OidcController {
         return response.status(error.statusCode).json({
           error: error.error,
           error_description: error.errorDescription,
+          ...(error.code ? { code: error.code } : {}),
         });
       }
       throw error;
@@ -293,6 +327,18 @@ export class OidcController {
           if (accountError) {
             return { kind: 'error', error: accountError };
           }
+          const method = authenticationMethod(code!.authenticationMethod);
+          const denial = gameLoginDenial(client.service.category, method);
+          if (denial)
+            return {
+              kind: 'error',
+              error: new OAuthError(
+                'access_denied',
+                denial,
+                403,
+                gameLoginPolicyCode(method),
+              ),
+            };
           const permission = await this.findCurrentPermission(
             manager,
             account.id,
@@ -313,6 +359,7 @@ export class OidcController {
               undefined,
               code!.nonce,
               manager,
+              method,
             ),
           };
         },
@@ -338,7 +385,14 @@ export class OidcController {
     if (holder.clientId !== client.clientId) {
       throw new UnauthorizedException('Refresh token client mismatch');
     }
-    const holderAccount = await this.accounts.findById(holder.accountId);
+    let holderAccount: AccountEntity;
+    try {
+      holderAccount = await this.accounts.findById(holder.accountId);
+    } catch (error) {
+      if (error instanceof NotFoundException)
+        throw new UnauthorizedException('Invalid refresh token');
+      throw error;
+    }
     if (holderAccount.status !== 'active') {
       throw new OAuthError('access_denied', 'Account is not active', 403);
     }
@@ -368,7 +422,10 @@ export class OidcController {
           };
         }
         const refresh = consumption.refresh;
-        if (refresh.clientId !== client.clientId) {
+        if (
+          refresh.clientId !== client.clientId ||
+          refresh.accountId !== account.id
+        ) {
           return {
             kind: 'error',
             error: new UnauthorizedException('Refresh token client mismatch'),
@@ -379,6 +436,20 @@ export class OidcController {
           return {
             kind: 'error',
             error: new UnauthorizedException('Invalid refresh token'),
+          };
+        }
+        const method = authenticationMethod(refresh.authenticationMethod);
+        const denial = gameLoginDenial(client.service.category, method);
+        if (denial) {
+          await this.tokens.revokeFamily(refresh.familyId, manager);
+          return {
+            kind: 'error',
+            error: new OAuthError(
+              'access_denied',
+              denial,
+              403,
+              gameLoginPolicyCode(method),
+            ),
           };
         }
         const accountError = this.accountTokenError(account);
@@ -405,6 +476,7 @@ export class OidcController {
             refresh.familyId,
             undefined,
             manager,
+            method,
           ),
         };
       },
@@ -436,7 +508,7 @@ export class OidcController {
   }
 
   @Get('oidc/userinfo')
-  userinfo(@Headers('authorization') authorization?: string) {
+  async userinfo(@Headers('authorization') authorization?: string) {
     const token = authorization?.startsWith('Bearer ')
       ? authorization.slice('Bearer '.length)
       : undefined;
@@ -444,13 +516,56 @@ export class OidcController {
       throw new UnauthorizedException('Bearer token is required');
     }
     const payload = this.tokens.verifyAccessToken(token);
+    if (typeof payload.sub !== 'string')
+      throw new UnauthorizedException('Invalid subject');
+    let account: AccountEntity;
+    try {
+      account = await this.accounts.findById(payload.sub);
+    } catch (error) {
+      if (error instanceof NotFoundException)
+        throw new UnauthorizedException('Account is unavailable');
+      throw error;
+    }
+    if (this.accountTokenError(account))
+      throw new UnauthorizedException('Account is unavailable');
+    const claim = payload['https://lafamila.xyz/claims/service'];
+    if (
+      !claim ||
+      typeof claim !== 'object' ||
+      !('key' in claim) ||
+      typeof claim.key !== 'string' ||
+      payload.aud !== `service:${claim.key}`
+    )
+      throw new UnauthorizedException('Invalid access token audience');
+    const service = await this.dataSource
+      .getRepository(ServiceEntity)
+      .findOneBy({ serviceKey: claim.key, status: 'active' });
+    if (!service) throw new UnauthorizedException('Service is unavailable');
+    const method = authenticationMethod(payload[AUTHENTICATION_METHOD_CLAIM]);
+    const denial = gameLoginDenial(service.category, method);
+    if (denial)
+      throw new OAuthError(
+        'access_denied',
+        denial,
+        403,
+        gameLoginPolicyCode(method),
+      );
+    if (
+      !(await this.findCurrentPermission(
+        this.dataSource.manager,
+        account.id,
+        service.id,
+      ))
+    )
+      throw this.permissionDeniedError();
     return {
-      sub: payload.sub,
-      email: payload.email,
-      name: payload.name,
-      preferred_username: payload.preferred_username,
-      'https://lafamila.xyz/claims/local_login_id':
-        payload['https://lafamila.xyz/claims/local_login_id'],
+      sub: account.id,
+      email: account.email,
+      name: account.name,
+      preferred_username: account.loginId ?? account.email,
+      'https://lafamila.xyz/claims/local_login_id': account.loginId,
+      [AUTHENTICATION_METHOD_CLAIM]: method,
+      [SERVICE_CATEGORY_CLAIM]: service.category ?? 'other',
     };
   }
 

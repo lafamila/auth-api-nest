@@ -6,12 +6,13 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomInt } from 'node:crypto';
-import { IsNull, MoreThan, Repository } from 'typeorm';
+import { DataSource, IsNull, MoreThan, Repository } from 'typeorm';
 import { validateNormalPassword } from '../common/crypto/password-policy';
 import { AppConfigService } from '../config/app-config.service';
 import { EmailVerificationEntity } from '../database/entities/email-verification.entity';
 import { AccountsService } from '../domain/accounts/accounts.service';
 import { EmailDeliveryService } from './email-delivery.service';
+import { AccountPoliciesService } from '../policies/account-policies.service';
 import {
   SignupCompleteDto,
   SignupLoginIdCheckDto,
@@ -33,6 +34,8 @@ export class SignupService {
     private readonly accounts: AccountsService,
     private readonly config: AppConfigService,
     private readonly emailDelivery: EmailDeliveryService,
+    private readonly dataSource: DataSource,
+    private readonly policies: AccountPoliciesService,
   ) {}
 
   async checkLoginId(input: SignupLoginIdCheckDto) {
@@ -82,6 +85,7 @@ export class SignupService {
   }
 
   async complete(input: SignupCompleteDto) {
+    this.policies.validate(input);
     const loginId = this.normalizeLoginId(input.loginId);
     if (!loginId) {
       throw new BadRequestException('Login ID is required');
@@ -98,18 +102,40 @@ export class SignupService {
     if (await this.emailExists(email)) {
       throw new ConflictException('Email already has an account');
     }
-    await this.findValidVerification(email, input.code, { consume: true });
-    const account = await this.accounts.create(
-      {
-        loginId,
-        name,
-        email,
-        password: input.password,
-        isSuperAdmin: false,
-      },
-      null,
-      { emailVerifiedAt: new Date(), passwordResetRequired: false },
-    );
+    const verification = await this.findValidVerification(email, input.code, {
+      consume: false,
+    });
+    const account = await this.dataSource.transaction(async (manager) => {
+      const proofs = manager.getRepository(EmailVerificationEntity);
+      const current = await proofs.findOne({
+        where: { id: verification.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (
+        !current ||
+        current.consumedAt ||
+        current.expiresAt.getTime() <= Date.now() ||
+        current.codeHash !== this.hashCode(email, input.code)
+      )
+        throw new UnauthorizedException(
+          'Email verification code is expired or invalid',
+        );
+      const created = await this.accounts.create(
+        {
+          loginId,
+          name,
+          email,
+          password: input.password,
+          isSuperAdmin: false,
+        },
+        null,
+        { emailVerifiedAt: new Date(), passwordResetRequired: false },
+        manager,
+      );
+      await this.policies.record(manager, created.id, input, 'signup');
+      await proofs.update(current.id, { consumedAt: new Date() });
+      return created;
+    });
     return { account: this.accounts.safeAccount(account) };
   }
 

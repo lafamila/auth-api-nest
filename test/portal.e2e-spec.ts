@@ -11,6 +11,7 @@ import { TotpService } from '../src/common/crypto/totp.service';
 import { AccountServicePermissionEntity } from '../src/database/entities/account-service-permission.entity';
 import { AccountEntity } from '../src/database/entities/account.entity';
 import { AdminMfaEntity } from '../src/database/entities/admin-mfa.entity';
+import { EmailVerificationEntity } from '../src/database/entities/email-verification.entity';
 import { ServicePermissionDefinitionEntity } from '../src/database/entities/service-permission-definition.entity';
 import { ServiceEntity } from '../src/database/entities/service.entity';
 import { SocialIdentityEntity } from '../src/database/entities/social-identity.entity';
@@ -68,7 +69,10 @@ describeIsolated('Auth portal (isolated e2e)', () => {
     const databaseName = decodeURIComponent(
       parsed.pathname.replace(/^\/+/, ''),
     );
-    if (hasDatabaseOverride || databaseName !== PORTAL_DATABASE_NAME) {
+    if (
+      hasDatabaseOverride ||
+      !/^auth_portal_e2e(?:_[a-z0-9_]+)?$/.test(databaseName)
+    ) {
       throw new Error(
         `Portal e2e requires the dedicated ${PORTAL_DATABASE_NAME} database without database query overrides`,
       );
@@ -102,6 +106,8 @@ describeIsolated('Auth portal (isolated e2e)', () => {
     );
     await app.listen(0, '127.0.0.1');
     db = app.get(DataSource);
+    // Keep earlier suites/reruns from consuming this isolated fixture's IP quota.
+    await db.getRepository(EmailVerificationEntity).clear();
     accounts = app.get(AccountsService);
     exchangeCode = jest.spyOn(SocialProvidersService.prototype, 'exchangeCode');
     jest

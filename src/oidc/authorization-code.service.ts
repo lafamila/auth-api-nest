@@ -6,6 +6,10 @@ import { hashToken } from '../common/crypto/token-hash';
 import { extractReturnedRow } from '../database/pg-returning';
 import { AccountEntity } from '../database/entities/account.entity';
 import { TokenRecordEntity } from '../database/entities/token-record.entity';
+import {
+  authenticationMethod,
+  AuthenticationMethod,
+} from './authentication-method';
 
 export interface AuthorizationCodeRecord {
   accountId: string;
@@ -16,6 +20,7 @@ export interface AuthorizationCodeRecord {
   scope: string;
   nonce?: string;
   credentialVersion?: number;
+  authenticationMethod?: AuthenticationMethod;
   expiresAt: Date;
 }
 
@@ -75,6 +80,9 @@ export class AuthorizationCodeService {
           scope: record.scope,
           nonce: record.nonce,
           credentialVersion: record.credentialVersion,
+          authenticationMethod: authenticationMethod(
+            record.authenticationMethod,
+          ),
         },
         usedAt: null,
         expiresAt: new Date(Date.now() + AUTHORIZATION_CODE_TTL_MS),
@@ -148,6 +156,7 @@ export class AuthorizationCodeService {
       scope?: string;
       nonce?: string;
       credentialVersion?: number;
+      authenticationMethod?: string;
     };
     return {
       accountId: row.account_id,
@@ -158,6 +167,7 @@ export class AuthorizationCodeService {
       scope: metadata.scope ?? '',
       nonce: metadata.nonce,
       credentialVersion: metadata.credentialVersion,
+      authenticationMethod: authenticationMethod(metadata.authenticationMethod),
       expiresAt:
         row.expires_at instanceof Date
           ? row.expires_at
